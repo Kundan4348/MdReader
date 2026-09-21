@@ -102,9 +102,18 @@ report.afterCloseSecond = await tabs();
 report.tabsOk = report.windows === 1 && report.tabsAfterOpens.join() === 'sample.md,second.md,third.md*' && report.afterLinkClick.join() === 'sample.md,second.md*,third.md'
   && report.tabsWhileAway.join() === 'sample.md*,second.md!,third.md' && report.editSurvived === 'Second doc EDITED' && report.afterCloseSecond.join() === 'sample.md*';
 report.secondFileUntouched = readFileSync(path.join(root, 'test/fixtures/second.md'), 'utf8').startsWith('# Second doc\n');
+// breadcrumbs: sample.md is open; its crumbs end with "~ / Documents / MdReader". Clicking "Documents" must re-root
+// the Files tree there, expand it down to MdReader/, and keep sample.md highlighted. The ⌖ button must exist (app can reveal).
+report.crumbLabels = await ev(`[...document.querySelectorAll('#app .top .crumbs button.c')].map(b=>b.textContent)`);
+report.revealBtn = await ev(`!!document.querySelector('#app .top .crumbs .reveal')`);
+await ev(`(()=>{const bs=[...document.querySelectorAll('#app .top .crumbs button.c')]; bs[bs.length-2].click();})()`); await sleep(900);
+report.treeRootAfterCrumb = await ev(`document.querySelector('#app .tree > .folder')?.dataset.path`);
+report.treeExpandedToFile = await ev(`(()=>{const f=document.querySelector('#app .tree .file.on'); if(!f) return null; let n=f.parentElement.closest('.folder'), open=true; while(n){open=open&&n.classList.contains('open'); n=n.parentElement.closest('.folder');} return {path:f.dataset.path, allOpen:open}})()`);
+report.crumbsOk = report.revealBtn && report.crumbLabels[0] === '~' && report.crumbLabels.at(-1) === 'MdReader'
+  && report.treeRootAfterCrumb === path.dirname(root) && report.treeExpandedToFile?.path === sample && report.treeExpandedToFile?.allOpen === true;
 // edit + save round trip
 await ev(`document.querySelector('#app .top button.edit, #app .top [data-mode=edit]')?.click()`); await sleep(300);
-await ev(`(()=>{const ta=document.querySelector('#app textarea'); ta.value = ta.value.replace('Identity-collision flag','Identity-collision flag [APP-EDIT]'); ta.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+await ev(`(()=>{const ta=document.querySelector('#app textarea'); ta.value = ta.value.replace('Coffee bar','Coffee bar [APP-EDIT]'); ta.dispatchEvent(new Event('input',{bubbles:true}));})()`);
 await sleep(200);
 await ev(`document.querySelector('#app .top button.save')?.click()`); await sleep(800);
 report.savedToDisk = readFileSync(sample, 'utf8').includes('[APP-EDIT]');
@@ -113,4 +122,4 @@ copyFileSync(backup, sample); // restore
 await sleep(800);
 report.reloadedFromDisk = await ev(`!document.querySelector('#app textarea').value.includes('[APP-EDIT]')`);
 console.log(JSON.stringify(report, null, 2));
-stop(); process.exit(report.mounted && report.filesPanelVisible && report.savedToDisk && !report.dirtyAfterSave && report.defaultTheme === 'mono' && report.stillMounted && report.outlineToggleOk && report.tabsOk && report.secondFileUntouched ? 0 : 1);
+stop(); process.exit(report.mounted && report.filesPanelVisible && report.savedToDisk && !report.dirtyAfterSave && report.defaultTheme === 'mono' && report.stillMounted && report.outlineToggleOk && report.tabsOk && report.secondFileUntouched && report.crumbsOk ? 0 : 1);

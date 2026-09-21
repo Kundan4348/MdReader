@@ -16,6 +16,10 @@ html[data-theme] .app.no-outline{--outline-w:0px}html .app.no-outline .outline{d
 .top .spacer{flex:1}
 .top .crumbs{display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .top .crumbs .c{opacity:.6}.top .crumbs .sl{opacity:.35}
+.top .crumbs button.c{appearance:none;background:none;border:0;padding:2px 4px;margin:0 -4px;border-radius:6px;font:inherit;color:inherit;cursor:pointer;line-height:inherit}
+.top .crumbs button.c:hover,.top .crumbs b.name:hover{opacity:1;text-decoration:underline;text-underline-offset:3px}
+.top .crumbs b.name{cursor:pointer;border-radius:6px}
+.top .crumbs .reveal{font-size:15px;line-height:1;padding:0 6px;opacity:.55;margin-left:2px}.top .crumbs .reveal:hover{opacity:1}
 .top .crumbs b{font-weight:600}
 .top .dot{display:none;width:7px;height:7px;border-radius:50%;margin-left:4px}
 .app.dirty .top .dot{display:inline-block}

@@ -20,10 +20,22 @@ const adapter = {
   confirmDiscard: api.confirmDiscard,
   onLastTabClosed: () => showEmpty(true),
   displayPath(p) {
-    const rel = p.startsWith(home + '/') ? p.slice(home.length + 1) : p;
+    const dir = p.slice(0, p.lastIndexOf('/')) || '/';
+    const inHome = home && p.startsWith(home + '/');
+    const rel = inHome ? p.slice(home.length + 1) : p;
     const parts = rel.split('/').filter(Boolean);
-    return { crumbs: parts.slice(0, -1), name: parts[parts.length - 1] || p, dir: p.slice(0, p.lastIndexOf('/')) || '/' };
+    const folders = parts.slice(0, -1);
+    // One absolute folder path per crumb so the shell can re-root the Files tree there; '~' stands for home.
+    const base = inHome ? home : '';
+    const crumbPaths = folders.map((_, i) => base + '/' + folders.slice(0, i + 1).join('/'));
+    return {
+      crumbs: inHome ? ['~', ...folders] : folders,
+      crumbPaths: inHome ? [home, ...crumbPaths] : crumbPaths,
+      name: parts[parts.length - 1] || p,
+      dir,
+    };
   },
+  reveal: (p) => p && api.reveal(p),
 };
 
 const shell = MdShell.mount(app, adapter);

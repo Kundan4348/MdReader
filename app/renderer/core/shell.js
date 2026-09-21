@@ -221,7 +221,7 @@
       S.tab = i; const t = S.tabs[i];
       S.path = t.path; S.saved = t.saved; setText(t.text); setDirty(t.text !== t.saved);
       const d = adapter.displayPath(t.path);
-      crumbs.replaceChildren(...d.crumbs.flatMap((c) => [h('span', { class: 'c' }, c), h('span', { class: 'sl' }, '/')]), h('b', {}, d.name), h('span', { class: 'dot', title: 'unsaved changes' }));
+      renderCrumbs(d);
       paint();
       content.scrollTop = fresh ? 0 : t.scroll;
       [...tabsEl.children].forEach((el, j) => { el.classList.toggle('on', j === i); el.setAttribute('aria-selected', j === i); });
@@ -265,6 +265,45 @@
     }
     function nextTab(dir) { if (S.tabs.length > 1) showTab((S.tab + dir + S.tabs.length) % S.tabs.length); }
     function notifyTabs() { adapter.onTabsChanged && adapter.onTabsChanged({ paths: S.tabs.map((t) => t.path), active: S.path, dirty: S.tabs.map((t, i) => (i === S.tab ? S.dirty : t.text !== t.saved)) }); }
+    // Breadcrumbs. When the adapter supplies crumbPaths (one folder path per crumb), each crumb is a button that
+    // re-roots the Files tree at that folder and expands it down to the open file; the file name locates the file
+    // in the tree; ⌖ reveals it in Finder when the adapter can.
+    function renderCrumbs(d) {
+      const clickable = adapter.listDir && Array.isArray(d.crumbPaths) && d.crumbPaths.length === d.crumbs.length;
+      const parts = d.crumbs.flatMap((c, i) => [
+        clickable
+          ? h('button', { class: 'c', title: 'Show this folder in Files', onclick: () => rootTreeAt(d.crumbPaths[i]) }, c)
+          : h('span', { class: 'c' }, c),
+        h('span', { class: 'sl' }, '/')]);
+      const name = clickable
+        ? h('b', { class: 'name', title: 'Locate in Files', onclick: () => rootTreeAt(d.crumbPaths[d.crumbPaths.length - 1] || d.dir), role: 'button', tabindex: 0 }, d.name)
+        : h('b', {}, d.name);
+      const reveal = adapter.reveal ? h('button', { class: 'icon reveal', title: 'Show in Finder (⌘⇧R)', onclick: () => adapter.reveal(S.path), html: '&#x2316;' }) : null;
+      crumbs.replaceChildren(...parts, name, h('span', { class: 'dot', title: 'unsaved changes' }), reveal);
+    }
+    async function rootTreeAt(dir) {
+      if (!dir) return;
+      togglePanel('files', true);
+      await buildTree(dir);
+      await expandTo(S.path);
+    }
+    // Open every folder between the tree root and the file's folder, then highlight the file and scroll it into view.
+    async function expandTo(file) {
+      if (!file || !S.tree) return;
+      const fileDir = file.slice(0, file.lastIndexOf('/')) || '/';
+      if (fileDir !== S.tree && !fileDir.startsWith(S.tree.replace(/\/$/, '') + '/')) return;
+      let cur = S.tree.replace(/\/$/, '');
+      const rest = fileDir.slice(cur.length).split('/').filter(Boolean);
+      for (const seg of rest) {
+        cur += '/' + seg;
+        const node = tree.querySelector(`.folder[data-path="${CSS.escape(cur)}"]`);
+        if (!node) break;
+        const kids = node.querySelector(':scope > .kids');
+        if (!node.classList.contains('open')) { node.classList.add('open'); if (!kids.childElementCount) await fillFolder(cur, kids); }
+      }
+      tree.querySelectorAll('.file').forEach((f) => f.classList.toggle('on', f.dataset.path === file));
+      const on = tree.querySelector('.file.on'); on && on.scrollIntoView({ block: 'center' });
+    }
     async function buildTree(dir) {
       if (S.tree === dir) return;
       S.tree = dir;
