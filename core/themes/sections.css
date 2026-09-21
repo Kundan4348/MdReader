@@ -1,0 +1,97 @@
+/* Theme: Sections -- light, cool-toned; every `##` becomes a numbered card; sticky section chips. */
+html[data-theme=sections]{
+  --bg:#eef2f6;--card:#ffffff;--ink:#1f2937;--ink-2:#4b5563;--ink-3:#8b95a5;--line:#e3e8ef;
+  --accent:#3b6fe0;--accent-soft:#e8effc;--mint:#dff5ea;--mint-ink:#1d7a50;--peach:#fdebd9;--peach-ink:#a4561a;
+  --head:'Manrope',system-ui,sans-serif;--body:'Source Serif 4',Georgia,serif;--mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
+  background:var(--bg);color:var(--ink);font-family:var(--body)}
+html[data-theme=sections] body{background:linear-gradient(180deg,#f4f7fb 0%,var(--bg) 320px)}
+html[data-theme=sections] .app{--top-h:48px;--files-w:230px;--outline-w:0px}
+html[data-theme=sections] .outline{display:none}
+/* Sections has no side outline; the ≡ button toggles the sticky chips instead. */
+html[data-theme=sections] .app.no-outline .head .chips{display:none}
+
+html[data-theme=sections] .top{font-family:var(--head);background:rgba(244,247,251,.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+html[data-theme=sections] .top .crumbs{font-weight:600;font-size:12.5px;letter-spacing:.02em}
+html[data-theme=sections] .top .crumbs .c{color:var(--ink-3);opacity:1}
+html[data-theme=sections] .top .crumbs b{color:var(--accent)}
+html[data-theme=sections] .top .dot{background:var(--peach-ink)}
+html[data-theme=sections] .top .seg{background:#fff;border:1px solid var(--line)}
+html[data-theme=sections] .top .seg button{color:var(--ink-2);font-weight:600}
+html[data-theme=sections] .top .seg button.on{background:var(--accent-soft);color:var(--accent)}
+html[data-theme=sections] .top button.save{background:var(--accent);border:1px solid var(--accent);color:#fff}
+html[data-theme=sections] .top select.theme{border:1px solid var(--line);background-color:#fff;color:var(--ink-2);font-weight:600}
+html[data-theme=sections] .top button.icon{color:var(--ink-2)}
+html[data-theme=sections] .top .view{background:#fff;border:1px solid var(--line);border-radius:10px}
+
+html[data-theme=sections] .files{font-family:var(--head);background:transparent;color:var(--ink-2)}
+html[data-theme=sections] .tree .label:hover,html[data-theme=sections] .tree .file:hover{background:#fff}
+html[data-theme=sections] .tree .file.on{background:#fff;color:var(--accent);opacity:1;box-shadow:0 1px 2px rgba(17,24,39,.06)}
+
+html[data-theme=sections] .app{--measure:min(100%,clamp(900px,64cqw,1240px))}
+html[data-theme=sections] .doc{padding:34px 24px 120px;font-size:16px;line-height:1.7}
+html[data-theme=sections] .editor{padding:28px 24px 120px}
+html[data-theme=sections] .src{background:#fff;border:1px solid var(--line);border-radius:16px;padding:22px 26px;font-size:13.5px;color:var(--ink);caret-color:var(--accent);min-height:calc(100vh - var(--top-h) - 100px)}
+html[data-theme=sections] .src:focus{border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+html[data-theme=sections] .app[data-mode=split] .editor{padding:22px 12px 22px 22px}
+html[data-theme=sections] .app[data-mode=split] .doc{padding:22px 22px 120px 12px}
+
+/* header block */
+html[data-theme=sections] .head h1{font-family:var(--head);font-weight:800;font-size:34px;line-height:1.15;letter-spacing:-.02em;margin:0;color:#111827;max-width:720px}
+html[data-theme=sections] .head h1+p{font-size:15px;color:var(--ink-2);line-height:1.6;margin:14px 0 10px;max-width:760px}
+html[data-theme=sections] .head>*:not(h1):not(.chips){margin-left:2px}
+html[data-theme=sections] .head .chips{display:flex;flex-wrap:wrap;gap:8px;position:sticky;top:0;padding:12px 0 14px;margin:8px 0 6px;
+  background:linear-gradient(180deg,var(--bg) 72%,transparent);z-index:5}
+html[data-theme=sections] .head .chips a{font-family:var(--head);font-size:12.5px;font-weight:600;color:var(--ink-2);text-decoration:none;background:#fff;border:1px solid var(--line);padding:6px 12px;border-radius:999px}
+html[data-theme=sections] .head .chips a:hover{border-color:var(--accent);color:var(--accent)}
+html[data-theme=sections] .head h1:not(:first-child){margin-top:30px}
+html[data-theme=sections] .head .table-wrap{background:#fff;border:1px solid var(--line);border-radius:16px;padding:8px 14px}
+
+/* cards */
+html[data-theme=sections] .secs{display:flex;flex-direction:column;gap:18px}
+html[data-theme=sections] .sec{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:26px 30px 22px;
+  box-shadow:0 1px 2px rgba(17,24,39,.04),0 12px 32px -20px rgba(17,24,39,.18)}
+html[data-theme=sections] .sec.editing{border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+html[data-theme=sections] .sec .tools{top:18px;right:18px}
+html[data-theme=sections] .sec .tools button{font-family:var(--head);border:1px solid var(--line);background:#fff;color:var(--ink-2)}
+html[data-theme=sections] .sec .tools button:hover{border-color:var(--accent);color:var(--accent)}
+html[data-theme=sections] .sec-src{border:1px solid var(--accent);background:#fbfcfe;color:var(--ink)}
+html[data-theme=sections] .sec h2{font-family:var(--head);font-weight:700;font-size:19px;letter-spacing:-.01em;margin:0 0 14px;color:#111827;display:flex;align-items:center;gap:12px;padding-right:150px}
+html[data-theme=sections] h2 .n{font-size:11px;font-weight:800;color:var(--accent);background:var(--accent-soft);padding:4px 8px;border-radius:7px;letter-spacing:.06em;font-family:var(--mono)}
+html[data-theme=sections] h3{font-family:var(--head);font-weight:700;font-size:15.5px;margin:22px 0 8px;color:#111827}
+html[data-theme=sections] h4{font-family:var(--head);font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-2);margin:18px 0 6px}
+html[data-theme=sections] p{margin:0 0 14px}
+html[data-theme=sections] .sec .body>p:last-child{margin-bottom:0}
+html[data-theme=sections] strong{font-weight:600;color:#111827}
+html[data-theme=sections] code{font-family:var(--mono);font-size:.82em;background:#f1f4f8;color:#2f4b8a;padding:.12em .4em;border-radius:6px}
+html[data-theme=sections] pre.code{background:#f6f8fb;border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:0 0 14px;font-size:13px;line-height:1.6}
+html[data-theme=sections] pre.code code{background:transparent;padding:0;color:var(--ink);font-size:inherit}
+html[data-theme=sections] a{color:var(--accent);text-decoration:none}
+html[data-theme=sections] ul,html[data-theme=sections] ol{padding-left:1.3em;margin:0 0 6px}
+html[data-theme=sections] li{margin:8px 0}
+html[data-theme=sections] ol li::marker{font-family:var(--head);font-weight:700;color:var(--accent)}
+html[data-theme=sections] ul li::marker{color:var(--accent)}
+html[data-theme=sections] hr{border:0;height:1px;background:var(--line);margin:22px 0}
+html[data-theme=sections] blockquote{margin:0 0 14px;padding:12px 18px;background:var(--accent-soft);border-radius:12px;color:var(--ink-2)}
+html[data-theme=sections] blockquote p:last-child{margin:0}
+
+/* tables */
+html[data-theme=sections] .table-wrap{margin:14px -12px 8px;padding:0 12px}
+html[data-theme=sections] table{width:100%;border-collapse:separate;border-spacing:0;font-family:var(--head);font-size:13.5px;line-height:1.5}
+html[data-theme=sections] thead th{text-align:left;font-weight:700;font-size:12px;color:var(--ink-2);padding:10px 14px;background:#f5f7fb;border-bottom:2px solid var(--line)}
+html[data-theme=sections] thead th:first-child{border-radius:10px 0 0 10px}html[data-theme=sections] thead th:last-child{border-radius:0 10px 10px 0}
+html[data-theme=sections] tbody td{padding:12px 14px;vertical-align:top;border-bottom:1px solid #eef1f5;font-family:var(--body);font-size:14.5px}
+html[data-theme=sections] tbody tr:last-child td{border-bottom:0}
+html[data-theme=sections] tbody tr:hover td{background:#fafbfd}
+html[data-theme=sections] td.num{font-family:var(--mono);font-size:13px;color:#1f2937}
+html[data-theme=sections] tr.total td{background:var(--mint);color:var(--mint-ink);font-weight:600;font-family:var(--head)}
+html[data-theme=sections] tr.total td:first-child{border-radius:10px 0 0 10px}html[data-theme=sections] tr.total td:last-child{border-radius:0 10px 10px 0}
+html[data-theme=sections] td:first-child{font-family:var(--head);font-weight:600;color:#111827}
+html[data-theme=sections] td code{background:var(--accent-soft);color:var(--accent)}
+html[data-theme=sections] .toast{background:#111827;color:#fff;font-family:var(--head)}
+html[data-theme=sections] .hint{font-family:var(--head);color:var(--ink-3);background:#fff;border:1px solid var(--line)}
+
+html[data-theme=sections] .tabs{padding:8px 16px 0;color:var(--ink-2);font-family:var(--head)}
+html[data-theme=sections] .tab{border-radius:9px;padding:6px 8px 6px 12px}
+html[data-theme=sections] .tab:hover{background:rgba(255,255,255,.6)}
+html[data-theme=sections] .tab.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(17,24,39,.08)}
+html[data-theme=sections] .tab .dot{background:var(--accent)}

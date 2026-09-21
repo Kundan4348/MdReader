@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' file: data: https:; style-src 'self' 'unsafe-inline'; font-src 'self'">
+<title>MdReader</title>
+<link rel="stylesheet" href="core/fonts/fonts.css">
+<link rel="stylesheet" href="core/shell.css">
+<link rel="stylesheet" href="core/themes/paper.css">
+<link rel="stylesheet" href="core/themes/studio.css">
+<link rel="stylesheet" href="core/themes/sections.css">
+<link rel="stylesheet" href="core/themes/mono.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="app"></div>
+<div id="empty" class="empty">
+  <div class="card">
+    <div class="glyph">M↓</div>
+    <h2>Open a Markdown file</h2>
+    <p>Double-click any <code>.md</code> in Finder, drop one here, or press <kbd>⌘O</kbd>.</p>
+    <button id="emptyOpen">Open…</button>
+  </div>
+</div>
+<script src="core/marked.umd.js"></script>
+<script src="core/md.js"></script>
+<script src="core/shell.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

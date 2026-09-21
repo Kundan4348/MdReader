@@ -1,0 +1,88 @@
+/* Theme: Studio -- dark slate app: top bar, file tree, outline, mono green numbers, sticky table headers. */
+html[data-theme=studio]{
+  --bg:#0f1216;--panel:#151a20;--panel-2:#1b2129;--line:#242c36;--line-2:#2e3846;
+  --text:#e6e9ee;--text-2:#a4adb9;--text-3:#6b7684;--accent:#7cc4ff;--accent-2:#b48cff;--good:#7ee2a8;--warn:#ffcf7a;
+  --sans:'Inter',system-ui,sans-serif;--mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
+  background:var(--bg);color:var(--text);font-family:var(--sans);color-scheme:dark}
+
+html[data-theme=studio] .top{background:var(--panel);border-bottom:1px solid var(--line)}
+html[data-theme=studio] .top .crumbs .c{color:var(--text-3);opacity:1}
+html[data-theme=studio] .top .crumbs b{color:var(--text);font-weight:500}
+html[data-theme=studio] .top .dot{background:var(--warn)}
+html[data-theme=studio] .top .seg{background:var(--panel-2);border:1px solid var(--line)}
+html[data-theme=studio] .top .seg button{color:var(--text-2)}
+html[data-theme=studio] .top .seg button.on{background:#273040;color:var(--text)}
+html[data-theme=studio] .top button.save{border:1px solid var(--line-2);background:var(--panel-2);color:var(--text)}
+html[data-theme=studio] .top button.save:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+html[data-theme=studio] .top select.theme{border:1px solid var(--line-2);background-color:var(--panel-2);color:var(--text-2)}
+html[data-theme=studio] .top button.icon{color:var(--text-2)}
+html[data-theme=studio] .top .view{background:var(--panel-2);border:1px solid var(--line)}
+
+html[data-theme=studio] .files{background:var(--panel);border-right:1px solid var(--line);color:var(--text-2)}
+html[data-theme=studio] .tree .label{color:var(--text-3);opacity:1}
+html[data-theme=studio] .tree .label:hover,html[data-theme=studio] .tree .file:hover{background:var(--panel-2)}
+html[data-theme=studio] .tree .file.on{background:#1f2a38;color:var(--accent);opacity:1}
+html[data-theme=studio] .outline{background:var(--panel);border-left:1px solid var(--line)}
+html[data-theme=studio] .toc a{color:var(--text-2)}
+html[data-theme=studio] .toc a.l1{color:var(--text)}
+html[data-theme=studio] .toc a.active{border-color:var(--accent);color:var(--accent)}
+html[data-theme=studio] .outline .meta{border-top:1px solid var(--line);color:var(--text-3);opacity:1}
+
+html[data-theme=studio] .content{background:radial-gradient(900px 400px at 30% -100px,rgba(124,196,255,.06),transparent 60%),var(--bg)}
+html[data-theme=studio] .app{--measure:min(100%,clamp(880px,62cqw,1200px))}
+html[data-theme=studio] .doc{padding:44px 56px 120px;font-size:15.5px;line-height:1.7;color:#d5dae2}
+html[data-theme=studio] .editor{padding:32px 56px 120px}
+html[data-theme=studio] .src{border:1px solid var(--line-2);border-radius:12px;background:var(--panel);color:#d5dae2;font-size:13.5px;padding:22px 26px;caret-color:var(--accent);min-height:calc(100vh - var(--top-h) - 110px)}
+html[data-theme=studio] .src:focus{border-color:#3a4a60}
+html[data-theme=studio] .app[data-mode=split] .editor{padding:24px 20px 24px 24px}
+html[data-theme=studio] .app[data-mode=split] .doc{padding:44px 36px 120px}
+html[data-theme=studio] h1{font-size:32px;font-weight:700;letter-spacing:-.02em;line-height:1.15;margin:0 0 14px;color:#fff}
+html[data-theme=studio] .head h1+p{color:var(--text-2);font-size:14px;padding:12px 16px;background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-bottom:36px}
+html[data-theme=studio] h2{font-size:20px;font-weight:600;margin:46px 0 14px;color:#fff;display:flex;align-items:center;gap:12px}
+html[data-theme=studio] h2::after{content:'';flex:1;height:1px;background:var(--line)}
+html[data-theme=studio] h2 .n{color:var(--accent);font-family:var(--mono);font-size:13px;font-weight:500;background:#1c2430;border:1px solid #263041;padding:2px 7px;border-radius:6px}
+html[data-theme=studio] .sec:first-child h2{margin-top:6px}
+html[data-theme=studio] h3{font-size:16px;font-weight:600;margin:28px 0 8px;color:#fff}
+html[data-theme=studio] h4{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-2);margin:24px 0 8px}
+html[data-theme=studio] p{margin:0 0 16px}
+html[data-theme=studio] strong{color:#fff;font-weight:600}
+html[data-theme=studio] code{font-family:var(--mono);font-size:.85em;background:#1c2430;border:1px solid #263041;color:var(--accent);padding:.1em .4em;border-radius:5px}
+html[data-theme=studio] pre.code{background:var(--panel);border:1px solid var(--line-2);border-radius:12px;padding:18px 20px;margin:0 0 20px;font-size:13px;line-height:1.6}
+html[data-theme=studio] pre.code code{background:transparent;border:0;padding:0;color:#d5dae2;font-size:inherit}
+html[data-theme=studio] a{color:var(--accent);text-decoration:none}
+html[data-theme=studio] a:hover{text-decoration:underline}
+html[data-theme=studio] ul,html[data-theme=studio] ol{padding-left:1.3em;margin:0 0 18px}
+html[data-theme=studio] li{margin:7px 0}
+html[data-theme=studio] ol li::marker{color:var(--accent-2);font-weight:600}
+html[data-theme=studio] ul li::marker{color:var(--text-3)}
+html[data-theme=studio] hr{border:0;height:1px;background:var(--line);margin:36px 0}
+html[data-theme=studio] blockquote{margin:0 0 18px;padding:12px 18px;border-left:3px solid var(--accent-2);background:var(--panel);border-radius:0 10px 10px 0}
+html[data-theme=studio] blockquote p:last-child{margin:0}
+
+html[data-theme=studio] .table-wrap{margin:18px 0 28px;border:1px solid var(--line-2);border-radius:12px;background:var(--panel)}
+html[data-theme=studio] table{width:100%;border-collapse:separate;border-spacing:0;font-size:13.5px;line-height:1.5}
+html[data-theme=studio] thead th{position:sticky;top:0;text-align:left;font-weight:600;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3);padding:12px 16px;background:var(--panel-2);border-bottom:1px solid var(--line-2);z-index:1}
+html[data-theme=studio] tbody td{padding:12px 16px;vertical-align:top;border-bottom:1px solid var(--line)}
+html[data-theme=studio] tbody tr:last-child td{border-bottom:0}
+html[data-theme=studio] tbody tr:nth-child(even) td{background:rgba(255,255,255,.015)}
+html[data-theme=studio] tbody tr:hover td{background:#1c2430}
+html[data-theme=studio] td.num{font-family:var(--mono);font-size:13px;color:var(--good)}
+html[data-theme=studio] tr.total td{background:#1a2230!important;color:#fff}
+html[data-theme=studio] tr.total td.num{color:var(--warn)}
+html[data-theme=studio] td:first-child{color:#fff;font-weight:500}
+html[data-theme=studio] td code{background:transparent;border:0;padding:0;color:var(--accent)}
+
+html[data-theme=studio] .sec .tools{top:4px}
+html[data-theme=studio] .sec .tools button{border:1px solid var(--line-2);background:var(--panel-2);color:var(--text-2)}
+html[data-theme=studio] .sec .tools button:hover{border-color:var(--accent);color:var(--accent)}
+html[data-theme=studio] .sec-src{border:1px solid var(--accent);background:var(--panel);color:#d5dae2;margin:10px 0 26px}
+html[data-theme=studio] .toast{background:#273040;color:#fff;border:1px solid var(--line-2)}
+html[data-theme=studio] .hint{color:var(--text-3);background:var(--panel);border:1px solid var(--line)}
+html[data-theme=studio] ::-webkit-scrollbar{width:10px;height:10px}
+html[data-theme=studio] ::-webkit-scrollbar-thumb{background:#2a3340;border-radius:6px;border:2px solid var(--bg)}
+
+html[data-theme=studio] .tabs{background:var(--panel);border-bottom:1px solid var(--line);color:var(--text-2)}
+html[data-theme=studio] .tab:hover{background:var(--panel-2)}
+html[data-theme=studio] .tab.on{background:var(--bg);color:var(--text);box-shadow:inset 0 2px 0 var(--accent)}
+html[data-theme=studio] .tab .dot{background:var(--warn)}
+html[data-theme=studio] .tab .x:hover{background:var(--panel-2)}

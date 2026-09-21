@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Option B · Studio</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0f1216; --panel:#151a20; --panel-2:#1b2129; --line:#242c36; --line-2:#2e3846;
+    --text:#e6e9ee; --text-2:#a4adb9; --text-3:#6b7684; --accent:#7cc4ff; --accent-2:#b48cff; --good:#7ee2a8; --warn:#ffcf7a;
+    --sans:'Inter',system-ui,sans-serif; --mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:var(--sans);-webkit-font-smoothing:antialiased}
+  .app{display:grid;grid-template-columns:240px 1fr 220px;grid-template-rows:44px 1fr;height:100vh}
+  /* top bar */
+  .top{grid-column:1/-1;display:flex;align-items:center;gap:14px;padding:0 14px;border-bottom:1px solid var(--line);background:var(--panel);font-size:13px}
+  .top .crumb{color:var(--text-3)} .top .crumb b{color:var(--text);font-weight:500}
+  .top .spacer{flex:1}
+  .seg{display:flex;background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:2px}
+  .seg button{border:0;background:transparent;color:var(--text-2);font:inherit;font-size:12.5px;padding:5px 12px;border-radius:6px;cursor:pointer}
+  .seg button.on{background:#273040;color:var(--text)}
+  .top .save{border:1px solid var(--line-2);background:var(--panel-2);color:var(--text);font:inherit;font-size:12.5px;padding:6px 12px;border-radius:8px;cursor:pointer}
+  .top .save:hover{border-color:var(--accent);color:var(--accent)}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--warn);display:inline-block;margin-left:6px;vertical-align:middle}
+  /* sidebar */
+  .side{background:var(--panel);border-right:1px solid var(--line);padding:14px 10px;font-size:13px;overflow:auto}
+  .side h6{margin:6px 8px 10px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);font-weight:600}
+  .tree div{padding:6px 10px;border-radius:7px;color:var(--text-2);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tree div.folder{color:var(--text-3);font-weight:500;margin-top:6px}
+  .tree div.file{padding-left:24px}
+  .tree div.file::before{content:'◦ ';color:var(--text-3)}
+  .tree div.on{background:#1f2a38;color:var(--accent)}
+  .tree div:hover{background:var(--panel-2)}
+  /* outline */
+  .outline{border-left:1px solid var(--line);background:var(--panel);padding:16px 14px;font-size:12.5px;overflow:auto}
+  .outline h6{margin:4px 4px 10px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);font-weight:600}
+  .outline a{display:block;color:var(--text-2);text-decoration:none;padding:5px 8px;border-left:2px solid transparent;margin-left:-1px;line-height:1.35}
+  .outline a.l1{font-weight:600;color:var(--text)}
+  .outline a.l2{padding-left:14px} .outline a.l3{padding-left:26px;font-size:12px}
+  .outline a.active{border-color:var(--accent);color:var(--accent)}
+  .outline .meta{margin-top:22px;padding-top:14px;border-top:1px solid var(--line);color:var(--text-3);font-size:11.5px;line-height:1.8}
+  /* content */
+  .content{overflow:auto;padding:44px 56px 120px;background:
+    radial-gradient(900px 400px at 30% -100px, rgba(124,196,255,.06), transparent 60%), var(--bg)}
+  .doc{max-width:880px;margin:0 auto;font-size:15.5px;line-height:1.7;color:#d5dae2}
+  h1{font-size:32px;font-weight:700;letter-spacing:-.02em;line-height:1.15;margin:0 0 14px;color:#fff}
+  h1 + p{color:var(--text-2);font-size:14px;padding:12px 16px;background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-bottom:36px}
+  h2{font-size:20px;font-weight:600;margin:46px 0 14px;color:#fff;display:flex;align-items:center;gap:12px}
+  h2::after{content:'';flex:1;height:1px;background:var(--line)}
+  h3{font-size:16px;font-weight:600;margin:28px 0 8px}
+  p{margin:0 0 16px}
+  strong{color:#fff;font-weight:600}
+  code{font-family:var(--mono);font-size:.85em;background:#1c2430;border:1px solid #263041;color:var(--accent);padding:.1em .4em;border-radius:5px}
+  a{color:var(--accent);text-decoration:none}
+  ul,ol{padding-left:1.3em;margin:0 0 18px} li{margin:7px 0}
+  ol li::marker{color:var(--accent-2);font-weight:600} ul li::marker{color:var(--text-3)}
+  blockquote{margin:0 0 18px;padding:12px 18px;border-left:3px solid var(--accent-2);background:var(--panel);border-radius:0 10px 10px 0}
+  /* tables */
+  .table-wrap{margin:18px 0 28px;overflow:auto;border:1px solid var(--line-2);border-radius:12px;background:var(--panel)}
+  table{width:100%;border-collapse:separate;border-spacing:0;font-size:13.5px;line-height:1.5}
+  thead th{position:sticky;top:0;text-align:left;font-weight:600;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3);
+    padding:12px 16px;background:var(--panel-2);border-bottom:1px solid var(--line-2)}
+  tbody td{padding:12px 16px;vertical-align:top;border-bottom:1px solid var(--line)}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:nth-child(even) td{background:rgba(255,255,255,.015)}
+  tbody tr:hover td{background:#1c2430}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  th.num{white-space:normal}
+  td.num{font-family:var(--mono);font-size:13px;color:var(--good)}
+  tr.total td{background:#1a2230!important;color:#fff}
+  tr.total td.num{color:var(--warn)}
+  td:first-child{color:#fff;font-weight:500}
+  td code{background:transparent;border:0;padding:0;color:var(--accent)}
+  /* editor */
+  .editor{display:none;max-width:880px;margin:0 auto}
+  .app.editing .doc{display:none} .app.editing .editor{display:block}
+  .editor .gutter{display:flex;gap:10px;font-size:12px;color:var(--text-3);margin-bottom:10px}
+  textarea{width:100%;min-height:calc(100vh - 140px);border:1px solid var(--line-2);border-radius:12px;outline:0;resize:none;background:var(--panel);
+    color:#d5dae2;font-family:var(--mono);font-size:13.5px;line-height:1.75;padding:22px 26px;caret-color:var(--accent)}
+  textarea:focus{border-color:#3a4a60}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <div class="top">
+    <span class="crumb">~/Documents/Notes / <b>coffee-bar-quarterly.md</b><span class="dot" title="unsaved"></span></span>
+    <span class="spacer"></span>
+    <div class="seg"><button id="bRead" class="on">Read</button><button id="bEdit">Edit</button><button>Split</button></div>
+    <button class="save">Save ⌘S</button>
+  </div>
+
+  <aside class="side">
+    <h6>Files</h6>
+    <div class="tree">
+      <div class="folder">▾ Notes</div>
+      <div class="file on">coffee-bar-quarterly.md</div>
+      <div class="file">supplier-notes.md</div>
+      <div class="file">catering-path-evidence.md</div>
+      <div class="folder">▸ Recipes</div>
+      <div class="folder">▸ Travel</div>
+      <div class="folder">▸ Reading-List</div>
+    </div>
+  </aside>
+
+  <main class="content" id="content">
+    <article class="doc" id="doc"></article>
+    <section class="editor"><div class="gutter"><span>markdown</span><span>·</span><span>UTF-8</span><span>·</span><span id="wc"></span></div><textarea id="src" spellcheck="false"></textarea></section>
+  </main>
+
+  <aside class="outline">
+    <h6>Outline</h6>
+    <nav id="toc"></nav>
+    <div class="meta">6 sections · 3 tables<br>~880 words · 4 min read<br>Modified today 14:02</div>
+  </aside>
+</div>
+
+<script src="md.js"></script>
+<script>
+  const doc = document.getElementById('doc'), src = document.getElementById('src'), toc = document.getElementById('toc'), app = document.getElementById('app');
+  function paint(){ const r = MD.render(src.value); doc.innerHTML = r.html;
+    toc.innerHTML = r.toc.filter(t=>t.lvl<=3).map(t=>`<a class="l${t.lvl}" href="#${t.id}">${t.txt.replace(/^\d+\.\s*/,'')}</a>`).join('');
+    wc.textContent = src.value.split(/\s+/).length + ' words'; }
+  const setMode = e => { app.classList.toggle('editing', e); bEdit.classList.toggle('on', e); bRead.classList.toggle('on', !e); if(!e) paint(); };
+  bRead.onclick=()=>setMode(false); bEdit.onclick=()=>setMode(true);
+  // scroll-spy
+  content.addEventListener('scroll', () => { const hs=[...doc.querySelectorAll('h2')]; let cur=hs[0]; for(const h of hs){ if(h.getBoundingClientRect().top < 120) cur=h; }
+    toc.querySelectorAll('a').forEach(a=>a.classList.toggle('active', cur && a.getAttribute('href')==='#'+cur.id)); });
+  fetch('sample.md').then(r=>r.text()).then(t=>{ src.value=t; paint(); });
+</script>
+</body>
+</html>

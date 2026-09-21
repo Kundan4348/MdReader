@@ -1,0 +1,120 @@
+/* MdReader shell: layout mechanics shared by every theme. Themes only paint. */
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+button,select{font:inherit;cursor:pointer}
+kbd{font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:11px;border:1px solid currentColor;border-bottom-width:2px;border-radius:5px;padding:0 5px;opacity:.7}
+
+.app{--files-w:240px;--outline-w:220px;--top-h:44px;--ui-zoom:1;
+  display:grid;grid-template-columns:calc(var(--files-w)*var(--ui-zoom)) minmax(0,1fr) calc(var(--outline-w)*var(--ui-zoom));grid-template-rows:calc(var(--top-h)*var(--ui-zoom)) minmax(0,1fr);height:100vh;overflow:hidden}
+.top,.files,.outline{zoom:var(--ui-zoom)}
+html[data-theme] .app.no-files{--files-w:0px}html .app.no-files .files{display:none!important}
+html[data-theme] .app.no-outline{--outline-w:0px}html .app.no-outline .outline{display:none!important}
+
+/* top bar */
+.top{grid-column:1/-1;display:flex;align-items:center;gap:8px;padding:0 12px;min-width:0;font-size:13px;z-index:20}
+.top .spacer{flex:1}
+.top .crumbs{display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.top .crumbs .c{opacity:.6}.top .crumbs .sl{opacity:.35}
+.top .crumbs b{font-weight:600}
+.top .dot{display:none;width:7px;height:7px;border-radius:50%;margin-left:4px}
+.app.dirty .top .dot{display:inline-block}
+.top .seg{display:flex;padding:2px;border-radius:9px}
+.top .seg button{border:0;background:transparent;padding:5px 12px;border-radius:7px;font-size:12.5px}
+.top button.save{border-radius:8px;padding:6px 12px;font-size:12.5px;font-weight:600}
+.top button.save:disabled{opacity:.45;cursor:default}
+.top select.theme{border-radius:8px;padding:5px 8px;font-size:12.5px;appearance:none;-webkit-appearance:none;padding-right:22px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center}
+.top button.icon{border:0;background:transparent;width:30px;height:30px;border-radius:8px;font-size:15px;line-height:1;opacity:.75}
+.top button.icon:hover{opacity:1}
+.top button.icon.off{opacity:.35}
+.top button.icon.off:hover{opacity:.6}
+.top .view{display:flex;align-items:center;gap:0;border-radius:8px}
+.top .view button.icon{width:28px;font-size:13px;font-weight:600}
+.top .view button.icon sup{font-size:9px;margin-left:1px;vertical-align:top;line-height:1}
+.top .view button.width{font-size:15px}
+.top .view button.width::after{content:attr(data-w);position:absolute;font-size:8px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;bottom:1px;left:50%;transform:translateX(-50%);opacity:.7}
+.top .view button.width{position:relative}
+.top .view button.width[data-w=auto]::after{content:''}
+
+/* side panels */
+.files,.outline{grid-row:2;overflow:auto;font-size:13px;min-width:0}
+.files{grid-column:1}.outline{grid-column:3}
+.files h6,.outline h6{margin:6px 8px 10px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;opacity:.6}
+.files{padding:14px 10px}
+.tree .label{display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:7px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.8}
+.tree .tri{display:inline-block;width:0;height:0;border:4px solid transparent;border-left:5px solid currentColor;margin-left:2px;transition:transform .12s;opacity:.6}
+.tree .folder.open>.label .tri{transform:rotate(90deg)}
+.tree .kids{display:none;padding-left:12px}
+.tree .folder.open>.kids{display:block}
+.tree .file{padding:5px 8px 5px 22px;border-radius:7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:relative;opacity:.85}
+.tree .file::before{content:'';position:absolute;left:10px;top:50%;width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.4;transform:translateY(-50%)}
+.tree .empty{padding:4px 8px 4px 22px;font-size:12px;opacity:.5;font-style:italic}
+.outline{padding:16px 14px;font-size:12.5px}
+.toc a{display:block;text-decoration:none;padding:5px 8px;border-left:2px solid transparent;line-height:1.35;opacity:.75}
+.toc a.l1{font-weight:600;opacity:1}.toc a.l2{padding-left:14px}.toc a.l3{padding-left:26px;font-size:12px}
+.toc a.active{opacity:1}
+.outline .meta{margin-top:20px;padding-top:12px;font-size:11.5px;line-height:1.8;opacity:.6}
+
+/* centre column = tab strip + scrolling content */
+.centre{grid-row:2;grid-column:2;display:flex;flex-direction:column;min-width:0;min-height:0}
+.content{flex:1;min-height:0;overflow:auto;position:relative;min-width:0;container-type:inline-size}
+.tabs{display:none;flex:none;align-items:stretch;gap:2px;padding:6px 10px 0;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;font-size:12.5px;zoom:var(--ui-zoom)}
+.tabs::-webkit-scrollbar{display:none}
+.app.multi-tabs .tabs,.app.always-tabs.has-tabs .tabs{display:flex}
+.tab{display:flex;align-items:center;gap:8px;padding:7px 8px 7px 12px;border-radius:8px 8px 0 0;max-width:220px;min-width:0;cursor:pointer;user-select:none;opacity:.6;position:relative;-webkit-app-region:no-drag}
+.tab .name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+.tab.on{opacity:1}
+.tab .dot{display:none;width:7px;height:7px;border-radius:50%;flex:none}
+.tab.dirty .dot{display:inline-block}
+.tab.dirty .x{display:none}.tab.dirty:hover .x{display:inline-flex}.tab.dirty:hover .dot{display:none}
+.tab .x{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:5px;border:0;background:transparent;font-size:10px;opacity:0;flex:none;color:inherit}
+.tab:hover .x,.tab.on .x{opacity:.6}.tab .x:hover{opacity:1}
+/* Reading width + zoom. --measure is the column width, --zoom scales the whole document (auto-zoom on
+   wide screens times the user's A-/A+ steps). Themes set .doc max-width to var(--measure). */
+.app{--zoom:1;--measure:min(100%,clamp(760px,58cqw,1080px))}
+html[data-theme] .app[data-width=narrow]{--measure:min(100%,720px)}
+html[data-theme] .app[data-width=wide]{--measure:min(100%,clamp(960px,74cqw,1320px))}
+html[data-theme] .app[data-width=full]{--measure:100%}
+.doc,.editor{zoom:var(--zoom)}
+.doc{margin:0 auto;max-width:var(--measure)}
+.editor{max-width:var(--measure)}
+.head .chips{display:none}
+.sec{position:relative}
+.sec .tools{position:absolute;top:0;right:0;display:flex;gap:6px;opacity:0;transition:opacity .15s;z-index:2}
+.sec:hover .tools,.sec.editing .tools{opacity:1}
+.sec .tools button{font-size:12px;font-weight:600;padding:5px 10px;border-radius:8px}
+.sec.editing .body{display:none}
+.sec-src{display:block;width:100%;resize:vertical;outline:0;font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:13.5px;line-height:1.7;padding:16px 18px;border-radius:12px}
+
+/* editor / modes */
+.editor{display:none;margin:0 auto}
+.editor .gutter{display:flex;gap:10px;font-size:12px;opacity:.6;margin-bottom:10px}
+.src{width:100%;min-height:calc(100vh - var(--top-h) - 120px);border:0;outline:0;resize:none;background:transparent;
+  font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:14px;line-height:1.75;padding:0;tab-size:2}
+.app[data-mode=edit] .doc{display:none}.app[data-mode=edit] .editor{display:block}
+.app[data-mode=split] .content{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0;align-items:start}
+.app[data-mode=split] .editor{display:block;position:sticky;top:0;max-height:calc(100vh - var(--top-h));overflow:auto;order:-1;max-width:none;margin:0}
+.app[data-mode=split] .doc{max-width:none}
+.app[data-mode=split] .sec .tools{display:none}
+.app:not([data-mode=read]) .hint{display:none}
+
+/* small bits */
+.toast{position:fixed;bottom:24px;right:24px;font-size:13px;font-weight:600;padding:10px 14px;border-radius:10px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:30}
+.toast.show{opacity:1}
+.hint{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);font-size:12px;padding:6px 12px;border-radius:999px;opacity:.75;pointer-events:none;z-index:15;white-space:nowrap}
+.hint kbd{margin:0 2px}
+.hint{transition:opacity .6s}.hint.gone{opacity:0}
+img{max-width:100%;height:auto}
+.table-wrap{overflow-x:auto}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+th.num{white-space:normal}
+/* Themes style `thead th{text-align:left}` at higher specificity; keep numeric and explicitly-aligned headers in line with their column. */
+html[data-theme] thead th.num{text-align:right}
+html[data-theme] .align-center{text-align:center}html[data-theme] .align-right{text-align:right}html[data-theme] .align-left{text-align:left}
+html[data-theme] thead th.align-center{text-align:center}html[data-theme] thead th.align-right{text-align:right}html[data-theme] thead th.align-left{text-align:left}
+li.task{list-style:none;margin-left:-1.3em}li.task input{margin-right:.5em;vertical-align:middle}
+pre.code{position:relative;overflow:auto}
+pre.code[data-lang]::before{content:attr(data-lang);position:absolute;top:8px;right:12px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;opacity:.5}
+@media (max-width:1100px){.app{--outline-w:0px}.app .outline{display:none}}
+@media (max-width:820px){.app{--files-w:0px}.app .files{display:none}}

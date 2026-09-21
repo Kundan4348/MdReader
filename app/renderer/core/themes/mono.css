@@ -1,0 +1,102 @@
+/* Theme: Mono -- everything in one monospace face. Warm light ground, ink text, green accent,
+   headings carry their markdown marks, tables are ruled like a well-kept ledger. */
+html[data-theme=mono]{
+  --bg:#f9f8f4;--panel:#f2f0ea;--panel-2:#e9e6de;--line:#dedad0;--line-2:#cfcabd;
+  --ink:#1f2224;--ink-2:#575c60;--ink-3:#8a9095;--accent:#0f7a5a;--accent-soft:#dff1e9;--accent-2:#b0552f;--code-bg:#eeebe3;
+  --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,monospace;--sans:var(--mono);--serif:var(--mono);--head:var(--mono);
+  background:var(--bg);color:var(--ink);font-family:var(--mono)}
+html[data-theme=mono] body{font-family:var(--mono)}
+
+/* top bar: flat strip with a thin rule */
+html[data-theme=mono] .top{background:var(--bg);border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12.5px;color:var(--ink-2)}
+html[data-theme=mono] .top .crumbs .c{color:var(--ink-3);opacity:1}
+html[data-theme=mono] .top .crumbs .sl{color:var(--ink-3)}
+html[data-theme=mono] .top .crumbs b{color:var(--ink);font-weight:600}
+html[data-theme=mono] .top .dot{background:var(--accent-2)}
+html[data-theme=mono] .top .seg{background:var(--panel);border:1px solid var(--line);border-radius:6px}
+html[data-theme=mono] .top .seg button{color:var(--ink-2);border-radius:4px;font-size:12px;letter-spacing:.02em}
+html[data-theme=mono] .top .seg button.on{background:var(--ink);color:var(--bg)}
+html[data-theme=mono] .top button.save{border:1px solid var(--line-2);background:var(--bg);color:var(--accent);border-radius:6px;font-size:12px}
+html[data-theme=mono] .top button.save:hover:not(:disabled){background:var(--accent-soft)}
+html[data-theme=mono] .top select.theme{border:1px solid var(--line-2);background-color:var(--bg);color:var(--ink-2);border-radius:6px;font-size:12px}
+html[data-theme=mono] .top button.icon{color:var(--ink-2);border-radius:6px}
+html[data-theme=mono] .top button.icon:hover{background:var(--panel)}
+html[data-theme=mono] .top .view{border:1px solid var(--line);background:var(--panel)}
+
+/* side panels */
+html[data-theme=mono] .files,html[data-theme=mono] .outline{color:var(--ink-2);font-family:var(--mono);font-size:12px}
+html[data-theme=mono] .files{border-right:1px solid var(--line);background:var(--panel)}
+html[data-theme=mono] .outline{border-left:1px solid var(--line);background:var(--panel)}
+html[data-theme=mono] .files h6,html[data-theme=mono] .outline h6{color:var(--ink-3);opacity:1}
+html[data-theme=mono] .tree .label:hover,html[data-theme=mono] .tree .file:hover{background:var(--panel-2)}
+html[data-theme=mono] .tree .file.on{background:var(--accent-soft);color:var(--accent);opacity:1}
+html[data-theme=mono] .toc a{color:var(--ink-2);border-left-width:2px}
+html[data-theme=mono] .toc a.l1{color:var(--ink)}
+html[data-theme=mono] .toc a.active{border-color:var(--accent);color:var(--accent)}
+html[data-theme=mono] .toc a.l2::before{content:'## ';color:var(--ink-3)}
+html[data-theme=mono] .toc a.l3::before{content:'### ';color:var(--ink-3)}
+html[data-theme=mono] .outline .meta{border-top:1px solid var(--line);color:var(--ink-3);opacity:1}
+
+/* the page */
+html[data-theme=mono] .app{--measure:min(100%,clamp(800px,60cqw,1120px))}
+html[data-theme=mono] .content{background:var(--bg)}
+html[data-theme=mono] .doc{padding:56px 40px 140px;font-size:14.5px;line-height:1.85;font-family:var(--mono)}
+html[data-theme=mono] .editor{padding:44px 40px 140px}
+html[data-theme=mono] .src{color:var(--ink);caret-color:var(--accent);font-size:14px;line-height:1.85}
+html[data-theme=mono] .app[data-mode=split] .editor{padding:28px 20px 28px 28px;border-right:1px solid var(--line)}
+html[data-theme=mono] .app[data-mode=split] .doc{padding:56px 32px 120px}
+
+html[data-theme=mono] h1{font-size:26px;font-weight:700;line-height:1.3;margin:0 0 14px;letter-spacing:-.01em}
+html[data-theme=mono] h1::before{content:'# ';color:var(--accent)}
+html[data-theme=mono] .head h1+p{color:var(--ink-2);font-size:13px;line-height:1.8;padding:0 0 22px;border-bottom:1px dashed var(--line-2);margin-bottom:38px}
+html[data-theme=mono] h2{font-size:18px;font-weight:700;line-height:1.4;margin:52px 0 16px;color:var(--ink)}
+html[data-theme=mono] h2::before{content:'## ';color:var(--accent)}
+html[data-theme=mono] h2 .n{display:none}
+html[data-theme=mono] .sec:first-child h2{margin-top:8px}
+html[data-theme=mono] h3{font-size:15px;font-weight:700;margin:34px 0 10px}
+html[data-theme=mono] h3::before{content:'### ';color:var(--accent)}
+html[data-theme=mono] h4{font-size:13px;font-weight:700;margin:28px 0 8px;color:var(--ink-2)}
+html[data-theme=mono] h4::before{content:'#### ';color:var(--ink-3)}
+html[data-theme=mono] p{margin:0 0 18px}
+html[data-theme=mono] strong{font-weight:700;color:var(--ink)}
+html[data-theme=mono] em{font-style:italic;color:var(--ink-2)}
+html[data-theme=mono] code{font-family:var(--mono);font-size:.92em;background:var(--code-bg);padding:.1em .35em;border-radius:4px;color:var(--accent-2)}
+html[data-theme=mono] pre.code{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:6px;padding:16px 18px;margin:0 0 22px;font-size:13px;line-height:1.7}
+html[data-theme=mono] pre.code code{background:transparent;padding:0;color:var(--ink);font-size:inherit}
+html[data-theme=mono] a{color:var(--accent);text-decoration:underline;text-decoration-color:var(--line-2);text-underline-offset:3px}
+html[data-theme=mono] a:hover{text-decoration-color:var(--accent)}
+html[data-theme=mono] ul,html[data-theme=mono] ol{padding-left:1.6em;margin:0 0 20px}
+html[data-theme=mono] li{margin:7px 0}
+html[data-theme=mono] ul li::marker{content:'- ';color:var(--accent)}
+html[data-theme=mono] ol li::marker{color:var(--accent);font-weight:700}
+html[data-theme=mono] hr{border:0;height:0;border-top:1px dashed var(--line-2);margin:40px 0}
+html[data-theme=mono] blockquote{margin:0 0 20px;padding:2px 0 2px 18px;border-left:3px solid var(--line-2);color:var(--ink-2)}
+html[data-theme=mono] blockquote p:last-child{margin:0}
+
+/* tables: ruled ledger, no boxes */
+html[data-theme=mono] .table-wrap{margin:20px 0 30px;border-top:2px solid var(--ink);border-bottom:2px solid var(--ink)}
+html[data-theme=mono] table{width:100%;border-collapse:collapse;font-size:13px;line-height:1.6}
+html[data-theme=mono] thead th{text-align:left;font-weight:700;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);padding:10px 12px;border-bottom:1px solid var(--ink)}
+html[data-theme=mono] tbody td{padding:10px 12px;vertical-align:top;border-bottom:1px solid var(--line)}
+html[data-theme=mono] tbody tr:last-child td{border-bottom:0}
+html[data-theme=mono] tbody tr:hover td{background:var(--panel)}
+html[data-theme=mono] td.num{color:var(--ink)}
+html[data-theme=mono] tr.total td{background:var(--accent-soft);font-weight:700}
+html[data-theme=mono] td:first-child{font-weight:600}
+html[data-theme=mono] td code{background:transparent;padding:0;color:var(--accent-2)}
+
+/* section tools + inline editor */
+html[data-theme=mono] .sec .tools{top:0}
+html[data-theme=mono] .sec .tools button{border:1px solid var(--line-2);background:var(--bg);color:var(--ink-2);border-radius:6px;font-size:11.5px}
+html[data-theme=mono] .sec .tools button:hover{color:var(--accent);border-color:var(--accent)}
+html[data-theme=mono] .sec-src{border:1px solid var(--accent);background:var(--bg);color:var(--ink);margin:12px 0 30px;border-radius:6px}
+html[data-theme=mono] .toast{background:var(--ink);color:var(--bg);border-radius:6px;font-family:var(--mono);font-weight:600}
+html[data-theme=mono] .hint{color:var(--ink-3);background:var(--bg);border:1px solid var(--line);font-family:var(--mono)}
+html[data-theme=mono] .hint kbd{background:var(--panel);border-color:var(--line-2)}
+
+html[data-theme=mono] .tabs{background:var(--panel);border-bottom:1px solid var(--line);color:var(--ink-2);font-family:var(--mono);font-size:12px;gap:0;padding:0}
+html[data-theme=mono] .tab{border-radius:0;border-right:1px solid var(--line);padding:9px 8px 9px 14px}
+html[data-theme=mono] .tab:hover{background:var(--panel-2)}
+html[data-theme=mono] .tab.on{background:var(--bg);color:var(--ink);box-shadow:inset 0 2px 0 var(--accent)}
+html[data-theme=mono] .tab .dot{background:var(--accent-2)}
+html[data-theme=mono] .tab .x:hover{background:var(--panel-2)}

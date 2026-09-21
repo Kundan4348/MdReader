@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "MdReader",
+  "version": "1.0.0",
+  "description": "Renders Markdown files beautifully (Paper / Studio / Sections themes), with in-place editing and save.",
+  "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "permissions": ["storage"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "MdReader: open a Markdown file", "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png" } },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": ["file:///*", "*://*/*"],
+      "include_globs": ["*.md", "*.md?*", "*.md#*", "*.markdown", "*.markdown?*", "*.mdown", "*.mkd", "*.MD"],
+      "js": ["core/marked.umd.js", "core/md.js", "core/shell.js", "ext-common.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    { "resources": ["core/*", "icons/*", "ext.css"], "matches": ["*://*/*", "file:///*"] }
+  ]
+}

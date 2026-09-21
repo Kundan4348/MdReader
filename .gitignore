@@ -1,0 +1,7 @@
+# dependencies / build output
+app/node_modules/
+app/dist/
+
+# OS / editor noise
+.DS_Store
+*.log

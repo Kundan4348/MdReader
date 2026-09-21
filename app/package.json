@@ -1,0 +1,37 @@
+{
+  "name": "mdreader",
+  "productName": "MdReader",
+  "version": "1.0.0",
+  "description": "A calm, beautiful Markdown reader and editor.",
+  "main": "main.js",
+  "private": true,
+  "license": "MIT",
+  "author": "Kundan",
+  "scripts": {
+    "sync": "rsync -a --delete --exclude dev.html ../core/ renderer/core/",
+    "start": "npm run sync && electron .",
+    "build": "npm run sync && electron-builder --mac --arm64 --dir",
+    "dist": "npm run sync && electron-builder --mac --arm64"
+  },
+  "devDependencies": {
+    "electron": "33.4.11",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "dev.kunoku.mdreader",
+    "productName": "MdReader",
+    "directories": { "output": "dist" },
+    "files": ["main.js", "preload.js", "renderer/**/*", "build/icon.icns"],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "icon": "build/icon.icns",
+      "target": ["dir"],
+      "extendInfo": { "NSHumanReadableCopyright": "" }
+    },
+    "fileAssociations": [
+      { "ext": ["md", "markdown", "mdown", "mkd"], "name": "Markdown Document", "description": "Markdown Document", "role": "Editor", "rank": "Owner", "mimeType": "text/markdown" }
+    ],
+    "protocols": [{ "name": "MdReader", "schemes": ["mdreader"] }]
+  }
+}

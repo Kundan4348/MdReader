@@ -1,0 +1,92 @@
+/* Theme: Paper -- warm off-white, serif headings, one calm reading column, floating pill toolbar. */
+html[data-theme=paper]{
+  --paper:#f7f3ec;--paper-2:#efe9df;--ink:#2b2622;--ink-2:#5c534b;--ink-3:#8d837a;
+  --rule:#e2dacd;--accent:#b0552f;--accent-soft:#f4e3d8;--code-bg:#ece5d9;
+  --serif:'Fraunces',Georgia,serif;--sans:'Inter',system-ui,sans-serif;--mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
+  background:var(--paper);color:var(--ink);font-family:var(--sans)}
+html[data-theme=paper] body{background:radial-gradient(1200px 600px at 50% -200px,#fffdf8 0%,transparent 70%),var(--paper)}
+html[data-theme=paper] .app{--top-h:0px;--files-w:230px;--outline-w:210px}
+
+/* floating pill toolbar */
+html[data-theme=paper] .top{position:fixed;top:14px;left:50%;transform:translateX(-50%);height:auto;width:auto;max-width:calc(100vw - 40px);
+  padding:5px 8px 5px 12px;background:rgba(255,253,248,.88);backdrop-filter:blur(12px);border:1px solid var(--rule);border-radius:999px;
+  box-shadow:0 8px 30px rgba(60,40,20,.08);color:var(--ink-2)}
+html[data-theme=paper] .top .spacer{flex:0 0 6px}
+html[data-theme=paper] .top .crumbs b{color:var(--ink)}
+html[data-theme=paper] .top .seg button{color:var(--ink-2);border-radius:999px}
+html[data-theme=paper] .top .seg button.on{background:var(--ink);color:var(--paper)}
+html[data-theme=paper] .top button.save{border:0;background:transparent;color:var(--accent);border-left:1px solid var(--rule);border-radius:0;padding-left:12px}
+html[data-theme=paper] .top select.theme{border:0;background-color:transparent;color:var(--ink-2)}
+html[data-theme=paper] .top .dot{background:var(--accent)}
+html[data-theme=paper] .top button.icon{color:var(--ink-2)}
+html[data-theme=paper] .top .view{border-left:1px solid var(--rule);padding-left:4px}
+
+/* quiet side panels */
+html[data-theme=paper] .files,html[data-theme=paper] .outline{padding-top:76px;color:var(--ink-2)}
+html[data-theme=paper] .files{border-right:1px solid var(--rule);background:rgba(255,253,248,.4)}
+html[data-theme=paper] .outline{border-left:1px solid var(--rule);background:rgba(255,253,248,.4)}
+html[data-theme=paper] .tree .label:hover,html[data-theme=paper] .tree .file:hover{background:var(--paper-2)}
+html[data-theme=paper] .tree .file.on{background:var(--accent-soft);color:var(--accent);opacity:1}
+html[data-theme=paper] .toc a{color:var(--ink-2)}html[data-theme=paper] .toc a.active{border-color:var(--accent);color:var(--accent)}
+html[data-theme=paper] .toc a.l1{color:var(--ink)}
+html[data-theme=paper] .outline .meta{border-top:1px solid var(--rule)}
+
+/* the page */
+html[data-theme=paper] .doc{padding:88px 32px 140px;font-size:16.5px;line-height:1.7}
+html[data-theme=paper] .editor{padding:88px 32px 140px}
+html[data-theme=paper] .src{color:var(--ink);caret-color:var(--accent)}
+html[data-theme=paper] h1{font-family:var(--serif);font-weight:600;font-size:40px;line-height:1.12;letter-spacing:-.01em;margin:0 0 18px}
+html[data-theme=paper] .head h1+p{color:var(--ink-2);font-size:15px;line-height:1.6;padding-bottom:26px;border-bottom:1px solid var(--rule);margin-bottom:34px}
+html[data-theme=paper] h2{font-family:var(--serif);font-weight:500;font-size:26px;line-height:1.25;margin:54px 0 16px;letter-spacing:-.005em;position:relative}
+html[data-theme=paper] h2::before{content:'';position:absolute;left:-26px;top:.55em;width:12px;height:2px;background:var(--accent);border-radius:2px}
+html[data-theme=paper] h2 .n{color:var(--accent);margin-right:.3em;font-variant-numeric:tabular-nums}
+html[data-theme=paper] h2 .n::after{content:'.'}
+html[data-theme=paper] .sec:first-child h2{margin-top:10px}
+html[data-theme=paper] h3{font-family:var(--serif);font-weight:500;font-size:20px;margin:34px 0 10px}
+html[data-theme=paper] h4{font-size:15px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-2);margin:28px 0 8px}
+html[data-theme=paper] p{margin:0 0 18px}
+html[data-theme=paper] strong{font-weight:600;color:var(--ink)}
+html[data-theme=paper] code{font-family:var(--mono);font-size:.86em;background:var(--code-bg);padding:.12em .42em;border-radius:6px;color:#4a3b32}
+html[data-theme=paper] pre.code{background:#fffdf8;border:1px solid var(--rule);border-radius:12px;padding:18px 20px;margin:0 0 22px;font-size:13.5px;line-height:1.6}
+html[data-theme=paper] pre.code code{background:transparent;padding:0;color:var(--ink);font-size:inherit}
+html[data-theme=paper] a{color:var(--accent);text-decoration:none;border-bottom:1px solid var(--accent-soft)}
+html[data-theme=paper] ul,html[data-theme=paper] ol{padding-left:1.35em;margin:0 0 20px}
+html[data-theme=paper] li{margin:8px 0;padding-left:.2em}
+html[data-theme=paper] li::marker{color:var(--accent);font-weight:600}
+html[data-theme=paper] ol li::marker{font-family:var(--serif)}
+html[data-theme=paper] hr{border:0;height:1px;background:var(--rule);margin:40px 0}
+html[data-theme=paper] blockquote{margin:0 0 20px;padding:14px 22px;border-left:3px solid var(--accent);background:var(--accent-soft);border-radius:0 12px 12px 0}
+html[data-theme=paper] blockquote p:last-child{margin:0}
+
+/* tables: wide ones break out of the column */
+html[data-theme=paper] .table-wrap{width:max(100%,min(calc(var(--measure) + 280px),calc(100cqw - 64px)));position:relative;left:50%;transform:translateX(-50%);margin:22px 0 30px}
+html[data-theme=paper] .app[data-mode=split] .table-wrap{width:100%;left:0;transform:none}
+html[data-theme=paper] table{width:100%;border-collapse:separate;border-spacing:0;font-size:14.5px;line-height:1.5;
+  background:#fffdf8;border:1px solid var(--rule);border-radius:14px;overflow:hidden;box-shadow:0 1px 0 rgba(60,40,20,.03),0 10px 30px -18px rgba(60,40,20,.25)}
+html[data-theme=paper] thead th{text-align:left;font-weight:600;font-size:12.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3);padding:14px 18px;background:var(--paper-2);border-bottom:1px solid var(--rule)}
+html[data-theme=paper] tbody td{padding:13px 18px;vertical-align:top;border-bottom:1px solid #eee7db}
+html[data-theme=paper] tbody tr:last-child td{border-bottom:0}
+html[data-theme=paper] tbody tr:hover td{background:#fbf8f2}
+html[data-theme=paper] td.num{font-family:var(--mono);font-size:13.5px;color:#3d342d}
+html[data-theme=paper] tr.total td{background:var(--paper-2);font-weight:600}
+html[data-theme=paper] td code{background:transparent;padding:0;color:var(--accent);font-weight:500}
+html[data-theme=paper] td:first-child{font-weight:500}
+
+/* section tools + inline editor */
+html[data-theme=paper] .sec .tools{top:-6px}
+html[data-theme=paper] .sec .tools button{border:1px solid var(--rule);background:#fffdf8;color:var(--ink-2)}
+html[data-theme=paper] .sec .tools button:hover{color:var(--accent);border-color:var(--accent)}
+html[data-theme=paper] .sec-src{border:1px solid var(--accent);background:#fffdf8;color:var(--ink);margin:12px 0 30px}
+html[data-theme=paper] .toast{background:var(--ink);color:var(--paper)}
+html[data-theme=paper] .hint{color:var(--ink-3);background:rgba(255,253,248,.85);border:1px solid var(--rule)}
+html[data-theme=paper] .hint kbd{background:#fff;border-color:var(--rule)}
+
+/* tabs: sit below the floating pill */
+html[data-theme=paper] .tabs{margin-top:64px;padding:0 32px;border-bottom:1px solid var(--rule);color:var(--ink-2);font-family:var(--sans)}
+html[data-theme=paper] .tab{border:1px solid transparent;border-bottom:0;margin-bottom:-1px}
+html[data-theme=paper] .tab:hover{background:var(--paper-2)}
+html[data-theme=paper] .tab.on{background:#fffdf8;border-color:var(--rule);color:var(--ink)}
+html[data-theme=paper] .tab .dot{background:var(--accent)}
+html[data-theme=paper] .tab .x:hover{background:var(--paper-2)}
+html[data-theme=paper] .app.multi-tabs .doc,html[data-theme=paper] .app.always-tabs.has-tabs .doc{padding-top:40px}
+html[data-theme=paper] .app.multi-tabs .editor,html[data-theme=paper] .app.always-tabs.has-tabs .editor{padding-top:32px}

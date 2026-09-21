@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>MdReader · mockups</title>
+<style>
+  html,body{margin:0;height:100%;font-family:Inter,system-ui,sans-serif;background:#111}
+  .tabs{position:fixed;top:0;left:0;right:0;height:42px;display:flex;align-items:center;gap:6px;padding:0 12px;background:#1b1b1f;border-bottom:1px solid #2a2a30;z-index:9}
+  .tabs span{color:#8a8f99;font-size:12px;margin-right:10px}
+  .tabs button{font:inherit;font-size:13px;border:1px solid #2f2f36;background:#232329;color:#c9ccd3;padding:6px 14px;border-radius:8px;cursor:pointer}
+  .tabs button.on{background:#e6e9ee;color:#111;border-color:#e6e9ee}
+  iframe{position:absolute;top:42px;left:0;width:100%;height:calc(100% - 42px);border:0;background:#fff}
+</style></head>
+<body>
+  <div class="tabs"><span>MdReader mockups — same file, three directions</span>
+    <button data-src="option-a-paper.html" class="on">A · Paper</button>
+    <button data-src="option-b-studio.html">B · Studio</button>
+    <button data-src="option-c-sections.html">C · Sections</button></div>
+  <iframe id="f" src="option-a-paper.html"></iframe>
+  <script>document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on'));b.classList.add('on');f.src=b.dataset.src;});</script>
+</body></html>

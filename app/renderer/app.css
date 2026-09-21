@@ -1,0 +1,27 @@
+/* Electron-only chrome: draggable title area, traffic-light clearance, empty state, drop overlay. */
+.top{-webkit-app-region:drag;user-select:none}
+.top button,.top select{-webkit-app-region:no-drag}
+body.mac .top{padding-left:84px}
+html[data-theme=paper] body.mac .top{padding-left:12px} /* Paper's bar is a floating pill; traffic lights keep their corner */
+
+.empty{position:fixed;inset:0;display:none;align-items:center;justify-content:center;-webkit-app-region:drag;z-index:5}
+.empty .card{text-align:center;padding:40px 48px;border-radius:20px;-webkit-app-region:no-drag;max-width:420px}
+.empty .glyph{font-family:var(--serif,var(--head,var(--sans,system-ui)));font-size:44px;font-weight:700;letter-spacing:-.04em;margin-bottom:14px;opacity:.9}
+.empty h2{margin:0 0 8px;font-size:22px;font-weight:600;font-family:var(--head,var(--sans,system-ui))}
+.empty p{margin:0 0 22px;font-size:14.5px;line-height:1.6;opacity:.7;font-family:var(--sans,var(--head,system-ui))}
+.empty button{font-family:var(--sans,var(--head,system-ui));font-weight:600;font-size:13.5px;padding:9px 18px;border-radius:10px;border:1px solid transparent}
+html[data-theme=paper] .empty .card{background:#fffdf8;border:1px solid var(--rule);box-shadow:0 20px 60px -30px rgba(60,40,20,.35)}
+html[data-theme=paper] .empty button{background:var(--ink);color:var(--paper)}
+html[data-theme=paper] .empty .glyph{color:var(--accent)}
+html[data-theme=studio] .empty .card{background:var(--panel);border:1px solid var(--line-2)}
+html[data-theme=studio] .empty button{background:#273040;color:#fff;border-color:var(--line-2)}
+html[data-theme=studio] .empty .glyph{color:var(--accent)}
+html[data-theme=sections] .empty .card{background:#fff;border:1px solid var(--line);box-shadow:0 12px 32px -20px rgba(17,24,39,.25)}
+html[data-theme=sections] .empty button{background:var(--accent);color:#fff}
+html[data-theme=sections] .empty .glyph{color:var(--accent)}
+html[data-theme=mono] .empty .card{background:var(--bg);border:1px solid var(--line-2);font-family:var(--mono);border-radius:8px}
+html[data-theme=mono] .empty button{background:var(--ink);color:var(--bg);border-radius:6px;font-family:var(--mono)}
+html[data-theme=mono] .empty .glyph{color:var(--accent);font-family:var(--mono)}
+
+body.dropping::after{content:'Drop to open';position:fixed;inset:12px;border:2px dashed currentColor;border-radius:18px;display:flex;align-items:center;justify-content:center;
+  font-size:20px;font-weight:600;opacity:.6;background:rgba(127,127,127,.08);pointer-events:none;z-index:50}

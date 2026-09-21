@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MdReader dev</title>
+<link rel="stylesheet" href="fonts/fonts.css">
+<link rel="stylesheet" href="shell.css">
+<link rel="stylesheet" href="themes/paper.css">
+<link rel="stylesheet" href="themes/studio.css">
+<link rel="stylesheet" href="themes/sections.css">
+<link rel="stylesheet" href="themes/mono.css">
+</head>
+<body>
+<div id="app"></div>
+<script src="marked.umd.js"></script>
+<script src="md.js"></script>
+<script src="shell.js"></script>
+<script>
+  // Dev adapter: loads ../mockups/sample.md, "saves" to memory. ?theme=studio to preselect.
+  const q = new URLSearchParams(location.search);
+  const prefs = { theme: q.get('theme') || 'paper', files: q.get('files') !== '0', outline: q.get('outline') !== '0' };
+  const adapter = {
+    readFile: async (p) => (await fetch(p)).text(),
+    writeFile: async (p, t) => { window.__saved = t; },
+    canSave: () => true,
+    listDir: async (d) => [{ name: 'sample.md', path: '../mockups/sample.md', dir: false }, { name: 'notes', path: 'notes', dir: true }],
+    getPref: async (k) => prefs[k], setPref: () => {},
+    displayPath: (p) => ({ crumbs: ['Documents', 'Notes'], name: 'coffee-bar-quarterly.md', dir: '../mockups' }),
+  };
+  window.shell = MdShell.mount(document.getElementById('app'), adapter);
+  shell.loadFile('../mockups/sample.md');
+</script>
+</body>
+</html>
