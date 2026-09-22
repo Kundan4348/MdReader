@@ -74,6 +74,46 @@
     });
     root.querySelectorAll('input[type=checkbox]').forEach((cb) => { cb.disabled = true; cb.closest('li')?.classList.add('task'); });
     root.querySelectorAll('a[href^="http"]').forEach((a) => { a.target = '_blank'; a.rel = 'noopener'; });
+    linkifyPaths(root);
+  }
+
+  // Absolute file-system paths written as plain text (`/Users/me/notes/x.md`, `~/Documents/a.csv`, `/tmp/dir/`)
+  // become <a class="path" data-path> links. The shell decides what a click does (open .md as a tab, hand other
+  // files to the OS). Two or more segments are required so "/day" or "get / batch-get" never match; URLs are
+  // skipped because their slashes follow ":" or "/", never a boundary character.
+  const PATH_RE = /(?<![\w:/.~\-])(~?\/(?:[\w.@%+\-]+\/)+[\w.@%+\-]*)/g;
+  const IS_PATH = /^~?\/(?:[\w.@%+\-]+\/)+[\w.@%+\-]*$/;
+  const trimPath = (p) => p.replace(/[.,;:]+$/, ''); // "…/x.py." at a sentence end
+  function pathLink(p) {
+    const a = document.createElement('a');
+    a.className = 'path'; a.href = '#'; a.dataset.path = p; a.textContent = p;
+    a.title = /\.(md|markdown|mdown|mkd)$/i.test(p) ? 'Open in a new tab' : (p.endsWith('/') ? 'Show in Finder' : 'Open with its default app · ⌘-click to show in Finder');
+    return a;
+  }
+  function linkifyPaths(root) {
+    // Whole-content inline code chips: `/Users/me/x.py`
+    root.querySelectorAll('code').forEach((code) => {
+      if (code.closest('pre, a')) return;
+      const t = code.textContent.trim();
+      if (!IS_PATH.test(t)) return;
+      const a = pathLink(t); a.textContent = ''; a.appendChild(code.cloneNode(true)); code.replaceWith(a);
+    });
+    // Plain text nodes
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.parentElement.closest('a, pre, code, script, style') ? NodeFilter.FILTER_REJECT : (n.nodeValue.includes('/') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP)) });
+    const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode);
+    nodes.forEach((n) => {
+      const s = n.nodeValue; let last = 0, m; const frag = document.createDocumentFragment(); PATH_RE.lastIndex = 0;
+      while ((m = PATH_RE.exec(s))) {
+        const raw = m[1], p = trimPath(raw);
+        if (p.split('/').length < 3) continue;
+        frag.appendChild(document.createTextNode(s.slice(last, m.index)));
+        frag.appendChild(pathLink(p));
+        last = m.index + p.length;
+      }
+      if (!last) return;
+      frag.appendChild(document.createTextNode(s.slice(last)));
+      n.replaceWith(frag);
+    });
   }
 
   // Render one chunk of markdown to an element; decorate; return toc entries.

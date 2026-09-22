@@ -85,6 +85,34 @@
       const t = $('h1', head);
       document.title = (S.dirty ? '• ' : '') + (t ? t.textContent : (S.path ? adapter.displayPath(S.path).name : 'MdReader'));
       spy();
+      checkPathLinks();
+    }
+    // ---------- absolute paths written in the text ----------
+    const IS_MD = (p) => /\.(md|markdown|mdown|mkd)$/i.test(p);
+    const expandPath = (p) => (p.startsWith('~/') && adapter.home ? adapter.home + p.slice(1) : p);
+    // Paths that do not exist on disk are shown as plain text, not links (app only: the extension has no fs access).
+    async function checkPathLinks() {
+      if (!adapter.statPath) return;
+      const links = [...doc.querySelectorAll('a.path')];
+      const seen = new Map();
+      for (const a of links) {
+        const p = expandPath(a.dataset.path);
+        if (!seen.has(p)) seen.set(p, adapter.statPath(p).catch(() => null));
+        const st = await seen.get(p);
+        if (!a.isConnected) continue;
+        if (!st || !st.exists) { a.classList.add('missing'); a.title = 'Not found on disk'; }
+        else if (st.dir) { if (!a.dataset.path.endsWith('/')) a.classList.add('dir'); a.title = 'Show in Finder'; }
+      }
+    }
+    async function openPathLink(raw, reveal) {
+      const p = expandPath(raw);
+      const st = adapter.statPath ? await adapter.statPath(p).catch(() => null) : null;
+      if (st && !st.exists) return flash('Not found: ' + raw);
+      if (reveal && adapter.reveal) return adapter.reveal(p);
+      if (IS_MD(p) && adapter.readFile && (!st || !st.dir)) return loadFile(p).catch(() => flash('Could not open ' + raw)); // new tab, or focus the existing one
+      if (adapter.openPath) return adapter.openPath(p); // .py / .csv / .txt / folders: hand to the OS
+      if (adapter.reveal) return adapter.reveal(p);
+      flash('Cannot open ' + raw + ' from here');
     }
     const livePaint = debounce(() => { if (S.mode === 'split') paint(); }, 160);
     function onInput() { setText(ta.value, true); livePaint(); }
@@ -365,6 +393,7 @@
     });
     doc.addEventListener('click', (e) => {
       const a = e.target.closest('a[href]'); if (!a) return;
+      if (a.dataset.path) { e.preventDefault(); openPathLink(a.dataset.path, e.metaKey || e.ctrlKey); return; }
       const href = a.getAttribute('href');
       if (href.startsWith('#')) { e.preventDefault(); scrollTo(href.slice(1)); }
       else if (/^https?:/.test(href)) { e.preventDefault(); adapter.openExternal && adapter.openExternal(href); }

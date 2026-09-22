@@ -78,6 +78,18 @@ report.activeH1 = await ev(`document.querySelector('#app h1')?.textContent`);
 // relative link inside third.md opens second.md's existing tab (no duplicate)
 await ev(`document.querySelector('#app .doc a[href="second.md"]').click()`); await sleep(400);
 report.afterLinkClick = await tabs();
+// absolute paths written as text in third.md are links: the .md one opens as a tab (second.md already open -> focused,
+// no duplicate), the missing one is demoted to plain text, the folder is flagged, the ~ form resolves to sample.md.
+await ev(`document.querySelector('#app .tabs .tab[data-path$="third.md"]').click()`); await sleep(500);
+report.pathLinks = await ev(`[...document.querySelectorAll('#app .doc a.path')].map(a=>{const p=a.dataset.path,s=p.split('/');return (p.endsWith('/')?s.at(-2)+'/':s.at(-1))+':'+[...a.classList].filter(c=>c!=='path').join('|')})`);
+await ev(`document.querySelector('#app .doc a.path[data-path$="second.md"]').click()`); await sleep(400);
+report.afterPathClick = await tabs();
+await ev(`document.querySelector('#app .tabs .tab[data-path$="third.md"]').click()`); await sleep(300);
+await ev(`document.querySelector('#app .doc a.path[data-path$="gone.md"]').click()`); await sleep(300);
+report.afterMissingClick = await tabs();
+report.pathLinksOk = report.pathLinks.join() === 'tool.py:,second.md:,fixtures/:,sample.md:,gone.md:missing'
+  && report.afterPathClick.join() === 'sample.md,second.md*,third.md' && report.afterMissingClick.join() === 'sample.md,second.md,third.md*';
+await ev(`document.querySelector('#app .tabs .tab[data-path$="second.md"]').click()`); await sleep(300); // back to where the tab flow expects us
 // edit second, switch away and back: edit must survive, dirty dot must show
 await ev(`document.querySelector('#app .top button[data-mode=edit]').click()`); await sleep(200);
 await ev(`(()=>{const ta=document.querySelector('#app textarea.src'); ta.value = ta.value.replace('Second doc','Second doc EDITED'); ta.dispatchEvent(new Event('input',{bubbles:true}));})()`); await sleep(150);
@@ -122,4 +134,4 @@ copyFileSync(backup, sample); // restore
 await sleep(800);
 report.reloadedFromDisk = await ev(`!document.querySelector('#app textarea').value.includes('[APP-EDIT]')`);
 console.log(JSON.stringify(report, null, 2));
-stop(); process.exit(report.mounted && report.filesPanelVisible && report.savedToDisk && !report.dirtyAfterSave && report.defaultTheme === 'mono' && report.stillMounted && report.outlineToggleOk && report.tabsOk && report.secondFileUntouched && report.crumbsOk ? 0 : 1);
+stop(); process.exit(report.mounted && report.filesPanelVisible && report.savedToDisk && !report.dirtyAfterSave && report.defaultTheme === 'mono' && report.stillMounted && report.outlineToggleOk && report.tabsOk && report.pathLinksOk && report.secondFileUntouched && report.crumbsOk ? 0 : 1);

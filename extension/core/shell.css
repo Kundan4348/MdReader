@@ -119,6 +119,14 @@ html[data-theme] .align-center{text-align:center}html[data-theme] .align-right{t
 html[data-theme] thead th.align-center{text-align:center}html[data-theme] thead th.align-right{text-align:right}html[data-theme] thead th.align-left{text-align:left}
 li.task{list-style:none;margin-left:-1.3em}li.task input{margin-right:.5em;vertical-align:middle}
 pre.code{position:relative;overflow:auto}
+/* absolute file paths found in the text (core/md.js linkifyPaths) */
+html[data-theme] .doc a.path{font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:.9em;color:var(--accent,inherit);text-decoration:underline dotted;text-decoration-color:color-mix(in srgb,currentColor 55%,transparent);text-underline-offset:3px;word-break:break-all;cursor:pointer}
+html[data-theme] .doc a.path:hover{text-decoration-style:solid}
+html[data-theme] .doc a.path.dir::after{content:"/";opacity:.5}
+html[data-theme] .doc a.path.dir{text-decoration:none}
+html[data-theme] .doc a.path.dir:hover{text-decoration:underline}
+html[data-theme] .doc a.path.missing{color:inherit;opacity:.7;text-decoration:none;cursor:default}
+html[data-theme] .doc a.path>code{font-size:inherit;color:inherit}
 pre.code[data-lang]::before{content:attr(data-lang);position:absolute;top:8px;right:12px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;opacity:.5}
 @media (max-width:1100px){.app{--outline-w:0px}.app .outline{display:none}}
 @media (max-width:820px){.app{--files-w:0px}.app .files{display:none}}

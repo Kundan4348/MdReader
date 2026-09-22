@@ -88,7 +88,7 @@ await evalJs(`(async()=>{document.querySelector('#app .top button.edit, #app .to
 await sleep(300);
 report.editorVisible = await evalJs(`!!document.querySelector('#app textarea, #app .editor') && getComputedStyle(document.querySelector('#app textarea, #app .editor')).display !== 'none'`);
 if (report.editorVisible) {
-  await evalJs(`(()=>{const ta=document.querySelector('#app textarea'); if(!ta) return; ta.value = ta.value.replace('Identity-collision flag','Identity-collision flag [EXT-EDIT]'); ta.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  await evalJs(`(()=>{const ta=document.querySelector('#app textarea'); if(!ta) return; ta.value = ta.value.replace('Coffee bar','Coffee bar [EXT-EDIT]'); ta.dispatchEvent(new Event('input',{bubbles:true}));})()`);
   await sleep(200);
   report.dirty = await evalJs(`document.body.innerHTML.includes('●') || !!document.querySelector('#app .dirty, #app .top .dot')`);
   await evalJs(`(async()=>{document.querySelector('#app .top button.read, #app .top [data-mode=read]')?.click()})()`);

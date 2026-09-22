@@ -39,6 +39,7 @@
     setPref: (k, v) => { if (k !== 'files') MdExt.prefs.set(k, v); },
     displayPath: () => disp,
     openExternal: (u) => window.open(u, '_blank', 'noopener'),
+    openPath: (p) => { location.href = 'mdreader://open?path=' + encodeURIComponent(p); }, // desktop app decides: tab or OS
   };
   const shell = MdShell.mount(document.getElementById('app'), adapter);
   const flash = (m, ms) => { const t = document.querySelector('.toast'); if (!t) return; t.textContent = m; t.classList.add('show'); clearTimeout(flash.t); flash.t = setTimeout(() => t.classList.remove('show'), ms || 1600); };

@@ -70,9 +70,21 @@ function watch(en, p) {
 }
 function unwatch(en, p) { const w = en.watchers.get(p); if (w) { w.close(); en.watchers.delete(p); } }
 
+const isMarkdownPath = (p) => /\.(md|markdown|mdown|mkd|txt)$/i.test(p);
+// Anything that is not a markdown/text document (a .py, .csv, a folder) is handed to the OS: default app for files,
+// Finder for folders. Falls back to revealing the item when no app claims it.
+async function openOther(p) {
+  try {
+    const st = await fsp.stat(p);
+    if (st.isDirectory()) { shell.openPath(p); return; }
+    const err = await shell.openPath(p);
+    if (err) shell.showItemInFolder(p);
+  } catch { /* missing: nothing to open */ }
+}
 function openPath(p) {
   if (!p) return;
   if (!ready) return pendingOpens.push(p);
+  if (!isMarkdownPath(p)) return openOther(p);
   // Already open in some window? focus that tab.
   for (const e of wins.values()) if (e.paths.has(p)) { e.win.focus(); return openInWindow(e.win, p); }
   // Otherwise open as a new tab in the focused window (or the most recent one). Only the very first open creates a window.
@@ -127,6 +139,8 @@ ipcMain.on('dirty', (e, d) => { const w = BrowserWindow.fromWebContents(e.sender
 ipcMain.on('open-external', (e, url) => { if (/^https?:/.test(url)) shell.openExternal(url); });
 ipcMain.on('close-window', (e) => { const w = BrowserWindow.fromWebContents(e.sender); const en = wins.get(w.id); if (en) en.dirty = false; w.close(); });
 ipcMain.on('reveal', (e, p) => p && shell.showItemInFolder(p));
+ipcMain.on('open-path', (e, p) => { if (p) openOther(p); });
+ipcMain.handle('stat-path', async (e, p) => { try { const st = await fsp.stat(p); return { exists: true, dir: st.isDirectory() }; } catch { return { exists: false, dir: false }; } });
 // Renderer reports its tab set after every change; main mirrors it into watchers, title-bar proxy icon and dirty state.
 ipcMain.on('tabs', (e, { paths, active, dirty }) => {
   const w = BrowserWindow.fromWebContents(e.sender); const en = w && wins.get(w.id); if (!en) return;

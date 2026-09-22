@@ -36,6 +36,9 @@ const adapter = {
     };
   },
   reveal: (p) => p && api.reveal(p),
+  openPath: (p) => p && api.openPath(p),
+  statPath: api.statPath,
+  home,
 };
 
 const shell = MdShell.mount(app, adapter);

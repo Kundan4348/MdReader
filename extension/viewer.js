@@ -24,6 +24,7 @@
     onTabsChanged: ({ paths, active }) => { for (const k of [...open.keys()]) if (!paths.includes(k)) open.delete(k); if (active && open.has(active)) { current = { key: active, handle: open.get(active), name: open.get(active).name }; document.title = current.name; history.replaceState(null, '', '#' + encodeURIComponent(active)); } },
     onLastTabClosed: () => { current = null; document.body.classList.remove('has-doc'); document.title = 'MdReader'; history.replaceState(null, '', ' '); },
     openExternal: (u) => window.open(u, '_blank', 'noopener'),
+    openPath: (p) => { location.href = 'mdreader://open?path=' + encodeURIComponent(p); }, // desktop app decides: tab or OS
   };
   const shell = MdShell.mount(document.getElementById('app'), adapter);
   document.getElementById('app').classList.add('no-files', 'always-tabs');
