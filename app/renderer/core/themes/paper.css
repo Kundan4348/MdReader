@@ -90,3 +90,25 @@ html[data-theme=paper] .tab .dot{background:var(--accent)}
 html[data-theme=paper] .tab .x:hover{background:var(--paper-2)}
 html[data-theme=paper] .app.multi-tabs .doc,html[data-theme=paper] .app.always-tabs.has-tabs .doc{padding-top:40px}
 html[data-theme=paper] .app.multi-tabs .editor,html[data-theme=paper] .app.always-tabs.has-tabs .editor{padding-top:32px}
+
+/* readability pass: each section is a soft card (like Sections), larger type, roomier tables */
+html[data-theme=paper] .app{--measure:min(100%,clamp(860px,62cqw,1180px))}
+html[data-theme=paper] .doc{font-size:17px;line-height:1.75}
+html[data-theme=paper] .head h1+p{font-size:15.5px}
+html[data-theme=paper] .secs{display:flex;flex-direction:column;gap:22px}
+html[data-theme=paper] .sec{background:#fffdf8;border:1px solid var(--rule);border-radius:16px;padding:28px 34px 24px;
+  box-shadow:0 1px 0 rgba(60,40,20,.03),0 12px 32px -22px rgba(60,40,20,.28)}
+html[data-theme=paper] .sec.editing{border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+html[data-theme=paper] .sec h2,html[data-theme=paper] .sec:first-child h2{margin:0 0 16px;padding-right:150px;font-size:25px}
+html[data-theme=paper] .sec h2::before{display:none}
+html[data-theme=paper] .sec .body>p:last-child,html[data-theme=paper] .sec .body>ul:last-child,html[data-theme=paper] .sec .body>ol:last-child{margin-bottom:0}
+html[data-theme=paper] .sec .body>.table-wrap:last-child{margin-bottom:6px}
+html[data-theme=paper] .sec .tools{top:20px;right:20px}
+html[data-theme=paper] .sec-src{margin:0}
+/* tables: no breakout inside a card (the card is already wide); bigger cells, darker header */
+html[data-theme=paper] .sec .table-wrap{width:100%;left:0;transform:none;margin:18px 0 22px}
+html[data-theme=paper] table{font-size:15px;line-height:1.55;background:#fff;border-radius:12px;box-shadow:none}
+html[data-theme=paper] thead th{color:var(--ink-2);font-size:12.5px;padding:12px 16px}
+html[data-theme=paper] tbody td{padding:13px 16px;font-size:15px}
+html[data-theme=paper] td.num{font-size:14px}
+html[data-theme=paper] td:first-child{font-weight:600;color:var(--ink)}
