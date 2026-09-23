@@ -35,6 +35,8 @@ html[data-theme] .app.no-outline{--outline-w:0px}html .app.no-outline .outline{d
 .top button.icon.off:hover{opacity:.6}
 .top .view{display:flex;align-items:center;gap:0;border-radius:8px}
 .top .view button.icon{width:28px;font-size:13px;font-weight:600}
+.top .view button.zoom-pct{width:auto;min-width:44px;padding:0 4px;font-size:11.5px;font-variant-numeric:tabular-nums;opacity:.6}
+.top .view button.zoom-pct.on{opacity:1}
 .top .view button.icon sup{font-size:9px;margin-left:1px;vertical-align:top;line-height:1}
 .top .view button.width{font-size:15px}
 .top .view button.width::after{content:attr(data-w);position:absolute;font-size:8px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;bottom:1px;left:50%;transform:translateX(-50%);opacity:.7}

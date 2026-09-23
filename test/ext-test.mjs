@@ -78,25 +78,34 @@ for (const w of ['auto', 'narrow', 'wide', 'full']) {
   report.widths[w] = await evalJs(`document.querySelector('#app .doc').getBoundingClientRect().width|0`);
 }
 await evalJs(`document.querySelector('#app .top button.width').click()`); // back to auto
-report.zoomBefore = await evalJs(`getComputedStyle(document.querySelector('#app')).getPropertyValue('--zoom').trim()`);
-await evalJs(`document.querySelector('#app .top button.zoom-in').click()`); await sleep(100);
-report.zoomAfterPlus = await evalJs(`getComputedStyle(document.querySelector('#app')).getPropertyValue('--zoom').trim()`);
-report.h1pxAfterPlus = await evalJs(`document.querySelector('#app h1').getBoundingClientRect().height|0`);
-await evalJs(`document.querySelector('#app .top button.zoom-out').click()`); await sleep(100);
-// Trackpad pinch arrives as ctrl+wheel and drives the PAGE magnifier (--page), never the text size (--zoom).
+// A-/A+ and the pinch drive ONE magnifier (--page); --zoom is the untouched base. The readout follows.
 const pageVar = () => evalJs(`+getComputedStyle(document.querySelector('#app')).getPropertyValue('--page')`);
 const zoomVar = () => evalJs(`+getComputedStyle(document.querySelector('#app')).getPropertyValue('--zoom')`);
+const pctText = () => evalJs(`document.querySelector('#app .top button.zoom-pct').textContent`);
+const clickBtn = (c) => evalJs(`document.querySelector('#app .top button.${c}').click()`);
+report.zoomBefore = await zoomVar(); const pctBefore = await pctText();
+await clickBtn('zoom-in'); await sleep(100);
+report.zoomAfterPlus = await zoomVar(); const pagePlus = await pageVar(), pctPlus = await pctText();
+report.h1pxAfterPlus = await evalJs(`document.querySelector('#app h1').getBoundingClientRect().height|0`);
+await clickBtn('zoom-out'); await sleep(100); const pageBack = await pageVar();
+report.buttons = { pctBefore, pagePlus, pctPlus, pageBack };
+report.buttonsOk = report.zoomAfterPlus === report.zoomBefore && pagePlus === 1.1 && pctPlus === Math.round(report.zoomBefore * 110) + '%' && pageBack === 1;
+// Trackpad pinch arrives as ctrl+wheel.
 const pinch = (dy, n) => evalJs(`(()=>{const el=document.querySelector('#app .doc');const r=el.getBoundingClientRect();for(let i=0;i<${n};i++) el.dispatchEvent(new WheelEvent('wheel',{deltaY:${dy},ctrlKey:true,bubbles:true,cancelable:true,clientX:r.left+50,clientY:r.top+50}));})()`);
 const z0 = await zoomVar(), p0 = await pageVar();
 await pinch(-8, 3); await sleep(50); const pIn = await pageVar(), zIn = await zoomVar();
 const docWider = await evalJs(`document.querySelector('#app').classList.contains('paged') && document.querySelector('#app .doc').getBoundingClientRect().width > document.querySelector('#app .content').clientWidth`);
+// the buttons must keep working after a pinch (the bug Kundan hit): A+ multiplies the pinched value by 1.1
+await clickBtn('zoom-in'); await sleep(50); const pPlusAfterPinch = await pageVar();
+await clickBtn('zoom-out'); await sleep(50); const pMinusAfterPinch = await pageVar();
 await pinch(8, 6); await sleep(50); const pOut = await pageVar();
 await pinch(-8, 400); await sleep(50); const pMax = await pageVar();
 await pinch(8, 400); await sleep(50); const pMin = await pageVar();
 await evalJs(`(()=>{const el=document.querySelector('#app .doc');el.dispatchEvent(new WheelEvent('wheel',{deltaY:8,bubbles:true,cancelable:true}));})()`); await sleep(50); const pPlainWheel = await pageVar();
-await pinch(-69.3147, 1); await sleep(50); const pReset = await pageVar(); // 0.5 * e^0.693147 = 1.000 -> back to 100%
-report.pinch = { z0, p0, pIn, zIn, docWider, pOut, pMax, pMin, pPlainWheel, pReset };
-report.pinchOk = p0 === 1 && pIn > 1 && zIn === z0 && docWider && pOut < pIn && pMax === 4 && pMin === 0.5 && pPlainWheel === pMin && pReset === 1;
+await clickBtn('zoom-pct'); await sleep(50); const pReset = await pageVar(), pctReset = await pctText(); // the percent button resets to 100%
+report.pinch = { z0, p0, pIn, zIn, docWider, pPlusAfterPinch, pMinusAfterPinch, pOut, pMax, pMin, pPlainWheel, pReset, pctReset };
+report.pinchOk = p0 === 1 && pIn > 1 && zIn === z0 && docWider && Math.abs(pPlusAfterPinch / pIn - 1.1) < 0.002 && Math.abs(pMinusAfterPinch - pIn) < 0.002
+  && pOut < pIn && pMax === 4 && pMin === 0.5 && pPlainWheel === pMin && pReset === 1 && pctReset === pctBefore;
 // Edit mode: toggle, type, confirm dirty flag and re-render.
 await evalJs(`(async()=>{document.querySelector('#app .top button.edit, #app .top [data-mode=edit]')?.click()})()`);
 await sleep(300);
@@ -111,4 +120,4 @@ if (report.editorVisible) {
   await shot('ext-edited.png');
 }
 console.log(JSON.stringify(report, null, 2));
-clearTimeout(hardStop); killChrome(); process.exit(report.mounted && report.tables > 0 && report.pinchOk ? 0 : 1);
+clearTimeout(hardStop); killChrome(); process.exit(report.mounted && report.tables > 0 && report.pinchOk && report.buttonsOk ? 0 : 1);

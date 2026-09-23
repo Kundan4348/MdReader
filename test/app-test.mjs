@@ -10,11 +10,14 @@ const sample = path.join(root, 'sample.md');
 const backup = path.join(outdir, 'sample.backup.md'); copyFileSync(sample, backup);
 const electron = path.join(root, 'app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron');
 const port = 9333;
+// A leftover Electron from an interrupted run would still own the debug port and every check below would silently
+// talk to THAT stale instance. Refuse to start in that case and say which PID to stop.
+try { await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(1500) }); console.log(JSON.stringify({ fail: `debug port ${port} already in use by a stale Electron; stop it first (ps -axo pid,command | grep remote-debugging-port=${port})` })); process.exit(1); } catch (e) { if (!(e.name === 'TypeError' || e.name === 'TimeoutError')) throw e; }
 const udd = path.join(outdir, 'user-data'); rmSync(udd, { recursive: true, force: true }); mkdirSync(udd, { recursive: true }); // fresh profile every run
 const proc = spawn(electron, [`--remote-debugging-port=${port}`, `--user-data-dir=${udd}`, path.join(root, 'app'), sample], { stdio: ['ignore', 'ignore', 'pipe'] });
 const stop = () => { try { proc.kill('SIGKILL'); } catch {} };
 process.on('exit', stop);
-setTimeout(() => { console.error('FAIL: timeout'); stop(); process.exit(2); }, 90000);
+setTimeout(() => { console.error('FAIL: timeout'); stop(); process.exit(2); }, 150000);
 
 let page, lastTargets = [], errBuf = '';
 proc.stderr.on('data', (d) => (errBuf += d));
@@ -25,7 +28,9 @@ let id = 0; const pend = new Map(); const logs = [];
 ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.id && pend.has(m.id)) { pend.get(m.id)(m); pend.delete(m.id); } if (m.method === 'Runtime.exceptionThrown') logs.push('EXC: ' + (m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text)); };
 const send = (method, params = {}) => new Promise((r) => { const i = ++id; pend.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
 const ev = async (expression) => { const r = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }); if (r.result?.exceptionDetails) throw new Error(JSON.stringify(r.result.exceptionDetails)); return r.result?.result?.value; };
-const shot = async (n) => { const r = await send('Page.captureScreenshot', { format: 'png' }); writeFileSync(path.join(outdir, n), Buffer.from(r.result.data, 'base64')); };
+// Bounded: Chromium does not produce frames for an occluded window, and a captureScreenshot that never answers would
+// stall the whole run. A missing screenshot is not a failure of the app.
+const shot = async (n) => { const r = await Promise.race([send('Page.captureScreenshot', { format: 'png' }), sleep(5000).then(() => null)]); if (!r) { logs.push('screenshot skipped (no frame within 5s): ' + n); return; } writeFileSync(path.join(outdir, n), Buffer.from(r.result.data, 'base64')); };
 await send('Runtime.enable'); await send('Page.enable');
 
 const report = { logs };
@@ -75,7 +80,9 @@ report.tabsAfterOpens = await tabs();
 await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value='mono'; s.dispatchEvent(new Event('change',{bubbles:true}));})()`); await sleep(300); await shot('app-tabs-mono.png');
 report.tabStripVisible = await ev(`getComputedStyle(document.querySelector('#app .tabs')).display`);
 report.activeH1 = await ev(`document.querySelector('#app h1')?.textContent`);
-// relative link inside third.md opens second.md's existing tab (no duplicate)
+// relative link inside third.md opens second.md's existing tab (no duplicate). The tab strip may still be settling
+// after the two hand-offs, so wait until third.md is the active tab before clicking into its body.
+for (let i = 0; i < 20 && !(await ev(`document.querySelector('#app .tabs .tab.on')?.dataset.path?.endsWith('third.md') && !!document.querySelector('#app .doc a[href="second.md"]')`)); i++) await sleep(200);
 await ev(`document.querySelector('#app .doc a[href="second.md"]').click()`); await sleep(400);
 report.afterLinkClick = await tabs();
 // absolute paths written as text in third.md are links: the .md one opens as a tab (second.md already open -> focused,
@@ -106,13 +113,17 @@ const anchorProbe = (selectorJs) => ev(`(()=>{
 report.pinchAnchor = await anchorProbe(`[...app.querySelectorAll('.doc h2')].find(x=>x.textContent.includes('Paths'))`);
 report.pinchImage = await anchorProbe(`app.querySelector('.doc img')`);
 const anchored = (a) => a && a.p0 === 1 && a.p1 > 1.5 && a.z1 === a.z0 && Math.abs(a.w1 / a.w0 - a.p1) < 0.02 && a.drift1 < 3 && a.drift2 < 3 && Math.abs(a.p2 - 1) < 0.001 && Math.abs(a.w2 - a.w0) < 0.5;
-// leave magnified, switch to another tab and back: must come back at 100%
+// leave magnified, switch to another tab and back: magnification is kept; the percent button resets it
 await ev(`(()=>{const c=document.querySelector('#app .content');const r=c.getBoundingClientRect();for(let i=0;i<8;i++) c.dispatchEvent(new WheelEvent('wheel',{deltaY:-8,ctrlKey:true,bubbles:true,cancelable:true,clientX:r.left+100,clientY:r.top+100}));})()`);
 report.pageBeforeSwitch = await ev(`+getComputedStyle(document.querySelector('#app')).getPropertyValue('--page')`);
 await ev(`document.querySelector('#app .tabs .tab[data-path$="second.md"]').click()`); await sleep(300);
 report.pageAfterSwitch = await ev(`+getComputedStyle(document.querySelector('#app')).getPropertyValue('--page')`);
+report.pctAfterSwitch = await ev(`document.querySelector('#app .top button.zoom-pct').textContent`);
 await ev(`document.querySelector('#app .tabs .tab[data-path$="third.md"]').click()`); await sleep(300);
-report.pinchAnchorOk = anchored(report.pinchAnchor) && anchored(report.pinchImage) && report.pageBeforeSwitch > 1 && report.pageAfterSwitch === 1;
+await ev(`document.querySelector('#app .top button.zoom-pct').click()`); await sleep(100);
+report.pageAfterReset = await ev(`+getComputedStyle(document.querySelector('#app')).getPropertyValue('--page')`);
+report.pinchAnchorOk = anchored(report.pinchAnchor) && anchored(report.pinchImage) && report.pageBeforeSwitch > 1 && report.pageAfterSwitch === report.pageBeforeSwitch
+  && report.pctAfterSwitch === Math.round(report.pageBeforeSwitch * 100) + '%' && report.pageAfterReset === 1;
 report.pathLinks = await ev(`[...document.querySelectorAll('#app .doc a.path')].map(a=>{const p=a.dataset.path,s=p.split('/');return (p.endsWith('/')?s.at(-2)+'/':s.at(-1))+':'+[...a.classList].filter(c=>c!=='path').join('|')})`);
 await ev(`document.querySelector('#app .doc a.path[data-path$="second.md"]').click()`); await sleep(400);
 report.afterPathClick = await tabs();

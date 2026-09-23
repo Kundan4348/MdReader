@@ -42,10 +42,11 @@
     const openBtn = adapter.openDialog ? h('button', { class: 'icon', title: 'Open (⌘O)', onclick: openDialog, html: '&#x2197;' }) : null;
     const filesBtn = adapter.listDir ? h('button', { class: 'icon files-toggle', title: 'Files (⌘\\)', onclick: () => togglePanel('files'), html: '&#x2630;' }) : null;
     const outlineBtn = h('button', { class: 'icon outline-toggle', title: 'Outline (⌘/)', onclick: () => togglePanel('outline'), html: '&#x2261;' });
-    const zoomOut = h('button', { class: 'icon zoom-out', title: 'Smaller text (⌘−)', onclick: () => stepZoom(-1), html: 'A<sup>−</sup>' });
-    const zoomIn = h('button', { class: 'icon zoom-in', title: 'Larger text (⌘+)', onclick: () => stepZoom(1), html: 'A<sup>+</sup>' });
+    const zoomOut = h('button', { class: 'icon zoom-out', title: 'Smaller (⌘−)', onclick: () => stepZoom(-1), html: 'A<sup>−</sup>' });
+    const zoomPct = h('button', { class: 'icon zoom-pct', title: 'Reset zoom (⌘0)', onclick: () => resetZoom() }, '100%');
+    const zoomIn = h('button', { class: 'icon zoom-in', title: 'Larger (⌘+)', onclick: () => stepZoom(1), html: 'A<sup>+</sup>' });
     const widthBtn = h('button', { class: 'icon width', title: 'Reading width (⌘⇧W)', onclick: () => cycleWidth(), html: '&#x2194;' });
-    const view = h('div', { class: 'view' }, zoomOut, zoomIn, widthBtn);
+    const view = h('div', { class: 'view' }, zoomOut, zoomPct, zoomIn, widthBtn);
     const top = h('header', { class: 'top' }, filesBtn, crumbs, h('span', { class: 'spacer' }), seg, saveBtn, view, themeSel, openBtn, outlineBtn);
 
     const tree = h('div', { class: 'tree' });
@@ -168,23 +169,18 @@
     // ---------- zoom / reading width ----------
     // Auto-zoom: on wide screens a fixed 16px column looks tiny, so the document scales with the
     // content pane (1.0 at <=1200px, up to 1.5 at 2400px+), then the user's A-/A+ steps multiply it.
-    function applyZoom() { root.style.setProperty('--zoom', (S.zoom * S.autoZoom).toFixed(3)); root.style.setProperty('--ui-zoom', (1 + (S.autoZoom - 1) * 0.6).toFixed(3)); }
-    function stepZoom(dir) {
-      // Pinch can leave S.zoom between the steps: start from the nearest step in the requested direction.
-      let i = ZOOM_STEPS.indexOf(S.zoom);
-      if (i < 0) { const k = ZOOM_STEPS.findIndex((z) => z > S.zoom); i = dir > 0 ? (k < 0 ? ZOOM_STEPS.length : k) - 1 : (k < 0 ? ZOOM_STEPS.length : k); }
-      const j = Math.min(ZOOM_STEPS.length - 1, Math.max(0, i + dir));
-      if (ZOOM_STEPS[j] === S.zoom) return;
-      S.zoom = ZOOM_STEPS[j]; applyZoom(); adapter.setPref && adapter.setPref('zoom', S.zoom);
-      flash('Text ' + Math.round(S.zoom * 100) + '%');
-    }
-    // ---------- page magnification (trackpad pinch) ----------
-    // Chromium delivers a macOS pinch as a wheel event with ctrlKey set. This is a magnifier, not a text-size change:
-    // the document is frozen at its current laid-out width and scaled as a whole (text, tables and images together),
-    // the pane pans over it, and the point under the pointer stays fixed on screen. Transient: resets per document.
+    function applyZoom() { root.style.setProperty('--zoom', (S.zoom * S.autoZoom).toFixed(3)); root.style.setProperty('--ui-zoom', (1 + (S.autoZoom - 1) * 0.6).toFixed(3)); zoomPct.textContent = pct() + '%'; }
+    // ---------- magnification ----------
+    // One zoom model. --zoom is the base (auto-zoom for wide panes times any saved text-size preference); --page is
+    // the live magnifier that BOTH the trackpad pinch and the A-/A+ buttons drive. Chromium delivers a macOS pinch as
+    // a wheel event with ctrlKey set. The document is frozen at its laid-out width and scaled as a whole (text,
+    // tables and images together), the pane pans over it, and the document point under the pointer stays fixed on
+    // screen. Magnification is kept across tab switches; ⌘0 or the percent button resets it.
     const PAGE_MIN = 0.5, PAGE_MAX = 4;
-    const settlePage = debounce(() => flash(S.page === 1 ? 'Zoom 100%' : 'Zoom ' + Math.round(S.page * 100) + '%'), 250);
+    const pct = () => Math.round(S.zoom * S.page * 100);
+    const settlePage = debounce(() => flash('Zoom ' + pct() + '%'), 250);
     function applyPage() {
+      zoomPct.textContent = pct() + '%'; zoomPct.classList.toggle('on', S.page !== 1);
       if (S.page === 1) { root.classList.remove('paged'); doc.style.width = ''; root.style.setProperty('--page', '1'); return; }
       if (!root.classList.contains('paged')) { doc.style.width = doc.offsetWidth + 'px'; root.classList.add('paged'); } // offsetWidth is in the doc's own px, unaffected by CSS zoom
       root.style.setProperty('--page', S.page.toFixed(3));
@@ -203,22 +199,21 @@
     function setPage(k, cx, cy) {
       k = Math.round(Math.min(PAGE_MAX, Math.max(PAGE_MIN, k)) * 1000) / 1000;
       if (k === S.page) return;
-      const a = cx == null ? null : anchorFor(cx, cy);
+      if (cx == null) { const b = content.getBoundingClientRect(); cx = b.left + b.width / 2; cy = b.top + b.height / 2; gesture = null; } // buttons / keys: zoom about the pane centre
+      const a = anchorFor(cx, cy);
       S.page = k; applyPage();
-      if (a) {
-        const after = doc.getBoundingClientRect(); // forces layout; the scaled doc may have re-centred
-        content.scrollLeft += after.left + a.fx * after.width - a.ax;
-        content.scrollTop += after.top + a.fy * after.height - a.ay;
-      }
+      const after = doc.getBoundingClientRect(); // forces layout; the scaled doc may have re-centred
+      content.scrollLeft += after.left + a.fx * after.width - a.ax;
+      content.scrollTop += after.top + a.fy * after.height - a.ay;
       settlePage();
     }
-    function resetPage() { if (S.page !== 1) { S.page = 1; applyPage(); } }
+    function stepZoom(dir) { setPage(S.page * (dir > 0 ? 1.1 : 1 / 1.1)); }
+    function resetZoom() { if (S.page !== 1) { S.page = 1; applyPage(); } flash('Zoom ' + pct() + '%'); }
     content.addEventListener('wheel', (e) => {
       if (!e.ctrlKey || e.deltaY === 0) return;
       e.preventDefault(); // otherwise the pane scrolls while the gesture is in progress
       setPage(S.page * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY);
     }, { passive: false });
-    function resetZoom() { S.zoom = 1; applyZoom(); adapter.setPref && adapter.setPref('zoom', 1); resetPage(); flash('Text 100% · Zoom 100%'); }
     function setWidth(w) {
       if (!WIDTHS.includes(w)) w = 'auto';
       S.width = w; root.dataset.width = w; widthBtn.dataset.w = w;
@@ -302,7 +297,6 @@
     }
     async function showTab(i, fresh) {
       if (i < 0 || i >= S.tabs.length) return;
-      resetPage(); // magnification is per document
       if (i !== S.tab) stashActive();
       S.tab = i; const t = S.tabs[i];
       S.path = t.path; S.saved = t.saved; setText(t.text); setDirty(t.text !== t.saved);
