@@ -83,6 +83,22 @@ await evalJs(`document.querySelector('#app .top button.zoom-in').click()`); awai
 report.zoomAfterPlus = await evalJs(`getComputedStyle(document.querySelector('#app')).getPropertyValue('--zoom').trim()`);
 report.h1pxAfterPlus = await evalJs(`document.querySelector('#app h1').getBoundingClientRect().height|0`);
 await evalJs(`document.querySelector('#app .top button.zoom-out').click()`); await sleep(100);
+// Trackpad pinch arrives as ctrl+wheel: negative deltaY = pinch out (zoom in). 10 ticks of -8 => x2.2, clamped at 2.
+const zoomVar = () => evalJs(`+getComputedStyle(document.querySelector('#app')).getPropertyValue('--zoom')`);
+const pinch = (dy, n) => evalJs(`(()=>{const el=document.querySelector('#app .doc')||document.querySelector('#app');for(let i=0;i<${n};i++) el.dispatchEvent(new WheelEvent('wheel',{deltaY:${dy},ctrlKey:true,bubbles:true,cancelable:true}));})()`);
+const z0 = await zoomVar();
+await pinch(-8, 3); await sleep(50); const zIn = await zoomVar();
+await pinch(8, 6); await sleep(50); const zOut = await zoomVar();
+await pinch(-8, 40); await sleep(50); const zMax = await zoomVar();
+await evalJs(`document.querySelector('#app .top button.zoom-out').click()`); await sleep(50); const zStepFromMax = await zoomVar();
+await pinch(8, 200); await sleep(50); const zMin = await zoomVar();
+await evalJs(`document.querySelector('#app .top button.zoom-in').click()`); await sleep(50); const zStepFromMin = await zoomVar();
+await evalJs(`(()=>{const el=document.querySelector('#app .doc')||document.querySelector('#app');el.dispatchEvent(new WheelEvent('wheel',{deltaY:8,bubbles:true,cancelable:true}));})()`); await sleep(50); const zPlainWheel = await zoomVar();
+report.pinch = { z0, zIn, zOut, zMax, zStepFromMax, zMin, zStepFromMin, zPlainWheel };
+// autoZoom multiplies --zoom, so compare ratios rather than absolute values.
+report.pinchOk = zIn > z0 && zOut < zIn && Math.abs(zMax / z0 - 2) < 0.02 && Math.abs(zStepFromMax / z0 - 1.7) < 0.02
+  && Math.abs(zMin / z0 - 0.8) < 0.02 && Math.abs(zStepFromMin / z0 - 0.9) < 0.02 && zPlainWheel === zStepFromMin;
+await evalJs(`document.querySelector('#app .top button.zoom-in').click()`); await sleep(50); // back to 100%
 // Edit mode: toggle, type, confirm dirty flag and re-render.
 await evalJs(`(async()=>{document.querySelector('#app .top button.edit, #app .top [data-mode=edit]')?.click()})()`);
 await sleep(300);
@@ -97,4 +113,4 @@ if (report.editorVisible) {
   await shot('ext-edited.png');
 }
 console.log(JSON.stringify(report, null, 2));
-clearTimeout(hardStop); killChrome(); process.exit(report.mounted && report.tables > 0 ? 0 : 1);
+clearTimeout(hardStop); killChrome(); process.exit(report.mounted && report.tables > 0 && report.pinchOk ? 0 : 1);

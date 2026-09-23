@@ -170,11 +170,29 @@
     // content pane (1.0 at <=1200px, up to 1.5 at 2400px+), then the user's A-/A+ steps multiply it.
     function applyZoom() { root.style.setProperty('--zoom', (S.zoom * S.autoZoom).toFixed(3)); root.style.setProperty('--ui-zoom', (1 + (S.autoZoom - 1) * 0.6).toFixed(3)); }
     function stepZoom(dir) {
-      const i = ZOOM_STEPS.indexOf(S.zoom); const j = Math.min(ZOOM_STEPS.length - 1, Math.max(0, (i < 0 ? 2 : i) + dir));
+      // Pinch can leave S.zoom between the steps: start from the nearest step in the requested direction.
+      let i = ZOOM_STEPS.indexOf(S.zoom);
+      if (i < 0) { const k = ZOOM_STEPS.findIndex((z) => z > S.zoom); i = dir > 0 ? (k < 0 ? ZOOM_STEPS.length : k) - 1 : (k < 0 ? ZOOM_STEPS.length : k); }
+      const j = Math.min(ZOOM_STEPS.length - 1, Math.max(0, i + dir));
       if (ZOOM_STEPS[j] === S.zoom) return;
       S.zoom = ZOOM_STEPS[j]; applyZoom(); adapter.setPref && adapter.setPref('zoom', S.zoom);
       flash('Text ' + Math.round(S.zoom * 100) + '%');
     }
+    // Trackpad pinch: Chromium delivers a macOS pinch as a wheel event with ctrlKey set (and a real ⌃-scroll the same
+    // way, which is fine). Zoom the text continuously between the min and max steps; persist once the gesture settles.
+    const ZOOM_MIN = ZOOM_STEPS[0], ZOOM_MAX = ZOOM_STEPS[ZOOM_STEPS.length - 1];
+    const settlePinch = debounce(() => { adapter.setPref && adapter.setPref('zoom', S.zoom); flash('Text ' + Math.round(S.zoom * 100) + '%'); }, 250);
+    function pinchZoom(deltaY) {
+      const z = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, S.zoom * Math.exp(-deltaY * 0.01)));
+      const r = Math.round(z * 100) / 100;
+      if (r === S.zoom) return;
+      S.zoom = r; applyZoom(); settlePinch();
+    }
+    root.addEventListener('wheel', (e) => {
+      if (!e.ctrlKey || e.deltaY === 0) return;
+      e.preventDefault(); // otherwise the page scrolls while the gesture is in progress
+      pinchZoom(e.deltaY);
+    }, { passive: false });
     function resetZoom() { S.zoom = 1; applyZoom(); adapter.setPref && adapter.setPref('zoom', 1); flash('Text 100%'); }
     function setWidth(w) {
       if (!WIDTHS.includes(w)) w = 'auto';
@@ -435,7 +453,7 @@
       setTheme(await g('theme', DEFAULT_THEME));
       togglePanel('files', adapter.listDir ? await g('files', true) : false);
       togglePanel('outline', await g('outline', true));
-      S.zoom = ZOOM_STEPS.includes(+(await g('zoom', 1))) ? +(await g('zoom', 1)) : 1; applyZoom();
+      { const z = +(await g('zoom', 1)); S.zoom = z >= ZOOM_MIN && z <= ZOOM_MAX ? Math.round(z * 100) / 100 : 1; } applyZoom();
       setWidth(await g('width', 'auto'));
       setMode('read');
       saveBtn.disabled = true;
