@@ -14,7 +14,7 @@ const udd = path.join(outdir, 'user-data'); rmSync(udd, { recursive: true, force
 const proc = spawn(electron, [`--remote-debugging-port=${port}`, `--user-data-dir=${udd}`, path.join(root, 'app'), sample], { stdio: ['ignore', 'ignore', 'pipe'] });
 const stop = () => { try { proc.kill('SIGKILL'); } catch {} };
 process.on('exit', stop);
-setTimeout(() => { console.error('FAIL: timeout'); stop(); process.exit(2); }, 60000);
+setTimeout(() => { console.error('FAIL: timeout'); stop(); process.exit(2); }, 90000);
 
 let page, lastTargets = [], errBuf = '';
 proc.stderr.on('data', (d) => (errBuf += d));

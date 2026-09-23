@@ -26,7 +26,7 @@
   const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
   function mount(root, adapter) {
-    const S = { path: null, text: '', saved: '', mode: 'read', theme: 'paper', files: true, outline: true, editingSec: null, tree: null, dirty: false, zoom: 1, autoZoom: 1, width: 'auto', tabs: [], tab: -1 };
+    const S = { path: null, text: '', saved: '', mode: 'read', theme: 'paper', files: true, outline: true, editingSec: null, tree: null, dirty: false, zoom: 1, autoZoom: 1, width: 'auto', tabs: [], tab: -1, loading: new Map() };
     // A tab = { path, text, saved, scroll }. The active tab's text/saved/path/dirty are mirrored into S while it is shown.
     const DEFAULT_THEME = 'mono';
 
@@ -232,11 +232,18 @@
     async function loadFile(path) {
       const existing = S.tabs.findIndex((t) => t.path === path);
       if (existing >= 0) return showTab(existing);
-      const text = await adapter.readFile(path);
-      stashActive();
-      S.tabs.push({ path, text, saved: text, scroll: 0 });
-      renderTabs();
-      await showTab(S.tabs.length - 1, true);
+      // Two opens for the same path can arrive before either finishes reading (a restored session, or Finder
+      // sending several files at once), so reserve the tab before the await rather than after it.
+      if (S.loading.has(path)) return S.loading.get(path);
+      const p = (async () => {
+        const text = await adapter.readFile(path);
+        stashActive();
+        S.tabs.push({ path, text, saved: text, scroll: 0 });
+        renderTabs();
+        await showTab(S.tabs.length - 1, true);
+      })().finally(() => S.loading.delete(path));
+      S.loading.set(path, p);
+      return p;
     }
     function stashActive() {
       const t = S.tabs[S.tab]; if (!t) return;

@@ -46,7 +46,10 @@ app.classList.add('always-tabs');
 const showEmpty = (on) => { empty.style.display = on ? 'flex' : 'none'; app.style.visibility = on ? 'hidden' : 'visible'; };
 showEmpty(true);
 
-async function open(p) { await shell.loadFile(p); showEmpty(false); }
+// Opens are serialised so several files handed over at once (a restored session, Finder multi-select) land as
+// tabs in the order they were sent and the LAST one ends up focused, instead of read-completion order.
+let opening = Promise.resolve();
+function open(p) { opening = opening.then(() => shell.loadFile(p)).then(() => showEmpty(false), (e) => console.warn(e)); return opening; }
 api.onOpenFile(open);
 document.getElementById('emptyOpen').onclick = async () => { const p = await api.openDialog(); if (p) open(p); };
 

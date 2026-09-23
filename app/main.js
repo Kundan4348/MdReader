@@ -36,11 +36,11 @@ function createWindow(filePath) {
     show: false,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: true },
   });
-  const entry = { win, paths: new Set(), active: null, dirty: false, watchers: new Map() };
+  const entry = { win, paths: new Set(), active: null, dirty: false, watchers: new Map(), loaded: false, queue: [] };
   wins.set(win.id, entry);
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.once('ready-to-show', () => win.show());
-  win.webContents.on('did-finish-load', () => { if (filePath) openInWindow(win, filePath); });
+  win.webContents.on('did-finish-load', () => { entry.loaded = true; const q = [filePath, ...entry.queue].filter(Boolean); entry.queue = []; q.forEach((p) => openInWindow(win, p)); });
   win.on('resize', () => { const [w, h] = win.getSize(); prefs.winW = w; prefs.winH = h; savePrefs(); });
   win.on('close', (e) => {
     const en = wins.get(win.id);
@@ -61,6 +61,7 @@ function createWindow(filePath) {
 function openInWindow(win, filePath) {
   const en = wins.get(win.id);
   if (!en) return;
+  if (!en.loaded) { en.queue.push(filePath); return; } // renderer not up yet: flushed on did-finish-load
   win.webContents.send('open-file', filePath); // renderer opens it as a tab and reports back via 'tabs'
   app.addRecentDocument(filePath);
 }
@@ -149,6 +150,7 @@ ipcMain.on('tabs', (e, { paths, active, dirty }) => {
   for (const p of next) watch(en, p);
   en.paths = next; en.active = active || null;
   en.dirty = dirty.some(Boolean); w.setDocumentEdited(en.dirty);
+  prefs.session = { paths, active: active || null }; savePrefs();
   w.setRepresentedFilename(active || '');
 });
 ipcMain.handle('confirm-discard', (e, name) => {
@@ -213,7 +215,15 @@ app.whenReady().then(() => {
   buildMenu();
   ready = true;
   const argPaths = process.argv.slice(1).map(pathFromArg).filter(Boolean);
-  const all = [...pendingOpens, ...argPaths];
+  // Tabs open at the last quit come back (files that vanished meanwhile are dropped). The LAST path opened ends up
+  // focused, so the tab that was active at quit goes last -- unless a file was actually asked for now, which wins.
+  const sess = prefs.session || {};
+  const restore = (sess.paths || []).filter((p) => { try { return fs.statSync(p).isFile(); } catch { return false; } });
+  const asked = [...pendingOpens, ...argPaths];
+  const order = asked.length
+    ? [...restore, ...asked]
+    : [...restore.filter((p) => p !== sess.active), ...(restore.includes(sess.active) ? [sess.active] : [])];
+  const all = [...new Set(order)];
   if (all.length) all.forEach((p) => openPath(p)); else createWindow(null);
   app.on('activate', () => { if (!wins.size) createWindow(null); });
 });
