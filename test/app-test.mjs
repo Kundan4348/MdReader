@@ -81,6 +81,9 @@ report.afterLinkClick = await tabs();
 // absolute paths written as text in third.md are links: the .md one opens as a tab (second.md already open -> focused,
 // no duplicate), the missing one is demoted to plain text, the folder is flagged, the ~ form resolves to sample.md.
 await ev(`document.querySelector('#app .tabs .tab[data-path$="third.md"]').click()`); await sleep(500);
+// `![..](img/blue.png)` is relative to third.md, not to the renderer page: it must resolve to the fixture and decode.
+report.image = await ev(`(async()=>{const i=document.querySelector('#app .doc img'); if(!i) return null; if(!i.complete) await new Promise(r=>{i.onload=i.onerror=r;}); return {src:i.src, w:i.naturalWidth, h:i.naturalHeight};})()`);
+report.imageOk = !!report.image && report.image.src.endsWith('/test/fixtures/img/blue.png') && report.image.w === 24 && report.image.h === 16;
 report.pathLinks = await ev(`[...document.querySelectorAll('#app .doc a.path')].map(a=>{const p=a.dataset.path,s=p.split('/');return (p.endsWith('/')?s.at(-2)+'/':s.at(-1))+':'+[...a.classList].filter(c=>c!=='path').join('|')})`);
 await ev(`document.querySelector('#app .doc a.path[data-path$="second.md"]').click()`); await sleep(400);
 report.afterPathClick = await tabs();
@@ -134,4 +137,4 @@ copyFileSync(backup, sample); // restore
 await sleep(800);
 report.reloadedFromDisk = await ev(`!document.querySelector('#app textarea').value.includes('[APP-EDIT]')`);
 console.log(JSON.stringify(report, null, 2));
-stop(); process.exit(report.mounted && report.filesPanelVisible && report.savedToDisk && !report.dirtyAfterSave && report.defaultTheme === 'mono' && report.stillMounted && report.outlineToggleOk && report.tabsOk && report.pathLinksOk && report.secondFileUntouched && report.crumbsOk ? 0 : 1);
+stop(); process.exit(report.mounted && report.filesPanelVisible && report.savedToDisk && !report.dirtyAfterSave && report.defaultTheme === 'mono' && report.stillMounted && report.outlineToggleOk && report.tabsOk && report.pathLinksOk && report.imageOk && report.secondFileUntouched && report.crumbsOk ? 0 : 1);

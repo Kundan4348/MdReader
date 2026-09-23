@@ -69,8 +69,15 @@
     setTimeout(() => hint.classList.add('gone'), 6000);
 
     // ---------- rendering ----------
+    // URL the current document lives at, for resolving relative image paths. The app hands over absolute file-system
+    // paths; the extension hands over the page's own URL (http(s)/file), which is already a URL.
+    function docBase() {
+      if (!S.path) return null;
+      if (/^[a-z][a-z0-9+.-]*:/i.test(S.path)) return S.path;
+      return 'file://' + S.path.split('/').map((seg) => encodeURIComponent(seg)).join('/');
+    }
     function paint() {
-      const r = MD.renderDoc(S.text);
+      const r = MD.renderDoc(S.text, { base: docBase(), home: adapter.home });
       head.replaceChildren(...r.headEl.childNodes);
       // chips (sections theme shows them; others hide via CSS)
       head.append(h('nav', { class: 'chips' }, ...r.sectionEls.map((s) => h('a', { href: '#' + s.id, onclick: (e) => { e.preventDefault(); scrollTo(s.id); }, html: (s.el.querySelector('h2 .t') || {}).innerHTML || MD.esc(s.title) }))));

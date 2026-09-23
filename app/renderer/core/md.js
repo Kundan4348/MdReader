@@ -66,7 +66,7 @@
     });
   }
 
-  function decorateMisc(root) {
+  function decorateMisc(root, opts) {
     root.querySelectorAll('pre > code').forEach((code) => {
       const lang = [...code.classList].find((c) => c.startsWith('language-'));
       if (lang) code.parentElement.dataset.lang = lang.slice(9);
@@ -74,7 +74,27 @@
     });
     root.querySelectorAll('input[type=checkbox]').forEach((cb) => { cb.disabled = true; cb.closest('li')?.classList.add('task'); });
     root.querySelectorAll('a[href^="http"]').forEach((a) => { a.target = '_blank'; a.rel = 'noopener'; });
+    rebaseImages(root, opts && opts.base, opts && opts.home);
     linkifyPaths(root);
+  }
+
+  // `![x](diagrams/out/a.png)` is relative to the .md FILE, but the page rendering it lives elsewhere (the app bundle,
+  // or the extension's viewer), so the browser would resolve it against the wrong folder and show nothing. Resolve
+  // every image against `base` (the document's own URL/dir) at render time; `~/x.png` expands to the home folder.
+  function rebaseImages(root, base, home) {
+    if (!base) return;
+    let baseUrl; try { baseUrl = new URL(base); } catch { return; }
+    root.querySelectorAll('img[src]').forEach((img) => {
+      let src = img.getAttribute('src') || '';
+      if (!src || /^(data|blob|https?|file|chrome-extension):/i.test(src)) return;
+      if (home && src.startsWith('~/')) src = home + src.slice(1);
+      try {
+        // A path is not a URL: percent-encode it segment-wise so spaces and '#' survive, but keep an existing "%20".
+        const enc = /%[0-9a-f]{2}/i.test(src) ? src : src.split('/').map((s) => encodeURIComponent(s)).join('/');
+        img.src = new URL(enc, baseUrl).href;
+        img.loading = 'lazy';
+      } catch { /* leave as written */ }
+    });
   }
 
   // Absolute file-system paths written as plain text (`/Users/me/notes/x.md`, `~/Documents/a.csv`, `/tmp/dir/`)
@@ -117,12 +137,12 @@
   }
 
   // Render one chunk of markdown to an element; decorate; return toc entries.
-  function renderChunk(md, toc, used) {
+  function renderChunk(md, toc, used, opts) {
     const el = document.createElement('div');
     el.innerHTML = marked.parse(md);
     decorateHeadings(el, toc, used);
     decorateTables(el);
-    decorateMisc(el);
+    decorateMisc(el, opts);
     return el;
   }
 
@@ -145,14 +165,15 @@
   }
 
   // Full document render.
+  // opts.base: URL of the document itself (relative image paths resolve against it); opts.home: the home folder.
   // Returns { headEl, sectionEls: [{el, title, index}], toc, stats }
-  function renderDoc(md) {
+  function renderDoc(md, opts) {
     const toc = [];
     const used = new Set();
     const { head, sections } = split(md);
-    const headEl = renderChunk(head, toc, used);
+    const headEl = renderChunk(head, toc, used, opts);
     const sectionEls = sections.map((s, i) => {
-      const el = renderChunk(s.src, toc, used);
+      const el = renderChunk(s.src, toc, used, opts);
       const h2 = el.querySelector('h2');
       const m = h2 && h2.textContent.match(/^\s*(\d+)[.)]\s+(.*)$/);
       if (h2 && m) h2.innerHTML = `<span class="n">${m[1].padStart(2, '0')}</span><span class="t">${h2.innerHTML.replace(/^\s*\d+[.)]\s+/, '')}</span>`;

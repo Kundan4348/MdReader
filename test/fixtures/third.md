@@ -7,6 +7,10 @@ See [the second one](second.md) and [sample](../../sample.md).
 - one
 - two
 
+## Picture
+
+![a blue box](img/blue.png)
+
 ## Paths
 
 Script: /Users/kunoku/Documents/MdReader/test/fixtures/tool.py -- a tool.
