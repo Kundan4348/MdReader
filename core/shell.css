@@ -76,12 +76,17 @@ html[data-theme] .app.no-outline{--outline-w:0px}html .app.no-outline .outline{d
 .tab:hover .x,.tab.on .x{opacity:.6}.tab .x:hover{opacity:1}
 /* Reading width + zoom. --measure is the column width, --zoom scales the whole document (auto-zoom on
    wide screens times the user's A-/A+ steps). Themes set .doc max-width to var(--measure). */
-.app{--zoom:1;--measure:min(100%,clamp(760px,58cqw,1080px))}
+.app{--zoom:1;--page:1;--measure:min(100%,clamp(760px,58cqw,1080px))}
 html[data-theme] .app[data-width=narrow]{--measure:min(100%,720px)}
 html[data-theme] .app[data-width=wide]{--measure:min(100%,clamp(960px,74cqw,1320px))}
 html[data-theme] .app[data-width=full]{--measure:100%}
-.doc,.editor{zoom:var(--zoom)}
+/* --zoom is the text size (reflows the column). --page is the pinch magnifier: the document is frozen at its laid-out
+   width (inline style, set by the shell) and scaled as a whole, so text, tables and images grow together and the
+   content pane pans over it like a magnified page. */
+.doc{zoom:calc(var(--zoom) * var(--page))}
+.editor{zoom:var(--zoom)}
 .doc{margin:0 auto;max-width:var(--measure)}
+html[data-theme] .app.paged .doc{max-width:none}
 .editor{max-width:var(--measure)}
 .head .chips{display:none}
 .sec{position:relative}
@@ -110,11 +115,6 @@ html[data-theme] .app[data-width=full]{--measure:100%}
 .hint kbd{margin:0 2px}
 .hint{transition:opacity .6s}.hint.gone{opacity:0}
 img{max-width:100%;height:auto}
-/* Image frame: normal flow at 100%; once pinched past 100% the image grows inside the frame and the frame pans. */
-.img-wrap{display:block;max-width:100%;overflow:hidden;border-radius:10px}
-.img-wrap img{display:block;margin:0 auto}
-.img-wrap.zoomed{overflow:auto;max-height:80vh;cursor:grab;outline:1px solid rgba(127,127,127,.25)}
-.img-wrap.zoomed img{max-width:none;margin:0}
 .table-wrap{overflow-x:auto}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 th.num{white-space:normal}

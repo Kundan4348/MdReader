@@ -83,22 +83,20 @@ await evalJs(`document.querySelector('#app .top button.zoom-in').click()`); awai
 report.zoomAfterPlus = await evalJs(`getComputedStyle(document.querySelector('#app')).getPropertyValue('--zoom').trim()`);
 report.h1pxAfterPlus = await evalJs(`document.querySelector('#app h1').getBoundingClientRect().height|0`);
 await evalJs(`document.querySelector('#app .top button.zoom-out').click()`); await sleep(100);
-// Trackpad pinch arrives as ctrl+wheel: negative deltaY = pinch out (zoom in). 10 ticks of -8 => x2.2, clamped at 2.
+// Trackpad pinch arrives as ctrl+wheel and drives the PAGE magnifier (--page), never the text size (--zoom).
+const pageVar = () => evalJs(`+getComputedStyle(document.querySelector('#app')).getPropertyValue('--page')`);
 const zoomVar = () => evalJs(`+getComputedStyle(document.querySelector('#app')).getPropertyValue('--zoom')`);
-const pinch = (dy, n) => evalJs(`(()=>{const el=document.querySelector('#app .doc')||document.querySelector('#app');for(let i=0;i<${n};i++) el.dispatchEvent(new WheelEvent('wheel',{deltaY:${dy},ctrlKey:true,bubbles:true,cancelable:true}));})()`);
-const z0 = await zoomVar();
-await pinch(-8, 3); await sleep(50); const zIn = await zoomVar();
-await pinch(8, 6); await sleep(50); const zOut = await zoomVar();
-await pinch(-8, 40); await sleep(50); const zMax = await zoomVar();
-await evalJs(`document.querySelector('#app .top button.zoom-out').click()`); await sleep(50); const zStepFromMax = await zoomVar();
-await pinch(8, 200); await sleep(50); const zMin = await zoomVar();
-await evalJs(`document.querySelector('#app .top button.zoom-in').click()`); await sleep(50); const zStepFromMin = await zoomVar();
-await evalJs(`(()=>{const el=document.querySelector('#app .doc')||document.querySelector('#app');el.dispatchEvent(new WheelEvent('wheel',{deltaY:8,bubbles:true,cancelable:true}));})()`); await sleep(50); const zPlainWheel = await zoomVar();
-report.pinch = { z0, zIn, zOut, zMax, zStepFromMax, zMin, zStepFromMin, zPlainWheel };
-// autoZoom multiplies --zoom, so compare ratios rather than absolute values.
-report.pinchOk = zIn > z0 && zOut < zIn && Math.abs(zMax / z0 - 2) < 0.02 && Math.abs(zStepFromMax / z0 - 1.7) < 0.02
-  && Math.abs(zMin / z0 - 0.8) < 0.02 && Math.abs(zStepFromMin / z0 - 0.9) < 0.02 && zPlainWheel === zStepFromMin;
-await evalJs(`document.querySelector('#app .top button.zoom-in').click()`); await sleep(50); // back to 100%
+const pinch = (dy, n) => evalJs(`(()=>{const el=document.querySelector('#app .doc');const r=el.getBoundingClientRect();for(let i=0;i<${n};i++) el.dispatchEvent(new WheelEvent('wheel',{deltaY:${dy},ctrlKey:true,bubbles:true,cancelable:true,clientX:r.left+50,clientY:r.top+50}));})()`);
+const z0 = await zoomVar(), p0 = await pageVar();
+await pinch(-8, 3); await sleep(50); const pIn = await pageVar(), zIn = await zoomVar();
+const docWider = await evalJs(`document.querySelector('#app').classList.contains('paged') && document.querySelector('#app .doc').getBoundingClientRect().width > document.querySelector('#app .content').clientWidth`);
+await pinch(8, 6); await sleep(50); const pOut = await pageVar();
+await pinch(-8, 400); await sleep(50); const pMax = await pageVar();
+await pinch(8, 400); await sleep(50); const pMin = await pageVar();
+await evalJs(`(()=>{const el=document.querySelector('#app .doc');el.dispatchEvent(new WheelEvent('wheel',{deltaY:8,bubbles:true,cancelable:true}));})()`); await sleep(50); const pPlainWheel = await pageVar();
+await pinch(-69.3147, 1); await sleep(50); const pReset = await pageVar(); // 0.5 * e^0.693147 = 1.000 -> back to 100%
+report.pinch = { z0, p0, pIn, zIn, docWider, pOut, pMax, pMin, pPlainWheel, pReset };
+report.pinchOk = p0 === 1 && pIn > 1 && zIn === z0 && docWider && pOut < pIn && pMax === 4 && pMin === 0.5 && pPlainWheel === pMin && pReset === 1;
 // Edit mode: toggle, type, confirm dirty flag and re-render.
 await evalJs(`(async()=>{document.querySelector('#app .top button.edit, #app .top [data-mode=edit]')?.click()})()`);
 await sleep(300);

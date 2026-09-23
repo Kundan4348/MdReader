@@ -84,34 +84,35 @@ await ev(`document.querySelector('#app .tabs .tab[data-path$="third.md"]').click
 // `![..](img/blue.png)` is relative to third.md, not to the renderer page: it must resolve to the fixture and decode.
 report.image = await ev(`(async()=>{const i=document.querySelector('#app .doc img'); if(!i) return null; if(!i.complete) await new Promise(r=>{i.onload=i.onerror=r;}); return {src:i.src, w:i.naturalWidth, h:i.naturalHeight};})()`);
 report.imageOk = !!report.image && report.image.src.endsWith('/test/fixtures/img/blue.png') && report.image.w === 24 && report.image.h === 16;
-// Pinch anchoring: zoom over the "Paths" heading -> that heading must stay under the pointer; pinch over the image ->
-// only the image grows (document zoom unchanged) and a double-click restores it.
-report.pinchAnchor = await ev(`(()=>{
+// Pinch = page magnifier anchored at the pointer. Over the "Paths" heading: heading stays under the pointer, --page
+// grows, --zoom (text size) does not. Over the image: image grows with the page and stays under the pointer. A tab
+// switch resets magnification.
+const anchorProbe = (selectorJs) => ev(`(()=>{
   const app=document.querySelector('#app'), content=app.querySelector('.content');
-  const hs=[...app.querySelectorAll('.doc h2')]; const h2=hs.find(x=>x.textContent.includes('Paths'));
-  h2.scrollIntoView({block:'center'});
-  const r0=h2.getBoundingClientRect(); const px=r0.left+10, py=r0.top+r0.height/2;
-  const zoom=()=>+getComputedStyle(app).getPropertyValue('--zoom');
-  const z0=zoom();
-  for(let i=0;i<6;i++) content.dispatchEvent(new WheelEvent('wheel',{deltaY:-8,ctrlKey:true,bubbles:true,cancelable:true,clientX:px,clientY:py}));
-  const r1=h2.getBoundingClientRect(); const z1=zoom();
-  for(let i=0;i<6;i++) content.dispatchEvent(new WheelEvent('wheel',{deltaY:8,ctrlKey:true,bubbles:true,cancelable:true,clientX:px,clientY:py}));
-  const r2=h2.getBoundingClientRect(); const z2=zoom();
-  return {z0,z1,z2,drift1:Math.abs((r1.top+r1.height/2)-py),drift2:Math.abs((r2.top+r2.height/2)-py),grew:r1.height>r0.height};
+  const el=${selectorJs}; el.scrollIntoView({block:'center'});
+  const r0=el.getBoundingClientRect(); const px=r0.left+Math.min(10,r0.width/2), py=r0.top+r0.height/2;
+  const page=()=>+getComputedStyle(app).getPropertyValue('--page'), zoom=()=>+getComputedStyle(app).getPropertyValue('--zoom');
+  const z0=zoom(), p0=page();
+  // the anchor point's offset inside the element, as a fraction, must be preserved
+  const fx=(px-r0.left)/r0.width, fy=(py-r0.top)/r0.height;
+  for(let i=0;i<8;i++) content.dispatchEvent(new WheelEvent('wheel',{deltaY:-8,ctrlKey:true,bubbles:true,cancelable:true,clientX:px,clientY:py}));
+  const r1=el.getBoundingClientRect(); const p1=page(), z1=zoom();
+  const drift1=Math.hypot((r1.left+fx*r1.width)-px,(r1.top+fy*r1.height)-py);
+  for(let i=0;i<8;i++) content.dispatchEvent(new WheelEvent('wheel',{deltaY:8,ctrlKey:true,bubbles:true,cancelable:true,clientX:px,clientY:py}));
+  const r2=el.getBoundingClientRect(); const p2=page(), z2=zoom();
+  const drift2=Math.hypot((r2.left+fx*r2.width)-px,(r2.top+fy*r2.height)-py);
+  return {z0,z1,z2,p0,p1,p2,w0:r0.width,w1:r1.width,w2:r2.width,drift1,drift2};
 })()`);
-report.pinchImage = await ev(`(()=>{
-  const app=document.querySelector('#app'); const wrap=app.querySelector('.doc .img-wrap'), img=wrap.querySelector('img');
-  wrap.scrollIntoView({block:'center'});
-  const zoom=()=>+getComputedStyle(app).getPropertyValue('--zoom'); const z0=zoom();
-  const r0=img.getBoundingClientRect(); const px=r0.left+r0.width/2, py=r0.top+r0.height/2;
-  for(let i=0;i<10;i++) img.dispatchEvent(new WheelEvent('wheel',{deltaY:-8,ctrlKey:true,bubbles:true,cancelable:true,clientX:px,clientY:py}));
-  const r1=img.getBoundingClientRect(); const scale=+wrap.dataset.scale, zoomed=wrap.classList.contains('zoomed'), z1=zoom();
-  img.dispatchEvent(new MouseEvent('dblclick',{bubbles:true,clientX:px,clientY:py}));
-  const r2=img.getBoundingClientRect();
-  return {z0,z1,scale,zoomed,w0:r0.width,w1:r1.width,w2:r2.width,restored:!wrap.classList.contains('zoomed')};
-})()`);
-report.pinchAnchorOk = report.pinchAnchor.z1 > report.pinchAnchor.z0 && report.pinchAnchor.grew && report.pinchAnchor.drift1 < 4 && report.pinchAnchor.drift2 < 4 && Math.abs(report.pinchAnchor.z2 - report.pinchAnchor.z0) < 0.02
-  && report.pinchImage.z1 === report.pinchImage.z0 && report.pinchImage.zoomed && report.pinchImage.scale > 1.5 && report.pinchImage.w1 > report.pinchImage.w0 * 1.5 && report.pinchImage.restored && Math.abs(report.pinchImage.w2 - report.pinchImage.w0) < 1;
+report.pinchAnchor = await anchorProbe(`[...app.querySelectorAll('.doc h2')].find(x=>x.textContent.includes('Paths'))`);
+report.pinchImage = await anchorProbe(`app.querySelector('.doc img')`);
+const anchored = (a) => a && a.p0 === 1 && a.p1 > 1.5 && a.z1 === a.z0 && Math.abs(a.w1 / a.w0 - a.p1) < 0.02 && a.drift1 < 3 && a.drift2 < 3 && Math.abs(a.p2 - 1) < 0.001 && Math.abs(a.w2 - a.w0) < 0.5;
+// leave magnified, switch to another tab and back: must come back at 100%
+await ev(`(()=>{const c=document.querySelector('#app .content');const r=c.getBoundingClientRect();for(let i=0;i<8;i++) c.dispatchEvent(new WheelEvent('wheel',{deltaY:-8,ctrlKey:true,bubbles:true,cancelable:true,clientX:r.left+100,clientY:r.top+100}));})()`);
+report.pageBeforeSwitch = await ev(`+getComputedStyle(document.querySelector('#app')).getPropertyValue('--page')`);
+await ev(`document.querySelector('#app .tabs .tab[data-path$="second.md"]').click()`); await sleep(300);
+report.pageAfterSwitch = await ev(`+getComputedStyle(document.querySelector('#app')).getPropertyValue('--page')`);
+await ev(`document.querySelector('#app .tabs .tab[data-path$="third.md"]').click()`); await sleep(300);
+report.pinchAnchorOk = anchored(report.pinchAnchor) && anchored(report.pinchImage) && report.pageBeforeSwitch > 1 && report.pageAfterSwitch === 1;
 report.pathLinks = await ev(`[...document.querySelectorAll('#app .doc a.path')].map(a=>{const p=a.dataset.path,s=p.split('/');return (p.endsWith('/')?s.at(-2)+'/':s.at(-1))+':'+[...a.classList].filter(c=>c!=='path').join('|')})`);
 await ev(`document.querySelector('#app .doc a.path[data-path$="second.md"]').click()`); await sleep(400);
 report.afterPathClick = await tabs();

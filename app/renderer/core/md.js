@@ -75,12 +75,6 @@
     root.querySelectorAll('input[type=checkbox]').forEach((cb) => { cb.disabled = true; cb.closest('li')?.classList.add('task'); });
     root.querySelectorAll('a[href^="http"]').forEach((a) => { a.target = '_blank'; a.rel = 'noopener'; });
     rebaseImages(root, opts && opts.base, opts && opts.home);
-    // Each image sits in its own frame so a pinch over it can enlarge it past the column and pan inside the frame.
-    root.querySelectorAll('img').forEach((img) => {
-      if (img.closest('.img-wrap')) return;
-      const w = document.createElement('span'); w.className = 'img-wrap';
-      img.replaceWith(w); w.appendChild(img);
-    });
     linkifyPaths(root);
   }
 

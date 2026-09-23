@@ -26,7 +26,7 @@
   const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
   function mount(root, adapter) {
-    const S = { path: null, text: '', saved: '', mode: 'read', theme: 'paper', files: true, outline: true, editingSec: null, tree: null, dirty: false, zoom: 1, autoZoom: 1, width: 'auto', tabs: [], tab: -1, loading: new Map() };
+    const S = { path: null, text: '', saved: '', mode: 'read', theme: 'paper', files: true, outline: true, editingSec: null, tree: null, dirty: false, zoom: 1, autoZoom: 1, page: 1, width: 'auto', tabs: [], tab: -1, loading: new Map() };
     // A tab = { path, text, saved, scroll }. The active tab's text/saved/path/dirty are mirrored into S while it is shown.
     const DEFAULT_THEME = 'mono';
 
@@ -178,55 +178,47 @@
       S.zoom = ZOOM_STEPS[j]; applyZoom(); adapter.setPref && adapter.setPref('zoom', S.zoom);
       flash('Text ' + Math.round(S.zoom * 100) + '%');
     }
-    // Trackpad pinch: Chromium delivers a macOS pinch as a wheel event with ctrlKey set (and a real ⌃-scroll the same
-    // way, which is fine). Over an image the image itself zooms and pans inside its frame; anywhere else the whole
-    // document zooms, keeping the point under the pointer fixed on screen (like a map), between the min and max steps.
-    const ZOOM_MIN = ZOOM_STEPS[0], ZOOM_MAX = ZOOM_STEPS[ZOOM_STEPS.length - 1];
-    const settlePinch = debounce(() => { adapter.setPref && adapter.setPref('zoom', S.zoom); flash('Text ' + Math.round(S.zoom * 100) + '%'); }, 250);
-    const pinchFactor = (deltaY) => Math.exp(-deltaY * 0.01);
-    function pinchDoc(e) {
-      const z = Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, S.zoom * pinchFactor(e.deltaY))) * 100) / 100;
-      if (z === S.zoom) return;
-      const ratio = z / S.zoom;
-      const before = doc.getBoundingClientRect();
-      const dx = e.clientX - before.left, dy = e.clientY - before.top; // pointer, relative to the document, in screen px
-      S.zoom = z; applyZoom();
-      const after = doc.getBoundingClientRect(); // layout is forced here; the doc has re-centred and grown
-      content.scrollLeft += after.left + dx * ratio - e.clientX;
-      content.scrollTop += after.top + dy * ratio - e.clientY;
-      settlePinch();
+    // ---------- page magnification (trackpad pinch) ----------
+    // Chromium delivers a macOS pinch as a wheel event with ctrlKey set. This is a magnifier, not a text-size change:
+    // the document is frozen at its current laid-out width and scaled as a whole (text, tables and images together),
+    // the pane pans over it, and the point under the pointer stays fixed on screen. Transient: resets per document.
+    const PAGE_MIN = 0.5, PAGE_MAX = 4;
+    const settlePage = debounce(() => flash(S.page === 1 ? 'Zoom 100%' : 'Zoom ' + Math.round(S.page * 100) + '%'), 250);
+    function applyPage() {
+      if (S.page === 1) { root.classList.remove('paged'); doc.style.width = ''; root.style.setProperty('--page', '1'); return; }
+      if (!root.classList.contains('paged')) { doc.style.width = doc.offsetWidth + 'px'; root.classList.add('paged'); } // offsetWidth is in the doc's own px, unaffected by CSS zoom
+      root.style.setProperty('--page', S.page.toFixed(3));
     }
-    const IMG_MAX = 6;
-    const settleImg = debounce((s) => flash('Image ' + Math.round(s * 100) + '%'), 250);
-    function pinchImage(wrap, e) {
-      const img = wrap.querySelector('img'); if (!img || !img.naturalWidth) return;
-      const cur = +wrap.dataset.scale || 1;
-      const s = Math.round(Math.min(IMG_MAX, Math.max(1, cur * pinchFactor(e.deltaY))) * 100) / 100;
-      if (s === cur) return;
-      if (!wrap.dataset.base) wrap.dataset.base = img.offsetWidth; // laid-out width at 100%, in the doc's own px (offsetWidth ignores CSS zoom)
-      const before = img.getBoundingClientRect();
-      const ix = e.clientX - before.left, iy = e.clientY - before.top;
-      const Z = before.width / img.offsetWidth || 1; // screen px per doc px (the document's own zoom)
-      wrap.dataset.scale = s;
-      wrap.classList.toggle('zoomed', s > 1);
-      img.style.width = s > 1 ? (+wrap.dataset.base * s) + 'px' : '';
-      const after = img.getBoundingClientRect();
-      wrap.scrollLeft += (after.left + ix * (s / cur) - e.clientX) / Z;
-      wrap.scrollTop += (after.top + iy * (s / cur) - e.clientY) / Z;
-      settleImg(s);
+    // The anchor is the document point under the pointer when the gesture STARTS, kept as a fraction of the (never
+    // reflowing) document box. Every step re-solves the scroll offset against that same point, so rounding of the
+    // scroll position cannot accumulate across the dozens of wheel events one pinch produces.
+    let gesture = null;
+    function anchorFor(cx, cy) {
+      const now = performance.now();
+      if (gesture && now - gesture.t < 250 && Math.abs(cx - gesture.ax) < 4 && Math.abs(cy - gesture.ay) < 4) { gesture.t = now; return gesture; }
+      const b = doc.getBoundingClientRect();
+      gesture = { fx: (cx - b.left) / b.width, fy: (cy - b.top) / b.height, ax: cx, ay: cy, t: now };
+      return gesture;
     }
-    root.addEventListener('wheel', (e) => {
+    function setPage(k, cx, cy) {
+      k = Math.round(Math.min(PAGE_MAX, Math.max(PAGE_MIN, k)) * 1000) / 1000;
+      if (k === S.page) return;
+      const a = cx == null ? null : anchorFor(cx, cy);
+      S.page = k; applyPage();
+      if (a) {
+        const after = doc.getBoundingClientRect(); // forces layout; the scaled doc may have re-centred
+        content.scrollLeft += after.left + a.fx * after.width - a.ax;
+        content.scrollTop += after.top + a.fy * after.height - a.ay;
+      }
+      settlePage();
+    }
+    function resetPage() { if (S.page !== 1) { S.page = 1; applyPage(); } }
+    content.addEventListener('wheel', (e) => {
       if (!e.ctrlKey || e.deltaY === 0) return;
-      e.preventDefault(); // otherwise the page scrolls while the gesture is in progress
-      const wrap = e.target.closest && e.target.closest('.img-wrap');
-      if (wrap) pinchImage(wrap, e); else pinchDoc(e);
+      e.preventDefault(); // otherwise the pane scrolls while the gesture is in progress
+      setPage(S.page * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY);
     }, { passive: false });
-    // Double-click a zoomed image to put it back.
-    root.addEventListener('dblclick', (e) => {
-      const wrap = e.target.closest && e.target.closest('.img-wrap.zoomed'); if (!wrap) return;
-      wrap.dataset.scale = 1; wrap.classList.remove('zoomed'); wrap.querySelector('img').style.width = ''; wrap.scrollTo(0, 0); flash('Image 100%');
-    });
-    function resetZoom() { S.zoom = 1; applyZoom(); adapter.setPref && adapter.setPref('zoom', 1); flash('Text 100%'); }
+    function resetZoom() { S.zoom = 1; applyZoom(); adapter.setPref && adapter.setPref('zoom', 1); resetPage(); flash('Text 100% · Zoom 100%'); }
     function setWidth(w) {
       if (!WIDTHS.includes(w)) w = 'auto';
       S.width = w; root.dataset.width = w; widthBtn.dataset.w = w;
@@ -310,6 +302,7 @@
     }
     async function showTab(i, fresh) {
       if (i < 0 || i >= S.tabs.length) return;
+      resetPage(); // magnification is per document
       if (i !== S.tab) stashActive();
       S.tab = i; const t = S.tabs[i];
       S.path = t.path; S.saved = t.saved; setText(t.text); setDirty(t.text !== t.saved);
@@ -486,7 +479,7 @@
       setTheme(await g('theme', DEFAULT_THEME));
       togglePanel('files', adapter.listDir ? await g('files', true) : false);
       togglePanel('outline', await g('outline', true));
-      { const z = +(await g('zoom', 1)); S.zoom = z >= ZOOM_MIN && z <= ZOOM_MAX ? Math.round(z * 100) / 100 : 1; } applyZoom();
+      { const z = +(await g('zoom', 1)); S.zoom = z >= ZOOM_STEPS[0] && z <= ZOOM_STEPS[ZOOM_STEPS.length - 1] ? Math.round(z * 100) / 100 : 1; } applyZoom();
       setWidth(await g('width', 'auto'));
       setMode('read');
       saveBtn.disabled = true;
