@@ -179,20 +179,53 @@
       flash('Text ' + Math.round(S.zoom * 100) + '%');
     }
     // Trackpad pinch: Chromium delivers a macOS pinch as a wheel event with ctrlKey set (and a real ⌃-scroll the same
-    // way, which is fine). Zoom the text continuously between the min and max steps; persist once the gesture settles.
+    // way, which is fine). Over an image the image itself zooms and pans inside its frame; anywhere else the whole
+    // document zooms, keeping the point under the pointer fixed on screen (like a map), between the min and max steps.
     const ZOOM_MIN = ZOOM_STEPS[0], ZOOM_MAX = ZOOM_STEPS[ZOOM_STEPS.length - 1];
     const settlePinch = debounce(() => { adapter.setPref && adapter.setPref('zoom', S.zoom); flash('Text ' + Math.round(S.zoom * 100) + '%'); }, 250);
-    function pinchZoom(deltaY) {
-      const z = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, S.zoom * Math.exp(-deltaY * 0.01)));
-      const r = Math.round(z * 100) / 100;
-      if (r === S.zoom) return;
-      S.zoom = r; applyZoom(); settlePinch();
+    const pinchFactor = (deltaY) => Math.exp(-deltaY * 0.01);
+    function pinchDoc(e) {
+      const z = Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, S.zoom * pinchFactor(e.deltaY))) * 100) / 100;
+      if (z === S.zoom) return;
+      const ratio = z / S.zoom;
+      const before = doc.getBoundingClientRect();
+      const dx = e.clientX - before.left, dy = e.clientY - before.top; // pointer, relative to the document, in screen px
+      S.zoom = z; applyZoom();
+      const after = doc.getBoundingClientRect(); // layout is forced here; the doc has re-centred and grown
+      content.scrollLeft += after.left + dx * ratio - e.clientX;
+      content.scrollTop += after.top + dy * ratio - e.clientY;
+      settlePinch();
+    }
+    const IMG_MAX = 6;
+    const settleImg = debounce((s) => flash('Image ' + Math.round(s * 100) + '%'), 250);
+    function pinchImage(wrap, e) {
+      const img = wrap.querySelector('img'); if (!img || !img.naturalWidth) return;
+      const cur = +wrap.dataset.scale || 1;
+      const s = Math.round(Math.min(IMG_MAX, Math.max(1, cur * pinchFactor(e.deltaY))) * 100) / 100;
+      if (s === cur) return;
+      if (!wrap.dataset.base) wrap.dataset.base = img.offsetWidth; // laid-out width at 100%, in the doc's own px (offsetWidth ignores CSS zoom)
+      const before = img.getBoundingClientRect();
+      const ix = e.clientX - before.left, iy = e.clientY - before.top;
+      const Z = before.width / img.offsetWidth || 1; // screen px per doc px (the document's own zoom)
+      wrap.dataset.scale = s;
+      wrap.classList.toggle('zoomed', s > 1);
+      img.style.width = s > 1 ? (+wrap.dataset.base * s) + 'px' : '';
+      const after = img.getBoundingClientRect();
+      wrap.scrollLeft += (after.left + ix * (s / cur) - e.clientX) / Z;
+      wrap.scrollTop += (after.top + iy * (s / cur) - e.clientY) / Z;
+      settleImg(s);
     }
     root.addEventListener('wheel', (e) => {
       if (!e.ctrlKey || e.deltaY === 0) return;
       e.preventDefault(); // otherwise the page scrolls while the gesture is in progress
-      pinchZoom(e.deltaY);
+      const wrap = e.target.closest && e.target.closest('.img-wrap');
+      if (wrap) pinchImage(wrap, e); else pinchDoc(e);
     }, { passive: false });
+    // Double-click a zoomed image to put it back.
+    root.addEventListener('dblclick', (e) => {
+      const wrap = e.target.closest && e.target.closest('.img-wrap.zoomed'); if (!wrap) return;
+      wrap.dataset.scale = 1; wrap.classList.remove('zoomed'); wrap.querySelector('img').style.width = ''; wrap.scrollTo(0, 0); flash('Image 100%');
+    });
     function resetZoom() { S.zoom = 1; applyZoom(); adapter.setPref && adapter.setPref('zoom', 1); flash('Text 100%'); }
     function setWidth(w) {
       if (!WIDTHS.includes(w)) w = 'auto';

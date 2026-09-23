@@ -110,6 +110,11 @@ html[data-theme] .app[data-width=full]{--measure:100%}
 .hint kbd{margin:0 2px}
 .hint{transition:opacity .6s}.hint.gone{opacity:0}
 img{max-width:100%;height:auto}
+/* Image frame: normal flow at 100%; once pinched past 100% the image grows inside the frame and the frame pans. */
+.img-wrap{display:block;max-width:100%;overflow:hidden;border-radius:10px}
+.img-wrap img{display:block;margin:0 auto}
+.img-wrap.zoomed{overflow:auto;max-height:80vh;cursor:grab;outline:1px solid rgba(127,127,127,.25)}
+.img-wrap.zoomed img{max-width:none;margin:0}
 .table-wrap{overflow-x:auto}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 th.num{white-space:normal}

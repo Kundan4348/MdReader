@@ -84,6 +84,34 @@ await ev(`document.querySelector('#app .tabs .tab[data-path$="third.md"]').click
 // `![..](img/blue.png)` is relative to third.md, not to the renderer page: it must resolve to the fixture and decode.
 report.image = await ev(`(async()=>{const i=document.querySelector('#app .doc img'); if(!i) return null; if(!i.complete) await new Promise(r=>{i.onload=i.onerror=r;}); return {src:i.src, w:i.naturalWidth, h:i.naturalHeight};})()`);
 report.imageOk = !!report.image && report.image.src.endsWith('/test/fixtures/img/blue.png') && report.image.w === 24 && report.image.h === 16;
+// Pinch anchoring: zoom over the "Paths" heading -> that heading must stay under the pointer; pinch over the image ->
+// only the image grows (document zoom unchanged) and a double-click restores it.
+report.pinchAnchor = await ev(`(()=>{
+  const app=document.querySelector('#app'), content=app.querySelector('.content');
+  const hs=[...app.querySelectorAll('.doc h2')]; const h2=hs.find(x=>x.textContent.includes('Paths'));
+  h2.scrollIntoView({block:'center'});
+  const r0=h2.getBoundingClientRect(); const px=r0.left+10, py=r0.top+r0.height/2;
+  const zoom=()=>+getComputedStyle(app).getPropertyValue('--zoom');
+  const z0=zoom();
+  for(let i=0;i<6;i++) content.dispatchEvent(new WheelEvent('wheel',{deltaY:-8,ctrlKey:true,bubbles:true,cancelable:true,clientX:px,clientY:py}));
+  const r1=h2.getBoundingClientRect(); const z1=zoom();
+  for(let i=0;i<6;i++) content.dispatchEvent(new WheelEvent('wheel',{deltaY:8,ctrlKey:true,bubbles:true,cancelable:true,clientX:px,clientY:py}));
+  const r2=h2.getBoundingClientRect(); const z2=zoom();
+  return {z0,z1,z2,drift1:Math.abs((r1.top+r1.height/2)-py),drift2:Math.abs((r2.top+r2.height/2)-py),grew:r1.height>r0.height};
+})()`);
+report.pinchImage = await ev(`(()=>{
+  const app=document.querySelector('#app'); const wrap=app.querySelector('.doc .img-wrap'), img=wrap.querySelector('img');
+  wrap.scrollIntoView({block:'center'});
+  const zoom=()=>+getComputedStyle(app).getPropertyValue('--zoom'); const z0=zoom();
+  const r0=img.getBoundingClientRect(); const px=r0.left+r0.width/2, py=r0.top+r0.height/2;
+  for(let i=0;i<10;i++) img.dispatchEvent(new WheelEvent('wheel',{deltaY:-8,ctrlKey:true,bubbles:true,cancelable:true,clientX:px,clientY:py}));
+  const r1=img.getBoundingClientRect(); const scale=+wrap.dataset.scale, zoomed=wrap.classList.contains('zoomed'), z1=zoom();
+  img.dispatchEvent(new MouseEvent('dblclick',{bubbles:true,clientX:px,clientY:py}));
+  const r2=img.getBoundingClientRect();
+  return {z0,z1,scale,zoomed,w0:r0.width,w1:r1.width,w2:r2.width,restored:!wrap.classList.contains('zoomed')};
+})()`);
+report.pinchAnchorOk = report.pinchAnchor.z1 > report.pinchAnchor.z0 && report.pinchAnchor.grew && report.pinchAnchor.drift1 < 4 && report.pinchAnchor.drift2 < 4 && Math.abs(report.pinchAnchor.z2 - report.pinchAnchor.z0) < 0.02
+  && report.pinchImage.z1 === report.pinchImage.z0 && report.pinchImage.zoomed && report.pinchImage.scale > 1.5 && report.pinchImage.w1 > report.pinchImage.w0 * 1.5 && report.pinchImage.restored && Math.abs(report.pinchImage.w2 - report.pinchImage.w0) < 1;
 report.pathLinks = await ev(`[...document.querySelectorAll('#app .doc a.path')].map(a=>{const p=a.dataset.path,s=p.split('/');return (p.endsWith('/')?s.at(-2)+'/':s.at(-1))+':'+[...a.classList].filter(c=>c!=='path').join('|')})`);
 await ev(`document.querySelector('#app .doc a.path[data-path$="second.md"]').click()`); await sleep(400);
 report.afterPathClick = await tabs();
@@ -137,4 +165,4 @@ copyFileSync(backup, sample); // restore
 await sleep(800);
 report.reloadedFromDisk = await ev(`!document.querySelector('#app textarea').value.includes('[APP-EDIT]')`);
 console.log(JSON.stringify(report, null, 2));
-stop(); process.exit(report.mounted && report.filesPanelVisible && report.savedToDisk && !report.dirtyAfterSave && report.defaultTheme === 'mono' && report.stillMounted && report.outlineToggleOk && report.tabsOk && report.pathLinksOk && report.imageOk && report.secondFileUntouched && report.crumbsOk ? 0 : 1);
+stop(); process.exit(report.mounted && report.filesPanelVisible && report.savedToDisk && !report.dirtyAfterSave && report.defaultTheme === 'mono' && report.stillMounted && report.outlineToggleOk && report.tabsOk && report.pathLinksOk && report.imageOk && report.pinchAnchorOk && report.secondFileUntouched && report.crumbsOk ? 0 : 1);
