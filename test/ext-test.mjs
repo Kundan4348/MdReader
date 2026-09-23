@@ -99,6 +99,14 @@ const docWider = await evalJs(`document.querySelector('#app').classList.contains
 await clickBtn('zoom-in'); await sleep(50); const pPlusAfterPinch = await pageVar();
 await clickBtn('zoom-out'); await sleep(50); const pMinusAfterPinch = await pageVar();
 await pinch(8, 6); await sleep(50); const pOut = await pageVar();
+// the ↔ width button must still change the column while magnified (the frozen layout re-freezes at the new --measure)
+const docW = () => evalJs(`document.querySelector('#app .doc').getBoundingClientRect().width|0`);
+const setW = (w) => evalJs(`(()=>{const b=document.querySelector('#app .top button.width'); let n=0; while(document.querySelector('#app').dataset.width!=='${w}'&&n++<5) b.click();})()`);
+await setW('narrow'); await sleep(80); const wNarrowPaged = await docW();
+await setW('full'); await sleep(80); const wFullPaged = await docW();
+await setW('auto'); await sleep(80); const pAfterWidth = await pageVar();
+report.widthWhilePaged = { wNarrowPaged, wFullPaged, pAfterWidth };
+report.widthOk = report.widths.narrow < report.widths.full && wNarrowPaged < wFullPaged && Math.abs(pAfterWidth - pOut) < 0.002;
 await pinch(-8, 400); await sleep(50); const pMax = await pageVar();
 await pinch(8, 400); await sleep(50); const pMin = await pageVar();
 await evalJs(`(()=>{const el=document.querySelector('#app .doc');el.dispatchEvent(new WheelEvent('wheel',{deltaY:8,bubbles:true,cancelable:true}));})()`); await sleep(50); const pPlainWheel = await pageVar();
@@ -120,4 +128,4 @@ if (report.editorVisible) {
   await shot('ext-edited.png');
 }
 console.log(JSON.stringify(report, null, 2));
-clearTimeout(hardStop); killChrome(); process.exit(report.mounted && report.tables > 0 && report.pinchOk && report.buttonsOk ? 0 : 1);
+clearTimeout(hardStop); killChrome(); process.exit(report.mounted && report.tables > 0 && report.pinchOk && report.buttonsOk && report.widthOk ? 0 : 1);

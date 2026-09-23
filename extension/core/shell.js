@@ -164,6 +164,7 @@
     function setTheme(t) {
       if (!THEMES.some((x) => x.id === t)) t = DEFAULT_THEME;
       S.theme = t; document.documentElement.dataset.theme = t; themeSel.value = t;
+      refreeze();
       adapter.setPref && adapter.setPref('theme', t);
     }
     // ---------- zoom / reading width ----------
@@ -184,6 +185,20 @@
       if (S.page === 1) { root.classList.remove('paged'); doc.style.width = ''; root.style.setProperty('--page', '1'); return; }
       if (!root.classList.contains('paged')) { doc.style.width = doc.offsetWidth + 'px'; root.classList.add('paged'); } // offsetWidth is in the doc's own px, unaffected by CSS zoom
       root.style.setProperty('--page', S.page.toFixed(3));
+    }
+    // The frozen layout width must follow a new reading width or theme, otherwise the ↔ button (and a theme switch)
+    // does nothing while the page is magnified. Thaw, let the column re-lay out at the new --measure, freeze again
+    // at the same magnification, keeping the same document point at the pane's centre.
+    function refreeze() {
+      if (!root.classList.contains('paged')) return;
+      const b = content.getBoundingClientRect(), cx = b.left + b.width / 2, cy = b.top + b.height / 2;
+      const before = doc.getBoundingClientRect(), fx = (cx - before.left) / before.width, fy = (cy - before.top) / before.height;
+      root.classList.remove('paged'); doc.style.width = '';
+      doc.style.width = doc.offsetWidth + 'px'; root.classList.add('paged');
+      const after = doc.getBoundingClientRect();
+      content.scrollLeft += after.left + fx * after.width - cx;
+      content.scrollTop += after.top + fy * after.height - cy;
+      gesture = null;
     }
     // The anchor is the document point under the pointer when the gesture STARTS, kept as a fraction of the (never
     // reflowing) document box. Every step re-solves the scroll offset against that same point, so rounding of the
@@ -217,6 +232,7 @@
     function setWidth(w) {
       if (!WIDTHS.includes(w)) w = 'auto';
       S.width = w; root.dataset.width = w; widthBtn.dataset.w = w;
+      refreeze();
       adapter.setPref && adapter.setPref('width', w);
     }
     function cycleWidth() { const w = WIDTHS[(WIDTHS.indexOf(S.width) + 1) % WIDTHS.length]; setWidth(w); flash('Width: ' + w); }
