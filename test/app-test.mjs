@@ -195,6 +195,16 @@ report.treeRootAfterCrumb = await ev(`document.querySelector('#app .tree > .fold
 report.treeExpandedToFile = await ev(`(()=>{const f=document.querySelector('#app .tree .file.on'); if(!f) return null; let n=f.parentElement.closest('.folder'), open=true; while(n){open=open&&n.classList.contains('open'); n=n.parentElement.closest('.folder');} return {path:f.dataset.path, allOpen:open}})()`);
 report.crumbsOk = report.revealBtn && report.crumbLabels[0] === '~' && report.crumbLabels.at(-1) === 'MdReader'
   && report.treeRootAfterCrumb === path.dirname(root) && report.treeExpandedToFile?.path === sample && report.treeExpandedToFile?.allOpen === true;
+// window drag handle: along the header's mid-line at least 96px must hit-test as a drag region (the spacer) in every
+// theme, even with the long fixtures path in the crumbs; the top 6px must be no-drag everywhere so the resize border works.
+const dragScan = `((y)=>{const drag=(x)=>{let el=document.elementFromPoint(x,y);while(el){const r=getComputedStyle(el).webkitAppRegion||getComputedStyle(el).appRegion;if(r==='drag')return true;if(r==='no-drag')return false;el=el.parentElement;}return false;};let n=0;for(let x=2;x<innerWidth;x+=4)if(drag(x))n+=4;return n;})`;
+report.dragPx = {};
+for (const th of ['mono', 'paper', 'studio', 'sections']) {
+  await ev(`shell.setTheme('${th}')`); await sleep(250);
+  report.dragPx[th] = { mid: await ev(`${dragScan}(22)`), edge: await ev(`${dragScan}(3)`), strip: await ev(`${dragScan}(Math.round(document.querySelector('#app .tabs').getBoundingClientRect().top + 16))`) };
+}
+await ev(`shell.setTheme('mono')`); await sleep(200);
+report.dragOk = Object.values(report.dragPx).every((d) => d.mid >= 96 && d.edge === 0 && d.strip >= 200);
 // edit + save round trip
 await ev(`document.querySelector('#app .top button.edit, #app .top [data-mode=edit]')?.click()`); await sleep(300);
 await ev(`(()=>{const ta=document.querySelector('#app textarea'); ta.value = ta.value.replace('Coffee bar','Coffee bar [APP-EDIT]'); ta.dispatchEvent(new Event('input',{bubbles:true}));})()`);
@@ -206,4 +216,4 @@ copyFileSync(backup, sample); // restore
 await sleep(800);
 report.reloadedFromDisk = await ev(`!document.querySelector('#app textarea').value.includes('[APP-EDIT]')`);
 console.log(JSON.stringify(report, null, 2));
-stop(); process.exit(report.mounted && report.filesPanelVisible && report.savedToDisk && !report.dirtyAfterSave && report.defaultTheme === 'mono' && report.stillMounted && report.outlineToggleOk && report.tabsOk && report.pathLinksOk && report.imageOk && report.pinchAnchorOk && report.secondFileUntouched && report.crumbsOk && report.newTabOk ? 0 : 1);
+stop(); process.exit(report.mounted && report.filesPanelVisible && report.savedToDisk && !report.dirtyAfterSave && report.defaultTheme === 'mono' && report.stillMounted && report.outlineToggleOk && report.tabsOk && report.pathLinksOk && report.imageOk && report.pinchAnchorOk && report.secondFileUntouched && report.crumbsOk && report.newTabOk && report.dragOk ? 0 : 1);

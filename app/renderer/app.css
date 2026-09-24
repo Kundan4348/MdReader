@@ -1,11 +1,21 @@
 /* Electron-only chrome: draggable title area, traffic-light clearance, empty state, drop overlay. */
 .top{-webkit-app-region:drag;user-select:none}
-.top button,.top select{-webkit-app-region:no-drag}
+.top button,.top select,.top .crumbs .name{-webkit-app-region:no-drag}
+/* The tab strip is a title bar too (as in Chrome / VS Code): its empty part drags the window; tabs and + stay clickable. */
+.tabs{-webkit-app-region:drag}
+/* Keep a real drag handle in the bar even when the crumbs are long: the spacer never shrinks below 96px. */
+html[data-theme]:not([data-theme=paper]) .top .spacer{flex:1 0 96px}
+/* A drag region touching the top window edge swallows the resize border there, so a thin no-drag strip is laid
+   over it: the macOS resize cursor works along the top edge and corners, over the header and the empty card. */
+.edge-t{position:fixed;top:0;left:0;right:0;height:6px;z-index:100;-webkit-app-region:no-drag}
+/* Paper's bar is a floating pill, so the empty grid row behind it becomes the drag handle for that theme. */
+html[data-theme=paper] .app::before{content:'';position:fixed;top:0;left:0;right:0;height:calc(var(--top-h)*var(--ui-zoom));-webkit-app-region:drag;z-index:19}
 body.mac .top{padding-left:84px}
 html[data-theme=paper] body.mac .top{padding-left:12px} /* Paper's bar is a floating pill; traffic lights keep their corner */
 
-.empty{position:fixed;inset:0;display:none;align-items:center;justify-content:center;-webkit-app-region:drag;z-index:5}
-.empty .card{text-align:center;padding:40px 48px;border-radius:20px;-webkit-app-region:no-drag;max-width:420px}
+.empty{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:5}
+.empty::before{content:'';position:absolute;inset:6px;-webkit-app-region:drag} /* drag anywhere on the empty window, but leave the resize borders alone */
+.empty .card{text-align:center;padding:40px 48px;border-radius:20px;-webkit-app-region:no-drag;max-width:420px;position:relative}
 .empty .glyph{font-family:var(--serif,var(--head,var(--sans,system-ui)));font-size:44px;font-weight:700;letter-spacing:-.04em;margin-bottom:14px;opacity:.9}
 .empty h2{margin:0 0 8px;font-size:22px;font-weight:600;font-family:var(--head,var(--sans,system-ui))}
 .empty p{margin:0 0 22px;font-size:14.5px;line-height:1.6;opacity:.7;font-family:var(--sans,var(--head,system-ui))}
