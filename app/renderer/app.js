@@ -4,6 +4,7 @@ const home = api.home || '';
 const app = document.getElementById('app');
 const empty = document.getElementById('empty');
 if (api.platform === 'darwin') document.body.classList.add('mac');
+const showEmpty = (on) => { empty.style.display = on ? 'flex' : 'none'; app.style.visibility = on ? 'hidden' : 'visible'; };
 
 const adapter = {
   readFile: api.readFile,
@@ -16,7 +17,7 @@ const adapter = {
   openExternal: api.openExternal,
   onExternalChange: api.onExternalChange,
   onDirty: api.setDirty,
-  onTabsChanged: api.tabsChanged,
+  onTabsChanged: (st) => { api.tabsChanged(st); if (st.dirty.length) showEmpty(false); }, // dirty has one entry per tab, untitled included
   confirmDiscard: api.confirmDiscard,
   onLastTabClosed: () => showEmpty(true),
   displayPath(p) {
@@ -43,7 +44,6 @@ const adapter = {
 
 const shell = MdShell.mount(app, adapter);
 app.classList.add('always-tabs');
-const showEmpty = (on) => { empty.style.display = on ? 'flex' : 'none'; app.style.visibility = on ? 'hidden' : 'visible'; };
 showEmpty(true);
 
 // Opens are serialised so several files handed over at once (a restored session, Finder multi-select) land as
@@ -52,16 +52,19 @@ let opening = Promise.resolve();
 function open(p) { opening = opening.then(() => shell.loadFile(p)).then(() => showEmpty(false), (e) => console.warn(e)); return opening; }
 api.onOpenFile(open);
 document.getElementById('emptyOpen').onclick = async () => { const p = await api.openDialog(); if (p) open(p); };
+document.getElementById('emptyNew').onclick = () => { shell.newTab(); showEmpty(false); };
+const isUntitled = (p) => !p || /^untitled:/.test(p);
 
 api.onCmd(async (cmd) => {
   const S = shell.state;
   if (cmd === 'save') shell.save();
+  else if (cmd === 'new-tab') { shell.newTab(); showEmpty(false); }
   else if (cmd === 'save-all-and-close') { try { await shell.saveAll(); api.closeWindow(); } catch (e) { console.warn(e); } }
   else if (cmd === 'close-tab') { if (shell.state.tabs.length) shell.closeTab(); else api.closeWindow(); }
   else if (cmd === 'tab:next') shell.nextTab(1);
   else if (cmd === 'tab:prev') shell.nextTab(-1);
   else if (cmd === 'open') { const p = await api.openDialog(); if (p) open(p); }
-  else if (cmd === 'reveal') api.reveal(S.path);
+  else if (cmd === 'reveal') { if (!isUntitled(S.path)) api.reveal(S.path); }
   else if (cmd === 'toggle-edit') shell.setMode(S.mode === 'read' ? 'edit' : 'read');
   else if (cmd.startsWith('mode:')) shell.setMode(cmd.slice(5));
   else if (cmd === 'theme:next') { const i = MdShell.THEMES.findIndex((t) => t.id === S.theme); shell.setTheme(MdShell.THEMES[(i + 1) % MdShell.THEMES.length].id); }

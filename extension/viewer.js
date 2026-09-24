@@ -5,17 +5,22 @@
   const hFor = (key) => open.get(key) || (current && current.key === key ? current.handle : null);
   const adapter = {
     readFile: async (key) => { const h = hFor(key); if (!h) throw new Error('no handle'); const f = await h.getFile(); return f.text(); },
-    canSave: () => !!current,
+    canSave: () => !!window.showSaveFilePicker,
+    // key null = an untitled tab: ask where to save, register the handle under a new key and return it so the tab
+    // adopts it. Never fall back to the current file's handle for an untitled tab.
     async writeFile(key, text) {
-      if (key && hFor(key)) { const h = hFor(key); if (!(await MdExt.ensureWritable(h))) throw new Error('write permission denied'); await MdExt.writeHandle(h, text); renderRecent(); return; }
-      if (!current) {
-        const h = await window.showSaveFilePicker({ suggestedName: 'untitled.md', types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md'] } }] });
-        current = { key: 'h:' + h.name + ':' + Date.now(), handle: h, name: h.name };
-        await MdExt.handles.set(current.key, h);
+      let h = key ? hFor(key) : null;
+      let newKey = null;
+      if (!h) {
+        h = await window.showSaveFilePicker({ suggestedName: 'untitled.md', types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md'] } }] });
+        newKey = 'h:' + h.name + ':' + Date.now();
+        open.set(newKey, h); await MdExt.handles.set(newKey, h);
+        current = { key: newKey, handle: h, name: h.name };
       }
-      if (!(await MdExt.ensureWritable(current.handle))) throw new Error('write permission denied');
-      await MdExt.writeHandle(current.handle, text);
+      if (!(await MdExt.ensureWritable(h))) throw new Error('write permission denied');
+      await MdExt.writeHandle(h, text);
       renderRecent();
+      return newKey || key;
     },
     openDialog: async () => { await pick(); return null; },
     getPref: MdExt.prefs.get,

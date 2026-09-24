@@ -157,6 +157,35 @@ report.afterCloseSecond = await tabs();
 report.tabsOk = report.windows === 1 && report.tabsAfterOpens.join() === 'sample.md,second.md,third.md*' && report.afterLinkClick.join() === 'sample.md,second.md*,third.md'
   && report.tabsWhileAway.join() === 'sample.md*,second.md!,third.md' && report.editSurvived === 'Second doc EDITED' && report.afterCloseSecond.join() === 'sample.md*';
 report.secondFileUntouched = readFileSync(path.join(root, 'test/fixtures/second.md'), 'utf8').startsWith('# Second doc\n');
+// untitled tabs: ⌘T opens "Untitled 1" in edit mode with the editor focused; pasted markdown renders on Read; a
+// double-click on the empty strip opens "Untitled 2"; a clean untitled tab closes without a prompt; the strip's +
+// button works too; the reported session paths never include an untitled tab.
+await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 't', code: 'KeyT', modifiers: 4 }); await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 't', code: 'KeyT', modifiers: 4 }); await sleep(400);
+report.afterCmdT = await tabs();
+report.untitledMode = await ev(`document.querySelector('#app').dataset.mode + ':' + (document.activeElement === document.querySelector('#app textarea.src')) + ':' + document.querySelector('#app textarea.src').placeholder.slice(0, 5)`);
+await ev(`(()=>{const ta=document.querySelector('#app textarea.src'); ta.value = '# Pasted title\\n\\nSome **pasted** text.'; ta.dispatchEvent(new Event('input',{bubbles:true}));})()`); await sleep(150);
+await ev(`document.querySelector('#app .top button[data-mode=read]').click()`); await sleep(300);
+report.untitledH1 = await ev(`document.querySelector('#app h1')?.textContent`);
+report.untitledDirty = await tabs();
+report.untitledCrumbs = await ev(`document.querySelector('#app .top .crumbs')?.textContent.trim() + '|' + !!document.querySelector('#app .top .crumbs .reveal')`);
+await ev(`(()=>{const s=document.querySelector('#app .tabs'); s.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));})()`); await sleep(400);
+report.afterDblclick = await tabs();
+await ev(`document.querySelector('#app .tabs .tab-new').click()`); await sleep(400);
+report.afterPlus = await tabs();
+await ev(`document.querySelector('#app .tabs .tab[data-path="untitled:3"] .x').click()`); await sleep(300);
+await ev(`document.querySelector('#app .tabs .tab[data-path="untitled:2"] .x').click()`); await sleep(300);
+report.afterCloseUntitled = await tabs();
+// revert Untitled 1 to empty so it is clean, then close it; sample.md must be back and the mode pref untouched
+await ev(`document.querySelector('#app .tabs .tab[data-path="untitled:1"]').click()`); await sleep(200);
+await ev(`document.querySelector('#app .top button[data-mode=edit]').click()`); await sleep(200);
+await ev(`(()=>{const ta=document.querySelector('#app textarea.src'); ta.value = ''; ta.dispatchEvent(new Event('input',{bubbles:true}));})()`); await sleep(150);
+await ev(`document.querySelector('#app .top button[data-mode=read]').click()`); await sleep(200);
+await ev(`document.querySelector('#app .tabs .tab[data-path="untitled:1"] .x').click()`); await sleep(400);
+report.afterCloseAllUntitled = await tabs();
+report.newTabOk = report.afterCmdT.join() === 'sample.md,Untitled 1*' && report.untitledMode === 'edit:true:Paste' && report.untitledH1 === 'Pasted title'
+  && report.untitledDirty.join() === 'sample.md,Untitled 1*!' && report.untitledCrumbs === 'Untitled 1|false'
+  && report.afterDblclick.join() === 'sample.md,Untitled 1!,Untitled 2*' && report.afterPlus.join() === 'sample.md,Untitled 1!,Untitled 2,Untitled 3*'
+  && report.afterCloseUntitled.join() === 'sample.md,Untitled 1*!' && report.afterCloseAllUntitled.join() === 'sample.md*';
 // breadcrumbs: sample.md is open; its crumbs end with "~ / Documents / MdReader". Clicking "Documents" must re-root
 // the Files tree there, expand it down to MdReader/, and keep sample.md highlighted. The ⌖ button must exist (app can reveal).
 report.crumbLabels = await ev(`[...document.querySelectorAll('#app .top .crumbs button.c')].map(b=>b.textContent)`);
@@ -177,4 +206,4 @@ copyFileSync(backup, sample); // restore
 await sleep(800);
 report.reloadedFromDisk = await ev(`!document.querySelector('#app textarea').value.includes('[APP-EDIT]')`);
 console.log(JSON.stringify(report, null, 2));
-stop(); process.exit(report.mounted && report.filesPanelVisible && report.savedToDisk && !report.dirtyAfterSave && report.defaultTheme === 'mono' && report.stillMounted && report.outlineToggleOk && report.tabsOk && report.pathLinksOk && report.imageOk && report.pinchAnchorOk && report.secondFileUntouched && report.crumbsOk ? 0 : 1);
+stop(); process.exit(report.mounted && report.filesPanelVisible && report.savedToDisk && !report.dirtyAfterSave && report.defaultTheme === 'mono' && report.stillMounted && report.outlineToggleOk && report.tabsOk && report.pathLinksOk && report.imageOk && report.pinchAnchorOk && report.secondFileUntouched && report.crumbsOk && report.newTabOk ? 0 : 1);

@@ -28,11 +28,11 @@
   const adapter = {
     readFile: async () => text,
     canSave: () => true,
-    async writeFile(_p, t) {
-      if (isFile) return MdExt.saveViaPicker('url:' + href, disp.name, t, flash);
-      // Remote file: save a copy locally.
+    async writeFile(p, t) {
+      // p null = an untitled tab (⌘T): always ask where to save, never write it over the page's own file.
+      if (p && isFile) return MdExt.saveViaPicker('url:' + href, disp.name, t, flash);
       if (!window.showSaveFilePicker) throw new Error('Saving is not available on this page');
-      const h = await window.showSaveFilePicker({ suggestedName: disp.name, types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md'] } }] });
+      const h = await window.showSaveFilePicker({ suggestedName: p ? disp.name : 'untitled.md', types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md'] } }] });
       await MdExt.writeHandle(h, t);
     },
     getPref: MdExt.prefs.get,

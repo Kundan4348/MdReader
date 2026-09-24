@@ -26,8 +26,14 @@
   const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
   function mount(root, adapter) {
-    const S = { path: null, text: '', saved: '', mode: 'read', theme: 'paper', files: true, outline: true, editingSec: null, tree: null, dirty: false, zoom: 1, autoZoom: 1, page: 1, width: 'auto', tabs: [], tab: -1, loading: new Map() };
+    const S = { path: null, text: '', saved: '', mode: 'read', theme: 'paper', files: true, outline: true, editingSec: null, tree: null, dirty: false, zoom: 1, autoZoom: 1, page: 1, width: 'auto', tabs: [], tab: -1, loading: new Map(), untitledSeq: 0 };
     // A tab = { path, text, saved, scroll }. The active tab's text/saved/path/dirty are mirrored into S while it is shown.
+    // An untitled tab (⌘T / double-click on the strip) has { untitled: true, name: 'Untitled N' } and a virtual
+    // 'untitled:N' path until it is saved, when it adopts the path the adapter wrote to.
+    const isUntitled = (t) => !!(t && t.untitled);
+    const dispOf = (t) => (isUntitled(t) ? { crumbs: [], crumbPaths: [], name: t.name, dir: null } : adapter.displayPath(t.path));
+    const curTab = () => S.tabs[S.tab];
+    const curDisp = () => (curTab() ? dispOf(curTab()) : { crumbs: [], name: 'MdReader', dir: null });
     const DEFAULT_THEME = 'mono';
 
     // ---------- DOM ----------
@@ -73,7 +79,7 @@
     // URL the current document lives at, for resolving relative image paths. The app hands over absolute file-system
     // paths; the extension hands over the page's own URL (http(s)/file), which is already a URL.
     function docBase() {
-      if (!S.path) return null;
+      if (!S.path || isUntitled(curTab())) return null;
       if (/^[a-z][a-z0-9+.-]*:/i.test(S.path)) return S.path;
       return 'file://' + S.path.split('/').map((seg) => encodeURIComponent(seg)).join('/');
     }
@@ -91,7 +97,7 @@
       meta.replaceChildren(h('div', {}, `${r.stats.sections} sections · ${r.stats.tables} tables`), h('div', {}, `~${r.stats.words} words · ${r.stats.minutes} min read`));
       $('.wc', editor).textContent = r.stats.words + ' words';
       const t = $('h1', head);
-      document.title = (S.dirty ? '• ' : '') + (t ? t.textContent : (S.path ? adapter.displayPath(S.path).name : 'MdReader'));
+      document.title = (S.dirty ? '• ' : '') + (t ? t.textContent : curDisp().name);
       spy();
       checkPathLinks();
       wireTables();
@@ -249,13 +255,13 @@
     }
 
     // ---------- modes / theme / panels ----------
-    function setMode(m) {
+    function setMode(m, quiet) {
       if (S.editingSec !== null) finishSection(S.editingSec, true);
       S.mode = m; root.dataset.mode = m;
       seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
       if (m === 'read') paint(); else if (m === 'split') paint();
       if (m !== 'read') setTimeout(() => ta.focus(), 0);
-      adapter.setPref && adapter.setPref('mode', m);
+      if (!quiet) adapter.setPref && adapter.setPref('mode', m);
     }
     function setTheme(t) {
       if (!THEMES.some((x) => x.id === t)) t = DEFAULT_THEME;
@@ -402,6 +408,16 @@
       S.loading.set(path, p);
       return p;
     }
+    // newTab() opens an empty untitled tab in edit mode with the editor focused, so a ⌘V lands straight in it.
+    // The mode change is not persisted: the next launch should still open in the mode the user had chosen.
+    async function newTab() {
+      stashActive();
+      const n = ++S.untitledSeq;
+      S.tabs.push({ path: 'untitled:' + n, untitled: true, name: 'Untitled ' + n, text: '', saved: '', scroll: 0 });
+      renderTabs();
+      await showTab(S.tabs.length - 1, true);
+      setMode('edit', true);
+    }
     function stashActive() {
       const t = S.tabs[S.tab]; if (!t) return;
       if (S.editingSec !== null) finishSection(S.editingSec, true);
@@ -412,34 +428,47 @@
       if (i !== S.tab) stashActive();
       S.tab = i; const t = S.tabs[i];
       S.path = t.path; S.saved = t.saved; S.filters = t.filters || {}; setText(t.text); setDirty(t.text !== t.saved);
-      const d = adapter.displayPath(t.path);
+      const d = dispOf(t);
+      ta.placeholder = isUntitled(t) ? 'Paste or type Markdown here…' : '';
       renderCrumbs(d);
       paint();
       content.scrollTop = fresh ? 0 : t.scroll;
-      [...tabsEl.children].forEach((el, j) => { el.classList.toggle('on', j === i); el.setAttribute('aria-selected', j === i); });
+      [...tabsEl.querySelectorAll('.tab')].forEach((el, j) => { el.classList.toggle('on', j === i); el.setAttribute('aria-selected', j === i); });
       const on = tabsEl.children[i]; on && on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-      if (adapter.listDir) buildTree(d.dir);
+      if (adapter.listDir && d.dir) buildTree(d.dir);
       tree.querySelectorAll('.file').forEach((f) => f.classList.toggle('on', f.dataset.path === t.path));
       notifyTabs();
     }
     function renderTabs() {
       tabsEl.replaceChildren(...S.tabs.map((t, i) => {
-        const d = adapter.displayPath(t.path);
-        return h('div', { class: 'tab' + (i === S.tab ? ' on' : '') + (t.text !== t.saved ? ' dirty' : ''), role: 'tab', title: t.path, 'data-path': t.path,
+        const d = dispOf(t);
+        return h('div', { class: 'tab' + (i === S.tab ? ' on' : '') + (t.text !== t.saved ? ' dirty' : '') + (isUntitled(t) ? ' untitled' : ''), role: 'tab', title: isUntitled(t) ? 'Unsaved document' : t.path, 'data-path': t.path,
           onclick: (e) => { if (!e.target.closest('.x')) showTab(i); }, onauxclick: (e) => { if (e.button === 1) { e.preventDefault(); closeTab(i); } } },
           h('span', { class: 'name' }, d.name), h('span', { class: 'dot' }), h('button', { class: 'x', title: 'Close (⌘W)', onclick: (e) => { e.stopPropagation(); closeTab(i); }, html: '&#x2715;' }));
-      }));
+      }), h('button', { class: 'tab-new', title: 'New tab (⌘T)', onclick: () => newTab(), html: '+' }));
       root.classList.toggle('has-tabs', S.tabs.length > 0);
       root.classList.toggle('multi-tabs', S.tabs.length > 1);
+    }
+    // Writes a tab's text. An untitled tab has no path: the adapter asks where to save and returns the path, which
+    // the tab then adopts (it becomes an ordinary file tab). Throws if the user cancels.
+    async function writeTab(t) {
+      const p = await adapter.writeFile(isUntitled(t) ? null : t.path, t.text);
+      t.saved = t.text;
+      if (isUntitled(t) && typeof p === 'string' && p) {
+        t.untitled = false; t.name = undefined; t.path = p;
+        if (t === curTab()) { S.path = p; ta.placeholder = ''; renderCrumbs(dispOf(t)); if (adapter.listDir) buildTree(dispOf(t).dir); }
+        renderTabs();
+      }
+      return p;
     }
     async function closeTab(i = S.tab) {
       const t = S.tabs[i]; if (!t) return false;
       if (i === S.tab) stashActive();
       if (t.text !== t.saved) {
-        const d = adapter.displayPath(t.path);
+        const d = dispOf(t);
         const r = adapter.confirmDiscard ? await adapter.confirmDiscard(d.name) : (confirm(`Discard unsaved changes to ${d.name}?`) ? 'discard' : 'cancel');
         if (r === 'cancel') return false;
-        if (r === 'save') { try { await adapter.writeFile(t.path, t.text); t.saved = t.text; } catch (e) { flash('Save failed: ' + (e && e.message || e), 4000); return false; } }
+        if (r === 'save') { try { await writeTab(t); } catch (e) { if (!/cancel/i.test(e && e.message || '')) flash('Save failed: ' + (e && e.message || e), 4000); return false; } }
       }
       S.tabs.splice(i, 1);
       if (!S.tabs.length) {
@@ -456,7 +485,8 @@
       return true;
     }
     function nextTab(dir) { if (S.tabs.length > 1) showTab((S.tab + dir + S.tabs.length) % S.tabs.length); }
-    function notifyTabs() { adapter.onTabsChanged && adapter.onTabsChanged({ paths: S.tabs.map((t) => t.path), active: S.path, dirty: S.tabs.map((t, i) => (i === S.tab ? S.dirty : t.text !== t.saved)) }); }
+    // Untitled tabs are left out of the reported path set: the host has no file to watch or restore for them.
+    function notifyTabs() { adapter.onTabsChanged && adapter.onTabsChanged({ paths: S.tabs.filter((t) => !isUntitled(t)).map((t) => t.path), active: isUntitled(curTab()) ? null : S.path, dirty: S.tabs.map((t, i) => (i === S.tab ? S.dirty : t.text !== t.saved)) }); }
     // Breadcrumbs. When the adapter supplies crumbPaths (one folder path per crumb), each crumb is a button that
     // re-roots the Files tree at that folder and expands it down to the open file; the file name locates the file
     // in the tree; ⌖ reveals it in Finder when the adapter can.
@@ -470,8 +500,8 @@
       const name = clickable
         ? h('b', { class: 'name', title: 'Locate in Files', onclick: () => rootTreeAt(d.crumbPaths[d.crumbPaths.length - 1] || d.dir), role: 'button', tabindex: 0 }, d.name)
         : h('b', {}, d.name);
-      const reveal = adapter.reveal ? h('button', { class: 'icon reveal', title: 'Show in Finder (⌘⇧R)', onclick: () => adapter.reveal(S.path), html: '&#x2316;' }) : null;
-      crumbs.replaceChildren(...parts, name, h('span', { class: 'dot', title: 'unsaved changes' }), reveal);
+      const reveal = adapter.reveal && d.dir ? h('button', { class: 'icon reveal', title: 'Show in Finder (⌘⇧R)', onclick: () => adapter.reveal(S.path), html: '&#x2316;' }) : null;
+      crumbs.replaceChildren(...[...parts, name, h('span', { class: 'dot', title: 'unsaved changes' }), reveal].filter(Boolean));
     }
     async function rootTreeAt(dir) {
       if (!dir) return;
@@ -522,14 +552,16 @@
 
     // ---------- save ----------
     async function save() {
-      if (!S.path && !adapter.canSave()) return flash('Nothing to save');
+      const t = curTab();
+      if (!t) return flash('Nothing to save');
+      if (isUntitled(t) && !adapter.canSave()) return flash('Cannot save from here');
       if (S.editingSec !== null) finishSection(S.editingSec, true);
+      t.text = S.text;
       try {
-        await adapter.writeFile(S.path, S.text);
-        S.saved = S.text; setDirty(false);
-        const t = S.tabs[S.tab]; if (t) { t.text = S.text; t.saved = S.text; }
-        flash('Saved ' + (S.path ? adapter.displayPath(S.path).name : ''));
-      } catch (e) { flash('Save failed: ' + (e && e.message || e), 4000); }
+        await writeTab(t);
+        S.saved = S.text; setDirty(false); notifyTabs();
+        flash('Saved ' + dispOf(t).name);
+      } catch (e) { if (!/cancel/i.test(e && e.message || '')) flash('Save failed: ' + (e && e.message || e), 4000); }
     }
 
     // ---------- keys ----------
@@ -543,6 +575,7 @@
       const k = e.key.toLowerCase();
       if (e.altKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) { e.preventDefault(); return nextTab(e.key === 'ArrowRight' ? 1 : -1); }
       if (k === 'w' && !e.shiftKey && S.tabs.length) { e.preventDefault(); return closeTab(); }
+      if (k === 't' && !e.shiftKey) { e.preventDefault(); return newTab(); }
       if (k === 's') { e.preventDefault(); save(); }
       else if (k === 'e' && !e.shiftKey) { e.preventDefault(); setMode(S.mode === 'read' ? 'edit' : 'read'); }
       else if (k === '1') { e.preventDefault(); setMode('read'); } else if (k === '2') { e.preventDefault(); setMode('edit'); } else if (k === '3') { e.preventDefault(); setMode('split'); }
@@ -554,6 +587,15 @@
       else if (k === '-' || k === '_') { e.preventDefault(); stepZoom(-1); }
       else if (k === '0') { e.preventDefault(); resetZoom(); }
       else if (k === 'o' && adapter.openDialog) { e.preventDefault(); openDialog(); }
+    });
+    // Double-click on the empty part of the tab strip opens a new untitled tab (like a browser).
+    tabsEl.addEventListener('dblclick', (e) => { if (e.target === tabsEl) newTab(); });
+    // Pasting onto an empty untitled tab while reading fills it, so ⌘T then ⌘V works in any mode.
+    addEventListener('paste', (e) => {
+      const t = curTab();
+      if (!isUntitled(t) || S.mode !== 'read' || S.text.trim() || /^(TEXTAREA|INPUT)$/.test((e.target.tagName || '').toUpperCase())) return;
+      const md = e.clipboardData && e.clipboardData.getData('text/plain'); if (!md) return;
+      e.preventDefault(); setText(md); t.text = md; paint(); notifyTabs();
     });
     doc.addEventListener('click', (e) => {
       const a = e.target.closest('a[href]'); if (!a) return;
@@ -591,8 +633,8 @@
       saveBtn.disabled = true;
     })();
 
-    return { loadFile, closeTab, nextTab, showTab, setWidth, stepZoom, resetZoom, cycleWidth,
-      saveAll: async () => { stashActive(); for (const t of S.tabs) if (t.text !== t.saved) { await adapter.writeFile(t.path, t.text); t.saved = t.text; } if (S.tabs[S.tab]) { S.saved = S.tabs[S.tab].saved; setDirty(false); } notifyTabs(); },
+    return { loadFile, newTab, closeTab, nextTab, showTab, setWidth, stepZoom, resetZoom, cycleWidth,
+      saveAll: async () => { stashActive(); for (const t of S.tabs) if (t.text !== t.saved) await writeTab(t); if (S.tabs[S.tab]) { S.saved = S.tabs[S.tab].saved; S.path = S.tabs[S.tab].path; setDirty(false); } notifyTabs(); },
       setText: (t, path) => { S.path = path || S.path; S.saved = t; setText(t); setDirty(false); const tb = S.tabs[S.tab]; if (tb) { tb.text = tb.saved = t; } paint(); }, setTheme, setMode, save, get state() { return S; } };
   }
 

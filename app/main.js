@@ -159,7 +159,7 @@ ipcMain.handle('confirm-discard', (e, name) => {
 });
 
 // ---------- menu ----------
-function send(cmd) { const w = BrowserWindow.getFocusedWindow(); if (w) w.webContents.send('cmd', cmd); else if (cmd === 'open') openDialogNew(); }
+function send(cmd) { const w = BrowserWindow.getFocusedWindow(); if (w) w.webContents.send('cmd', cmd); else if (cmd === 'open') openDialogNew(); else if (cmd === 'new-tab') { const nw = createWindow(null); nw.webContents.once('did-finish-load', () => nw.webContents.send('cmd', 'new-tab')); } }
 async function openDialogNew() {
   const r = await dialog.showOpenDialog({ properties: ['openFile'], filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd', 'txt'] }] });
   if (!r.canceled) openPath(r.filePaths[0]);
@@ -169,6 +169,7 @@ function buildMenu() {
     ...(isMac ? [{ role: 'appMenu' }] : []),
     { label: 'File', submenu: [
       { label: 'New Window', accelerator: 'CmdOrCtrl+N', click: () => createWindow(null) },
+      { label: 'New Tab', accelerator: 'CmdOrCtrl+T', click: () => send('new-tab') },
       { label: 'Open…', accelerator: 'CmdOrCtrl+O', click: () => send('open') },
       { role: 'recentDocuments', submenu: [{ role: 'clearRecentDocuments' }] },
       { type: 'separator' },
