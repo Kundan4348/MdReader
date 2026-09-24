@@ -30,7 +30,8 @@
       "extendInfo": { "NSHumanReadableCopyright": "" }
     },
     "fileAssociations": [
-      { "ext": ["md", "markdown", "mdown", "mkd"], "name": "Markdown Document", "description": "Markdown Document", "role": "Editor", "rank": "Owner", "mimeType": "text/markdown" }
+      { "ext": ["md", "markdown", "mdown", "mkd"], "name": "Markdown Document", "description": "Markdown Document", "role": "Editor", "rank": "Owner", "mimeType": "text/markdown" },
+      { "ext": ["json"], "name": "JSON Document", "description": "JSON Document", "role": "Editor", "rank": "Alternate", "mimeType": "application/json" }
     ],
     "protocols": [{ "name": "MdReader", "schemes": ["mdreader"] }]
   }

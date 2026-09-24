@@ -1,9 +1,9 @@
 // Content script: turns Chrome's plain-text rendering of a .md file into the MdReader UI.
 (async () => {
-  // Only act on real plain-text markdown documents (Chrome renders those as <pre> inside an empty body).
-  if (document.contentType && !/^text\/(plain|markdown|x-markdown)$/i.test(document.contentType)) return;
+  // Only act on real plain-text markdown / JSON documents (Chrome renders those as <pre> inside an empty body).
+  if (document.contentType && !/^(text\/(plain|markdown|x-markdown)|application\/json)$/i.test(document.contentType)) return;
   const pre = document.body && document.body.children.length === 1 && document.body.firstElementChild.tagName === 'PRE' ? document.body.firstElementChild : null;
-  if (!pre && document.contentType !== 'text/markdown') return;
+  if (!pre && !/^(text\/markdown|application\/json)$/i.test(document.contentType || '')) return;
   let text = pre ? pre.textContent : document.body.innerText;
   if (await MdExt.prefs.get('disabled')) return;
 
@@ -28,11 +28,12 @@
   const adapter = {
     readFile: async () => text,
     canSave: () => true,
-    async writeFile(p, t) {
+    async writeFile(p, t, hint) {
       // p null = an untitled tab (⌘T): always ask where to save, never write it over the page's own file.
       if (p && isFile) return MdExt.saveViaPicker('url:' + href, disp.name, t, flash);
       if (!window.showSaveFilePicker) throw new Error('Saving is not available on this page');
-      const h = await window.showSaveFilePicker({ suggestedName: p ? disp.name : 'untitled.md', types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md'] } }] });
+      const json = hint && hint.ext === 'json';
+      const h = await window.showSaveFilePicker({ suggestedName: p ? disp.name : (json ? 'untitled.json' : 'untitled.md'), types: [json ? { description: 'JSON', accept: { 'application/json': ['.json'] } } : { description: 'Markdown', accept: { 'text/markdown': ['.md'] } }] });
       await MdExt.writeHandle(h, t);
     },
     getPref: MdExt.prefs.get,

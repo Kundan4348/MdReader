@@ -22,7 +22,7 @@ function pathFromArg(arg) {
     try { const u = new URL(arg); return decodeURIComponent(u.searchParams.get('path') || u.pathname); } catch { return null; }
   }
   if (arg.startsWith('file://')) { try { return decodeURIComponent(new URL(arg).pathname); } catch { return null; } }
-  if (/\.(md|markdown|mdown|mkd|txt)$/i.test(arg) && !arg.startsWith('-')) return path.resolve(arg);
+  if (/\.(md|markdown|mdown|mkd|txt|json)$/i.test(arg) && !arg.startsWith('-')) return path.resolve(arg);
   return null;
 }
 
@@ -71,7 +71,7 @@ function watch(en, p) {
 }
 function unwatch(en, p) { const w = en.watchers.get(p); if (w) { w.close(); en.watchers.delete(p); } }
 
-const isMarkdownPath = (p) => /\.(md|markdown|mdown|mkd|txt)$/i.test(p);
+const isMarkdownPath = (p) => /\.(md|markdown|mdown|mkd|txt|json)$/i.test(p);
 // Anything that is not a markdown/text document (a .py, .csv, a folder) is handed to the OS: default app for files,
 // Finder for folders. Falls back to revealing the item when no app claims it.
 async function openOther(p) {
@@ -107,9 +107,13 @@ if (!app.isDefaultProtocolClient('mdreader')) app.setAsDefaultProtocolClient('md
 // ---------- IPC ----------
 const home = app.getPath('home');
 ipcMain.handle('read-file', (e, p) => fsp.readFile(p, 'utf8'));
-ipcMain.handle('write-file', async (e, p, text) => {
+ipcMain.handle('write-file', async (e, p, text, hint) => {
   if (!p) {
-    const r = await dialog.showSaveDialog(BrowserWindow.fromWebContents(e.sender), { filters: [{ name: 'Markdown', extensions: ['md'] }], defaultPath: path.join(home, 'Documents', 'untitled.md') });
+    // Untitled tab: the shell hints the extension its content calls for (json for pasted JSON, md otherwise).
+    const json = hint && hint.ext === 'json';
+    const r = await dialog.showSaveDialog(BrowserWindow.fromWebContents(e.sender), {
+      filters: json ? [{ name: 'JSON', extensions: ['json'] }, { name: 'Markdown', extensions: ['md'] }] : [{ name: 'Markdown', extensions: ['md'] }, { name: 'JSON', extensions: ['json'] }],
+      defaultPath: path.join(home, 'Documents', json ? 'untitled.json' : 'untitled.md') });
     if (r.canceled) throw new Error('cancelled');
     p = r.filePath;
   }
@@ -125,7 +129,7 @@ ipcMain.handle('list-dir', async (e, dir) => {
   return ents.map((d) => ({ name: d.name, path: path.join(dir, d.name), dir: d.isDirectory() }));
 });
 ipcMain.handle('open-dialog', async (e) => {
-  const r = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender), { properties: ['openFile'], filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd', 'txt'] }] });
+  const r = await dialog.showOpenDialog(BrowserWindow.fromWebContents(e.sender), { properties: ['openFile'], filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd', 'txt', 'json'] }] });
   return r.canceled ? null : r.filePaths[0];
 });
 ipcMain.handle('get-pref', (e, k) => prefs[k]);
@@ -161,7 +165,7 @@ ipcMain.handle('confirm-discard', (e, name) => {
 // ---------- menu ----------
 function send(cmd) { const w = BrowserWindow.getFocusedWindow(); if (w) w.webContents.send('cmd', cmd); else if (cmd === 'open') openDialogNew(); else if (cmd === 'new-tab') { const nw = createWindow(null); nw.webContents.once('did-finish-load', () => nw.webContents.send('cmd', 'new-tab')); } }
 async function openDialogNew() {
-  const r = await dialog.showOpenDialog({ properties: ['openFile'], filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd', 'txt'] }] });
+  const r = await dialog.showOpenDialog({ properties: ['openFile'], filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd', 'txt', 'json'] }] });
   if (!r.canceled) openPath(r.filePaths[0]);
 }
 function buildMenu() {

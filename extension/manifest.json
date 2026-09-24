@@ -11,8 +11,8 @@
   "content_scripts": [
     {
       "matches": ["file:///*", "*://*/*"],
-      "include_globs": ["*.md", "*.md?*", "*.md#*", "*.markdown", "*.markdown?*", "*.mdown", "*.mkd", "*.MD"],
-      "js": ["core/marked.umd.js", "core/md.js", "core/shell.js", "ext-common.js", "content.js"],
+      "include_globs": ["*.md", "*.md?*", "*.md#*", "*.markdown", "*.markdown?*", "*.mdown", "*.mkd", "*.MD", "*.json", "*.json?*"],
+      "js": ["core/marked.umd.js", "core/md.js", "core/json.js", "core/shell.js", "ext-common.js", "content.js"],
       "run_at": "document_idle"
     }
   ],

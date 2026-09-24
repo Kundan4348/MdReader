@@ -8,11 +8,12 @@
     canSave: () => !!window.showSaveFilePicker,
     // key null = an untitled tab: ask where to save, register the handle under a new key and return it so the tab
     // adopts it. Never fall back to the current file's handle for an untitled tab.
-    async writeFile(key, text) {
+    async writeFile(key, text, hint) {
       let h = key ? hFor(key) : null;
       let newKey = null;
       if (!h) {
-        h = await window.showSaveFilePicker({ suggestedName: 'untitled.md', types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md'] } }] });
+        const json = hint && hint.ext === 'json';
+        h = await window.showSaveFilePicker({ suggestedName: json ? 'untitled.json' : 'untitled.md', types: [json ? { description: 'JSON', accept: { 'application/json': ['.json'] } } : { description: 'Markdown', accept: { 'text/markdown': ['.md'] } }] });
         newKey = 'h:' + h.name + ':' + Date.now();
         open.set(newKey, h); await MdExt.handles.set(newKey, h);
         current = { key: newKey, handle: h, name: h.name };
@@ -44,7 +45,7 @@
   }
   async function pick() {
     try {
-      const [h] = await window.showOpenFilePicker({ types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md', '.markdown', '.mdown', '.mkd', '.txt'] } }] });
+      const [h] = await window.showOpenFilePicker({ types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md', '.markdown', '.mdown', '.mkd', '.txt'], 'application/json': ['.json'] } }] });
       const key = 'h:' + h.name + ':' + Date.now();
       // de-dupe against recents pointing at the same file
       for (const r of await MdExt.handles.all()) if (r.handle && typeof r.handle.isSameEntry === 'function' && (await r.handle.isSameEntry(h))) { await MdExt.handles.del(r.key); }

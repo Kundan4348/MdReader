@@ -53,7 +53,7 @@
     if (h && !(await ensureWritable(h))) h = null;
     if (!h) {
       flash && flash('Pick the same file once to allow saving…', 3500);
-      const [picked] = await global.showOpenFilePicker({ types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md', '.markdown', '.mdown', '.mkd', '.txt'] } }], multiple: false });
+      const [picked] = await global.showOpenFilePicker({ types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md', '.markdown', '.mdown', '.mkd', '.txt'], 'application/json': ['.json'] } }], multiple: false });
       if (expectedName && picked.name !== expectedName && !confirm(`You picked “${picked.name}” but this page is “${expectedName}”. Save into “${picked.name}” anyway?`)) throw new Error('cancelled');
       if (!(await ensureWritable(picked))) throw new Error('write permission denied');
       h = picked; await handles.set(key, h);

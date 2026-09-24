@@ -82,6 +82,6 @@ addEventListener('dragleave', () => document.body.classList.remove('dropping'));
 addEventListener('drop', (e) => {
   e.preventDefault(); document.body.classList.remove('dropping');
   const f = e.dataTransfer.files[0]; if (!f) return;
-  const p = api.pathForFile(f); if (p && /\.(md|markdown|mdown|mkd|txt)$/i.test(p)) open(p);
+  const p = api.pathForFile(f); if (p && /\.(md|markdown|mdown|mkd|txt|json)$/i.test(p)) open(p);
 });
 // Block the browser's own ⌘R etc. from reloading while editing is fine; nothing to do.

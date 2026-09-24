@@ -53,7 +53,9 @@
     const zoomIn = h('button', { class: 'icon zoom-in', title: 'Larger (⌘+)', onclick: () => stepZoom(1), html: 'A<sup>+</sup>' });
     const widthBtn = h('button', { class: 'icon width', title: 'Reading width (⌘⇧W)', onclick: () => cycleWidth(), html: '&#x2194;' });
     const view = h('div', { class: 'view' }, zoomOut, zoomPct, zoomIn, widthBtn);
-    const top = h('header', { class: 'top' }, filesBtn, crumbs, h('span', { class: 'spacer' }), seg, saveBtn, view, themeSel, openBtn, outlineBtn);
+    // JSON-only: pretty-print the source (⌥-click minifies). Hidden unless the open document is JSON (CSS on data-kind).
+    const fmtBtn = h('button', { class: 'fmt', title: 'Format JSON (⌘⇧F) · ⌥-click to minify', onclick: (e) => formatJson(e.altKey) }, 'Format');
+    const top = h('header', { class: 'top' }, filesBtn, crumbs, h('span', { class: 'spacer' }), seg, saveBtn, fmtBtn, view, themeSel, openBtn, outlineBtn);
 
     const tree = h('div', { class: 'tree' });
     const files = h('aside', { class: 'files' }, h('h6', {}, 'Files'), tree);
@@ -83,25 +85,48 @@
       if (/^[a-z][a-z0-9+.-]*:/i.test(S.path)) return S.path;
       return 'file://' + S.path.split('/').map((seg) => encodeURIComponent(seg)).join('/');
     }
+    // ---------- document kind ----------
+    // A .json file, or an untitled tab whose pasted text is valid JSON, renders through core/json.js instead of
+    // marked: a summary head, one section per top-level key, tables for arrays of flat objects, trees elsewhere.
+    const IS_JSON = (p) => /\.json$/i.test((p || '').split(/[?#]/)[0]);
+    const docKind = () => (curTab() && (isUntitled(curTab()) ? (global.JV && JV.looksLikeJson(S.text)) : IS_JSON(curDisp().name)) ? 'json' : 'md');
+    function formatJson(minify) {
+      if (docKind() !== 'json' || !global.JV) return flash('Not a JSON document');
+      try {
+        const next = minify ? JV.minify(S.text) : JV.format(S.text);
+        if (next === S.text) return flash(minify ? 'Already minified' : 'Already formatted');
+        setText(next); const t = curTab(); if (t) t.text = next; paint(); flash(minify ? 'Minified' : 'Formatted');
+      } catch (e) { flash('Cannot format: ' + (e && e.message || e), 4000); }
+    }
     function paint() {
-      const r = MD.renderDoc(S.text, { base: docBase(), home: adapter.home });
+      const kind = docKind();
+      root.dataset.kind = kind;
+      $('.gutter span', editor).textContent = kind;
+      const r = kind === 'json' ? JV.renderDoc(S.text, { name: curDisp().name }) : MD.renderDoc(S.text, { base: docBase(), home: adapter.home });
       head.replaceChildren(...r.headEl.childNodes);
       // chips (sections theme shows them; others hide via CSS)
       head.append(h('nav', { class: 'chips' }, ...r.sectionEls.map((s) => h('a', { href: '#' + s.id, onclick: (e) => { e.preventDefault(); scrollTo(s.id); }, html: (s.el.querySelector('h2 .t') || {}).innerHTML || MD.esc(s.title) }))));
       secs.replaceChildren(...r.sectionEls.map((s) => h('section', { class: 'sec', 'data-i': s.index, id: 'sec-' + s.index },
         h('div', { class: 'tools' },
-          h('button', { 'data-act': 'edit', onclick: () => editSection(s.index) }, 'Edit section'),
-          h('button', { 'data-act': 'copy', onclick: () => copySection(s.index) }, 'Copy')),
+          kind === 'json' ? null : h('button', { 'data-act': 'edit', onclick: () => editSection(s.index) }, 'Edit section'),
+          h('button', { 'data-act': 'copy', onclick: () => (kind === 'json' ? copyJsonSection(s.title) : copySection(s.index)) }, kind === 'json' ? 'Copy JSON' : 'Copy')),
         h('div', { class: 'body' }, ...s.el.childNodes))));
       toc.replaceChildren(...r.toc.filter((t) => t.lvl <= 3).map((t) => h('a', { class: 'l' + t.lvl, href: '#' + t.id, onclick: (e) => { e.preventDefault(); scrollTo(t.id); } }, t.text.replace(/^\d+[.)]\s*/, ''))));
-      meta.replaceChildren(h('div', {}, `${r.stats.sections} sections · ${r.stats.tables} tables`), h('div', {}, `~${r.stats.words} words · ${r.stats.minutes} min read`));
-      $('.wc', editor).textContent = r.stats.words + ' words';
+      if (kind === 'json') {
+        const lines = S.text.split('\n').length;
+        meta.replaceChildren(h('div', {}, `${r.stats.sections} sections · ${r.stats.tables} tables`), h('div', {}, r.json.error ? 'invalid JSON' : `${lines} lines · valid JSON`));
+        $('.wc', editor).textContent = lines + ' lines';
+      } else {
+        meta.replaceChildren(h('div', {}, `${r.stats.sections} sections · ${r.stats.tables} tables`), h('div', {}, `~${r.stats.words} words · ${r.stats.minutes} min read`));
+        $('.wc', editor).textContent = r.stats.words + ' words';
+      }
       const t = $('h1', head);
       document.title = (S.dirty ? '• ' : '') + (t ? t.textContent : curDisp().name);
       spy();
       checkPathLinks();
       wireTables();
     }
+    function copyJsonSection(title) { navigator.clipboard.writeText(JV.sectionSource(S.text, title)).then(() => flash('JSON copied')); }
     // ---------- table filters ----------
     // Every table gets a funnel in each header cell (shown when the header is hovered). Clicking one reveals a row of
     // filter boxes, one per column; rows that do not match every filled box are hidden and a caption reports
@@ -198,7 +223,7 @@
       });
     }
     // ---------- absolute paths written in the text ----------
-    const IS_MD = (p) => /\.(md|markdown|mdown|mkd)$/i.test(p);
+    const IS_MD = (p) => /\.(md|markdown|mdown|mkd|json)$/i.test(p);
     const expandPath = (p) => (p.startsWith('~/') && adapter.home ? adapter.home + p.slice(1) : p);
     // Paths that do not exist on disk are shown as plain text, not links (app only: the extension has no fs access).
     async function checkPathLinks() {
@@ -357,6 +382,7 @@
 
     // ---------- per-section editing ----------
     function editSection(i) {
+      if (docKind() === 'json') return; // JSON has no markdown sections to splice; use Edit mode
       if (S.editingSec !== null && S.editingSec !== i) finishSection(S.editingSec, true);
       const { sections } = MD.split(S.text);
       const sec = secs.querySelector(`.sec[data-i="${i}"]`);
@@ -429,7 +455,7 @@
       S.tab = i; const t = S.tabs[i];
       S.path = t.path; S.saved = t.saved; S.filters = t.filters || {}; setText(t.text); setDirty(t.text !== t.saved);
       const d = dispOf(t);
-      ta.placeholder = isUntitled(t) ? 'Paste or type Markdown here…' : '';
+      ta.placeholder = isUntitled(t) ? 'Paste or type Markdown or JSON here…' : '';
       renderCrumbs(d);
       paint();
       content.scrollTop = fresh ? 0 : t.scroll;
@@ -449,10 +475,12 @@
       root.classList.toggle('has-tabs', S.tabs.length > 0);
       root.classList.toggle('multi-tabs', S.tabs.length > 1);
     }
-    // Writes a tab's text. An untitled tab has no path: the adapter asks where to save and returns the path, which
-    // the tab then adopts (it becomes an ordinary file tab). Throws if the user cancels.
+    // Writes a tab's text. An untitled tab has no path: the adapter asks where to save (hinted with the extension the
+    // content calls for -- .json when the pasted text is JSON) and returns the path, which the tab then adopts (it
+    // becomes an ordinary file tab). Throws if the user cancels.
     async function writeTab(t) {
-      const p = await adapter.writeFile(isUntitled(t) ? null : t.path, t.text);
+      const ext = isUntitled(t) && global.JV && JV.looksLikeJson(t.text) ? 'json' : 'md';
+      const p = await adapter.writeFile(isUntitled(t) ? null : t.path, t.text, { ext });
       t.saved = t.text;
       if (isUntitled(t) && typeof p === 'string' && p) {
         t.untitled = false; t.name = undefined; t.path = p;
@@ -474,6 +502,7 @@
       if (!S.tabs.length) {
         S.tab = -1; S.path = null; S.text = ''; S.saved = ''; ta.value = ''; setDirty(false);
         head.replaceChildren(); secs.replaceChildren(); toc.replaceChildren(); meta.replaceChildren(); crumbs.replaceChildren();
+        delete root.dataset.kind;
         renderTabs(); document.title = 'MdReader'; notifyTabs();
         adapter.onLastTabClosed && adapter.onLastTabClosed();
         return true;
@@ -543,7 +572,7 @@
       let entries = [];
       try { entries = await adapter.listDir(dir); } catch (e) { kids.append(h('div', { class: 'empty' }, 'not readable')); return; }
       const dirs = entries.filter((e) => e.dir && !e.name.startsWith('.')).sort((a, b) => a.name.localeCompare(b.name));
-      const mds = entries.filter((e) => !e.dir && /\.(md|markdown|mdown|txt)$/i.test(e.name)).sort((a, b) => a.name.localeCompare(b.name));
+      const mds = entries.filter((e) => !e.dir && /\.(md|markdown|mdown|txt|json)$/i.test(e.name)).sort((a, b) => a.name.localeCompare(b.name));
       for (const d of dirs) kids.append(await folderNode(d.path, false));
       for (const f of mds) kids.append(h('div', { class: 'file' + (f.path === S.path ? ' on' : ''), 'data-path': f.path, title: f.name, onclick: () => loadFile(f.path) }, f.name));
       if (!dirs.length && !mds.length) kids.append(h('div', { class: 'empty' }, 'no markdown here'));
@@ -582,6 +611,7 @@
       else if (k === '\\') { e.preventDefault(); adapter.listDir && togglePanel('files'); }
       else if (k === '/') { e.preventDefault(); togglePanel('outline'); }
       else if (k === 't' && e.shiftKey) { e.preventDefault(); cycleTheme(); }
+      else if (k === 'f' && e.shiftKey) { e.preventDefault(); formatJson(e.altKey); }
       else if (k === 'w' && e.shiftKey) { e.preventDefault(); cycleWidth(); }
       else if (k === '=' || k === '+') { e.preventDefault(); stepZoom(1); }
       else if (k === '-' || k === '_') { e.preventDefault(); stepZoom(-1); }
@@ -607,7 +637,7 @@
       else {
         // Relative link: open sibling .md files in the reader; anything else is ignored rather than navigating away.
         e.preventDefault();
-        if (/\.(md|markdown|mdown|mkd)(#.*)?$/i.test(href) && S.path && adapter.readFile) {
+        if (/\.(md|markdown|mdown|mkd|json)(#.*)?$/i.test(href) && S.path && adapter.readFile) {
           const base = S.path.slice(0, S.path.lastIndexOf('/') + 1);
           const target = href.split('#')[0].split('/').reduce((acc, seg) => { if (seg === '..') acc.pop(); else if (seg && seg !== '.') acc.push(seg); return acc; }, base.split('/').filter(Boolean));
           loadFile('/' + target.join('/')).catch(() => flash('Could not open ' + href));

@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('mdreader', {
   readFile: (p) => ipcRenderer.invoke('read-file', p),
-  writeFile: (p, text) => ipcRenderer.invoke('write-file', p, text),
+  writeFile: (p, text, hint) => ipcRenderer.invoke('write-file', p, text, hint),
   listDir: (dir) => ipcRenderer.invoke('list-dir', dir),
   openDialog: () => ipcRenderer.invoke('open-dialog'),
   getPref: (k) => ipcRenderer.invoke('get-pref', k),
