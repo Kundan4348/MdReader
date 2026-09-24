@@ -118,6 +118,26 @@ html[data-theme] .app.paged .doc{max-width:none}
 .hint{transition:opacity .6s}.hint.gone{opacity:0}
 img{max-width:100%;height:auto}
 .table-wrap{overflow-x:auto}
+/* per-column table filters (core/shell.js wireTables): funnel in each header, a row of boxes under the header, caption with the count */
+.filterable thead th .tf-btn{display:inline-flex;align-items:center;vertical-align:middle;margin-left:6px;padding:2px;border:0;background:none;color:inherit;opacity:0;cursor:pointer;border-radius:4px;line-height:0;transition:opacity .12s}
+.filterable thead:hover .tf-btn{opacity:.4}
+.filterable thead th:hover .tf-btn,.filterable.filtering .tf-btn{opacity:.7}
+.filterable thead th .tf-btn:hover{opacity:1;background:color-mix(in srgb,currentColor 12%,transparent)}
+.filterable thead th.filtered .tf-btn{opacity:1;color:var(--accent,inherit)}
+html[data-theme] .filterable tr.filters{display:none}
+html[data-theme] .filterable.filtering tr.filters{display:table-row}
+html[data-theme] .filterable tr.filters td{padding:2px 8px 8px;font-weight:400;text-transform:none;letter-spacing:0;border-bottom:0}
+html[data-theme] .filterable input.tf{width:100%;min-width:64px;box-sizing:border-box;font:inherit;font-weight:400;font-size:12.5px;line-height:1.3;padding:4px 8px;border-radius:6px;border:1px solid color-mix(in srgb,currentColor 22%,transparent);background:color-mix(in srgb,currentColor 4%,transparent);color:inherit;outline:none}
+html[data-theme] .filterable input.tf::placeholder{color:inherit;opacity:.4}
+html[data-theme] .filterable input.tf:focus{border-color:var(--accent,currentColor)}
+html[data-theme] .filterable input.tf.on{border-color:var(--accent,currentColor);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent,currentColor) 18%,transparent)}
+html[data-theme] .filterable input.tf.num{text-align:right;font-variant-numeric:tabular-nums}
+html[data-theme] .filterable tbody tr.f-hide{display:none}
+html[data-theme] .filterable caption.tf-cap{caption-side:bottom;display:none;text-align:left;font-size:12px;font-weight:500;padding:8px 10px 2px;opacity:.75;font-variant-numeric:tabular-nums}
+html[data-theme] .filterable.filtered caption.tf-cap{display:table-caption}
+html[data-theme] .filterable.f-none .tf-count::after{content:" · nothing matches"}
+html[data-theme] .filterable .tf-clear{margin-left:10px;border:0;background:none;color:var(--accent,inherit);font:inherit;font-size:12px;font-weight:600;cursor:pointer;padding:0}
+html[data-theme] .filterable .tf-clear:hover{text-decoration:underline}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 th.num{white-space:normal}
 /* Themes style `thead th{text-align:left}` at higher specificity; keep numeric and explicitly-aligned headers in line with their column. */

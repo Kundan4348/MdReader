@@ -107,6 +107,23 @@ await setW('full'); await sleep(80); const wFullPaged = await docW();
 await setW('auto'); await sleep(80); const pAfterWidth = await pageVar();
 report.widthWhilePaged = { wNarrowPaged, wFullPaged, pAfterWidth };
 report.widthOk = report.widths.narrow < report.widths.full && wNarrowPaged < wFullPaged && Math.abs(pAfterWidth - pOut) < 0.002;
+// Per-column table filters on table 2 (Team | espresso | pour-over | cold-brew | latte | Path; 6 body rows).
+const tf = (js) => evalJs(`(()=>{const t=document.querySelectorAll('#app .doc .table-wrap > table')[1]; const w=t.parentElement; const rows=[...t.querySelectorAll('tbody > tr')]; const shown=()=>rows.filter(r=>getComputedStyle(r).display!=='none').length; const type=(c,v)=>{const i=t.querySelectorAll('tr.filters input.tf')[c]; i.value=v; i.dispatchEvent(new Event('input',{bubbles:true}));}; ${js}})()`);
+const f0 = await tf(`return { hidden: getComputedStyle(t.querySelector('tr.filters')).display==='none', funnels: t.querySelectorAll('thead th .tf-btn').length, cap: getComputedStyle(t.querySelector('caption.tf-cap')).display==='none', shown: shown() }`);
+const f1 = await tf(`t.querySelectorAll('thead th .tf-btn')[1].click(); return { open: w.classList.contains('filtering') && getComputedStyle(t.querySelector('tr.filters')).display!=='none', focused: document.activeElement===t.querySelectorAll('tr.filters input.tf')[1] }`);
+const f2 = await tf(`type(1,'>1000'); return { shown: shown(), cap: t.querySelector('.tf-count').textContent, numClass: t.querySelectorAll('tr.filters input.tf')[1].classList.contains('num') }`); // 33,669 · 6,952 · 41.5 K · 266.6 M
+await evalJs(`document.querySelectorAll('#app .doc .table-wrap > table')[1].scrollIntoView({block:'center'})`); await sleep(100); await shot('ext-filter.png');
+const f3 = await tf(`type(0,'total'); return shown()`); // Catering total · Store total
+const f4 = await tf(`type(0,'!total'); return shown()`); // 33,669 · 6,952
+const f5 = await tf(`type(0,''); type(1,'1k-40k'); return shown()`); // 33,669 · 6,952 (41.5 K is above)
+const f6 = await tf(`type(1,'>1b'); return { shown: shown(), none: w.classList.contains('f-none') }`);
+// a re-render (mode round trip) must keep the filter, and Escape in an empty box must clear + close
+await evalJs(`document.querySelector('#app .top [data-mode=edit]').click(); document.querySelector('#app .top [data-mode=read]').click();`); await sleep(150);
+const f7 = await tf(`return { shown: shown(), open: w.classList.contains('filtering'), value: t.querySelectorAll('tr.filters input.tf')[1].value }`);
+const f8 = await tf(`const i=t.querySelectorAll('tr.filters input.tf')[1]; i.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})); const a=shown(); i.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})); return { afterFirstEsc: a, shown: shown(), open: w.classList.contains('filtering'), filtered: w.classList.contains('filtered') }`);
+report.filters = { f0, f1, f2, f3, f4, f5, f6, f7, f8 };
+report.filterOk = f0.hidden && f0.funnels === 6 && f0.cap && f0.shown === 6 && f1.open && f1.focused && f2.shown === 4 && f2.cap === '4 of 6 rows' && f2.numClass
+  && f3 === 2 && f4 === 2 && f5 === 2 && f6.shown === 0 && f6.none && f7.shown === 0 && f7.open && f7.value === '>1b' && f8.afterFirstEsc === 6 && f8.shown === 6 && !f8.open && !f8.filtered;
 await pinch(-8, 400); await sleep(50); const pMax = await pageVar();
 await pinch(8, 400); await sleep(50); const pMin = await pageVar();
 await evalJs(`(()=>{const el=document.querySelector('#app .doc');el.dispatchEvent(new WheelEvent('wheel',{deltaY:8,bubbles:true,cancelable:true}));})()`); await sleep(50); const pPlainWheel = await pageVar();
@@ -128,4 +145,4 @@ if (report.editorVisible) {
   await shot('ext-edited.png');
 }
 console.log(JSON.stringify(report, null, 2));
-clearTimeout(hardStop); killChrome(); process.exit(report.mounted && report.tables > 0 && report.pinchOk && report.buttonsOk && report.widthOk ? 0 : 1);
+clearTimeout(hardStop); killChrome(); process.exit(report.mounted && report.tables > 0 && report.pinchOk && report.buttonsOk && report.widthOk && report.filterOk ? 0 : 1);

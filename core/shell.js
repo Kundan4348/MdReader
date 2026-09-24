@@ -94,6 +94,86 @@
       document.title = (S.dirty ? '• ' : '') + (t ? t.textContent : (S.path ? adapter.displayPath(S.path).name : 'MdReader'));
       spy();
       checkPathLinks();
+      wireTables();
+    }
+    // ---------- table filters ----------
+    // Every table gets a funnel in each header cell (shown when the header is hovered). Clicking one reveals a row of
+    // filter boxes, one per column; rows that do not match every filled box are hidden and a caption reports
+    // "n of m rows". Text columns: case-insensitive substring, `!x` excludes. Numeric columns (the ones md.js marked
+    // `.num`) also take `>N`, `>=N`, `<N`, `<=N`, `=N` and `A-B` ranges, reading "58.8 M", "1,935", "0.16 %" and
+    // "49 ms" as numbers. Filters are AND-ed across columns and kept per document, so they survive a re-render and a
+    // tab switch; Escape in an empty box (or the caption's ✕) clears them and closes the row.
+    const NUM_MULT = { k: 1e3, m: 1e6, b: 1e9, g: 1e9, t: 1e12 };
+    function cellNumber(text) {
+      const s = String(text).replace(/[,\s]/g, '').replace(/[−–]/g, '-');
+      const m = /^[~≈$€£+]*(-?\d+(?:\.\d+)?)(?:-\d+(?:\.\d+)?)?([kmbgt])?(?![a-z])/i.exec(s);
+      return m ? parseFloat(m[1]) * (m[2] ? NUM_MULT[m[2].toLowerCase()] : 1) : null;
+    }
+    const qNumber = (n, u) => parseFloat(n.replace(/,/g, '')) * (u ? NUM_MULT[u.toLowerCase()] : 1);
+    function filterPred(q, numeric) {
+      q = q.trim(); if (!q) return null;
+      if (numeric) {
+        let m = /^(>=|<=|>|<|=)\s*(-?[\d.,]+)\s*([kmbgt])?$/i.exec(q);
+        if (m) {
+          const op = m[1], v = qNumber(m[2], m[3]);
+          return (t) => { const n = cellNumber(t); return n !== null && (op === '>' ? n > v : op === '<' ? n < v : op === '>=' ? n >= v : op === '<=' ? n <= v : n === v); };
+        }
+        m = /^([\d.,]+)\s*([kmbgt])?\s*(?:\.\.|–|-)\s*([\d.,]+)\s*([kmbgt])?$/i.exec(q);
+        if (m) {
+          const lo = qNumber(m[1], m[2]), hi = qNumber(m[3], m[4]);
+          return (t) => { const n = cellNumber(t); return n !== null && n >= Math.min(lo, hi) && n <= Math.max(lo, hi); };
+        }
+      }
+      const neg = q.startsWith('!'); const needle = (neg ? q.slice(1) : q).trim().toLowerCase();
+      if (!needle) return null;
+      return (t) => t.toLowerCase().includes(needle) !== neg;
+    }
+    const FUNNEL = '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M1.5 2.5h13L9.5 8.6V14l-3-1.6V8.6z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>';
+    function wireTables() {
+      S.filters = S.filters || {};
+      [...doc.querySelectorAll('.table-wrap > table')].forEach((table, ti) => {
+        const ths = [...table.querySelectorAll('thead th')];
+        const rows = [...table.querySelectorAll('tbody > tr')];
+        if (!ths.length || !rows.length) return;
+        const wrap = table.parentElement; wrap.classList.add('filterable');
+        const st = S.filters[ti] || (S.filters[ti] = { q: ths.map(() => ''), open: false });
+        while (st.q.length < ths.length) st.q.push('');
+        const isNum = (c) => ths[c].classList.contains('num');
+        const inputs = ths.map((th, c) => h('input', {
+          type: 'text', class: 'tf' + (isNum(c) ? ' num' : ''), value: st.q[c] || '', spellcheck: 'false', autocomplete: 'off',
+          placeholder: isNum(c) ? '> < = a-b …' : 'Filter…', 'aria-label': 'Filter ' + th.textContent.trim(),
+          oninput: (e) => { st.q[c] = e.target.value; apply(); },
+          onkeydown: (e) => {
+            if (e.key === 'Escape') { e.stopPropagation(); if (e.target.value) { e.target.value = ''; st.q[c] = ''; apply(); } else close(); }
+            else if (e.key === 'Enter') { e.preventDefault(); const nx = inputs[c + 1] || inputs[0]; nx.focus(); nx.select(); }
+          },
+        }));
+        const frow = h('tr', { class: 'filters' }, ...inputs.map((inp, c) => h('td', { class: ths[c].className }, inp)));
+        table.tHead.appendChild(frow);
+        const count = h('span', { class: 'tf-count' });
+        const cap = h('caption', { class: 'tf-cap' }, count, h('button', { class: 'tf-clear', title: 'Clear filters (Esc)', onclick: close, html: '&#x2715; clear' }));
+        table.prepend(cap);
+        ths.forEach((th, c) => th.append(h('button', { class: 'tf-btn', title: 'Filter this column', 'aria-label': 'Filter ' + th.textContent.trim(), html: FUNNEL,
+          onclick: (e) => { e.stopPropagation(); open(); inputs[c].focus(); inputs[c].select(); } })));
+        function open() { st.open = true; wrap.classList.add('filtering'); }
+        function close() { st.q.fill(''); inputs.forEach((i) => { i.value = ''; }); st.open = false; wrap.classList.remove('filtering'); apply(); }
+        function apply() {
+          const preds = st.q.map((q, c) => filterPred(q || '', isNum(c)));
+          const active = preds.some(Boolean);
+          let shown = 0;
+          rows.forEach((tr) => {
+            const ok = preds.every((p, c) => !p || p((tr.children[c] || {}).textContent || ''));
+            tr.classList.toggle('f-hide', !ok); if (ok) shown++;
+          });
+          inputs.forEach((inp, c) => inp.classList.toggle('on', !!preds[c]));
+          ths.forEach((th, c) => th.classList.toggle('filtered', !!preds[c]));
+          wrap.classList.toggle('filtered', active);
+          wrap.classList.toggle('f-none', active && shown === 0);
+          count.textContent = active ? `${shown} of ${rows.length} rows` : '';
+        }
+        if (st.open) wrap.classList.add('filtering');
+        apply();
+      });
     }
     // ---------- absolute paths written in the text ----------
     const IS_MD = (p) => /\.(md|markdown|mdown|mkd)$/i.test(p);
@@ -309,13 +389,13 @@
     function stashActive() {
       const t = S.tabs[S.tab]; if (!t) return;
       if (S.editingSec !== null) finishSection(S.editingSec, true);
-      t.text = S.text; t.saved = S.saved; t.scroll = content.scrollTop;
+      t.text = S.text; t.saved = S.saved; t.scroll = content.scrollTop; t.filters = S.filters;
     }
     async function showTab(i, fresh) {
       if (i < 0 || i >= S.tabs.length) return;
       if (i !== S.tab) stashActive();
       S.tab = i; const t = S.tabs[i];
-      S.path = t.path; S.saved = t.saved; setText(t.text); setDirty(t.text !== t.saved);
+      S.path = t.path; S.saved = t.saved; S.filters = t.filters || {}; setText(t.text); setDirty(t.text !== t.saved);
       const d = adapter.displayPath(t.path);
       renderCrumbs(d);
       paint();
