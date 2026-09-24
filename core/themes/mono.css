@@ -118,3 +118,4 @@ html[data-theme=mono] table{font-size:13.5px;line-height:1.65}
 html[data-theme=mono] thead th{font-size:12px;padding:11px 12px;background:var(--panel)}
 html[data-theme=mono] tbody td{padding:11px 12px}
 html[data-theme=mono] td:first-child{font-weight:700}
+html[data-theme=mono] .tab+.tab::before{display:none}

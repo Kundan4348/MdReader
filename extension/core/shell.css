@@ -65,11 +65,18 @@ html[data-theme] .app.no-outline{--outline-w:0px}html .app.no-outline .outline{d
 /* centre column = tab strip + scrolling content */
 .centre{grid-row:2;grid-column:2;display:flex;flex-direction:column;min-width:0;min-height:0}
 .content{flex:1;min-height:0;overflow:auto;position:relative;min-width:0;container-type:inline-size}
-.tabs{display:none;flex:none;align-items:stretch;gap:2px;padding:6px 10px 0;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;font-size:12.5px;zoom:var(--ui-zoom)}
-.tabs::-webkit-scrollbar{display:none}
+.tabs{display:none;flex:none;align-items:stretch;gap:2px;padding:6px 10px 0;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;scrollbar-color:color-mix(in srgb,currentColor 28%,transparent) transparent;font-size:12.5px;zoom:var(--ui-zoom)}
+.tabs::-webkit-scrollbar{height:4px}
+.tabs::-webkit-scrollbar-thumb{background:color-mix(in srgb,currentColor 28%,transparent);border-radius:2px}
+.tabs::-webkit-scrollbar-track{background:transparent}
 .app.multi-tabs .tabs,.app.always-tabs.has-tabs .tabs{display:flex}
-.tab{display:flex;align-items:center;gap:8px;padding:7px 8px 7px 12px;border-radius:8px 8px 0 0;max-width:220px;min-width:0;cursor:pointer;user-select:none;opacity:.6;position:relative;-webkit-app-region:no-drag}
-.tab .name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+/* A tab never shrinks below a readable width: past the pane's width the strip scrolls (thin bar, wheel, or the active
+   tab being brought into view) instead of squeezing every name down to one letter. */
+.tab{display:flex;align-items:center;gap:8px;padding:7px 8px 7px 12px;border-radius:8px 8px 0 0;flex:0 0 auto;width:auto;min-width:112px;max-width:220px;cursor:pointer;user-select:none;opacity:.6;position:relative;-webkit-app-region:no-drag}
+.tab .name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500;flex:1 1 auto;min-width:0}
+/* divider between neighbouring tabs (themes that draw their own borders hide it) */
+.tab+.tab::before{content:"";position:absolute;left:-1.5px;top:22%;height:56%;border-left:1px solid currentColor;opacity:.22}
+.tab.on::before,.tab.on+.tab::before,.tab:hover::before,.tab:hover+.tab::before{opacity:0}
 .tab.on{opacity:1}
 .tab .dot{display:none;width:7px;height:7px;border-radius:50%;flex:none}
 .tab.dirty .dot{display:inline-block}

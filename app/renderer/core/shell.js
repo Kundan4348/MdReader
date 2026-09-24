@@ -293,8 +293,23 @@
       if (!THEMES.some((x) => x.id === t)) t = DEFAULT_THEME;
       S.theme = t; document.documentElement.dataset.theme = t; themeSel.value = t;
       refreeze();
+      revealActiveTab(); requestAnimationFrame(revealActiveTab); // the strip's padding and zoom change per theme, which can scroll the active tab out of view
       adapter.setPref && adapter.setPref('theme', t);
     }
+    // Keep the active tab inside the (scrollable) strip: after a switch, a theme change, or a window resize. Measured
+    // from client rects and corrected twice, because Chromium scales scrollLeft when the strip carries a CSS zoom
+    // (the sections theme), which makes both scrollIntoView and an offsetLeft-based target land a few px short.
+    function revealActiveTab() {
+      const on = tabsEl.children[S.tab]; if (!on) return;
+      for (let i = 0; i < 2; i++) {
+        const r = on.getBoundingClientRect(), s = tabsEl.getBoundingClientRect();
+        const scale = tabsEl.offsetWidth ? s.width / tabsEl.offsetWidth : 1, pad = 12 * scale;
+        const d = r.left - pad < s.left ? r.left - pad - s.left : r.right + pad > s.right ? r.right + pad - s.right : 0;
+        if (!d) return;
+        tabsEl.scrollLeft += d / scale;
+      }
+    }
+    addEventListener('resize', debounce(revealActiveTab, 120));
     // ---------- zoom / reading width ----------
     // Auto-zoom: on wide screens a fixed 16px column looks tiny, so the document scales with the
     // content pane (1.0 at <=1200px, up to 1.5 at 2400px+), then the user's A-/A+ steps multiply it.
@@ -367,7 +382,7 @@
     if (global.ResizeObserver) {
       new ResizeObserver((es) => {
         const w = es[0].contentRect.width; const z = Math.min(1.5, Math.max(1, w / 1200));
-        if (Math.abs(z - S.autoZoom) > 0.01) { S.autoZoom = z; applyZoom(); }
+        if (Math.abs(z - S.autoZoom) > 0.01) { S.autoZoom = z; applyZoom(); requestAnimationFrame(revealActiveTab); } // the strip zooms with --ui-zoom, moving its scroll position
       }).observe(content);
     }
     function cycleTheme() { const i = THEMES.findIndex((t) => t.id === S.theme); setTheme(THEMES[(i + 1) % THEMES.length].id); flash('Theme: ' + THEMES[(i + 1) % THEMES.length].name); }
@@ -461,7 +476,7 @@
       paint();
       content.scrollTop = fresh ? 0 : t.scroll;
       [...tabsEl.querySelectorAll('.tab')].forEach((el, j) => { el.classList.toggle('on', j === i); el.setAttribute('aria-selected', j === i); });
-      const on = tabsEl.children[i]; on && on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      revealActiveTab();
       if (adapter.listDir && d.dir) buildTree(d.dir);
       tree.querySelectorAll('.file').forEach((f) => f.classList.toggle('on', f.dataset.path === t.path));
       notifyTabs();
@@ -621,6 +636,8 @@
     });
     // Double-click on the empty part of the tab strip opens a new untitled tab (like a browser).
     tabsEl.addEventListener('dblclick', (e) => { if (e.target === tabsEl) newTab(); });
+    // A vertical wheel over the strip scrolls it sideways (a mouse has no horizontal wheel; a trackpad still pans).
+    tabsEl.addEventListener('wheel', (e) => { if (e.ctrlKey || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return; if (tabsEl.scrollWidth > tabsEl.clientWidth) { e.preventDefault(); tabsEl.scrollLeft += e.deltaY; } }, { passive: false });
     // Pasting onto an empty untitled tab while reading fills it, so ⌘T then ⌘V works in any mode.
     addEventListener('paste', (e) => {
       const t = curTab();

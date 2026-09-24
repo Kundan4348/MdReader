@@ -79,6 +79,25 @@ await ev(`document.querySelector('#app .top [data-mode=edit]').click()`); await 
 await ev(`(()=>{const ta=document.querySelector('#app textarea.src'); ta.value='# Not json\\n\\ntext'; ta.dispatchEvent(new Event('input',{bubbles:true}));})()`); await sleep(100);
 await ev(`document.querySelector('#app .top [data-mode=read]').click()`); await sleep(150);
 report.untitledMd = await ev(`({kind:document.querySelector('#app').dataset.kind, fmt:getComputedStyle(document.querySelector('#app .top button.fmt')).display})`);
+// ---- many tabs: each keeps a readable width, the strip scrolls (and follows the active tab), neighbours are divided.
+await ev(`document.querySelector('#app .top [data-mode=edit]').click()`); await sleep(100);
+await ev(`(()=>{const ta=document.querySelector('#app textarea.src'); ta.value=''; ta.dispatchEvent(new Event('input',{bubbles:true}));})()`); await sleep(100); // empty, so it closes without a prompt later
+await ev(`document.querySelector('#app .top [data-mode=read]').click()`); await sleep(100);
+for (let i = 0; i < 14; i++) await ev(`dispatchEvent(new KeyboardEvent('keydown',{key:'t',metaKey:true,bubbles:true}))`);
+await sleep(300);
+report.manyTabs = {};
+for (const th of ['paper', 'sections', 'studio', 'mono']) {
+  await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value='${th}'; s.dispatchEvent(new Event('change',{bubbles:true}));})()`); await sleep(200);
+  report.manyTabs[th] = await ev(`(()=>{const strip=document.querySelector('#app .tabs'); const tabs=[...strip.querySelectorAll('.tab')]; const on=strip.querySelector('.tab.on').getBoundingClientRect(); const sr=strip.getBoundingClientRect();
+    return {n:tabs.length, minW:Math.round(Math.min(...tabs.map(t=>t.getBoundingClientRect().width))), scrolls:strip.scrollWidth>strip.clientWidth+20, activeVisible:on.left>=sr.left-1&&on.right<=sr.right+1, divider:(()=>{const cs=getComputedStyle(tabs[2],'::before'); return cs.display==='none'?'none':cs.borderLeftStyle})(), names:tabs.slice(0,3).map(t=>t.querySelector('.name').textContent)}})()`);
+  if (th === 'paper') await shot('json-many-tabs.png');
+}
+// wheel over the strip pans it sideways
+report.wheelPan = await ev(`(()=>{const strip=document.querySelector('#app .tabs'); strip.scrollLeft=0; strip.dispatchEvent(new WheelEvent('wheel',{deltaY:120,bubbles:true,cancelable:true})); return strip.scrollLeft})()`);
+for (let i = 0; i < 15; i++) { await ev(`document.querySelector('#app .tabs .tab.on .x')?.click()`); await sleep(60); }
+report.tabsAfterClose = await ev(`document.querySelectorAll('#app .tabs .tab').length`);
+report.manyTabsOk = Object.entries(report.manyTabs).every(([th, m]) => m.n === 16 && m.minW >= 100 && m.scrolls && m.activeVisible && (th === 'mono' ? m.divider === 'none' : m.divider === 'solid')) && report.wheelPan > 0 && report.tabsAfterClose === 1;
+await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value='mono'; s.dispatchEvent(new Event('change',{bubbles:true}));})()`); await sleep(150);
 // ---- tables nested deep in the tree must stay inside their node's indentation in every theme (paper centres wide
 // tables past the column; that must not apply here), and never wider than the pane.
 report.nestedMounted = await mount(base + '/test/fixtures/nested.json');
@@ -109,7 +128,7 @@ report.jsonOk = report.mounted && report.kind === 'json' && report.h1 === 'data.
   && report.fmtVisible !== 'none' && report.linesBefore === 2 && report.linesAfter > 20 && report.dirtyAfterFormat && !/minified/.test(report.metaAfter) && report.h1After === 'data.json'
   && report.linesMinified === 1 && report.dirtyAfterMinify && report.gutter === 'json'
   && report.untitled.kind === 'json' && report.untitled.tab === 'Untitled 1' && report.untitled.fmt !== 'none' && report.untitled.keys.join() === 'a,b,c' && report.untitled.secs === 0
-  && report.untitledMd.kind === 'md' && report.untitledMd.fmt === 'none' && report.nestedOk
+  && report.untitledMd.kind === 'md' && report.untitledMd.fmt === 'none' && report.nestedOk && report.manyTabsOk
   && report.brokenMounted && report.broken.kind === 'json' && /Invalid JSON at line 3, column \d+/.test(report.broken.err) && /^3: /.test(report.broken.excerpt) && report.broken.source && report.broken.secs === 0
   && /Cannot format/.test(report.brokenToast) && !logs.some((l) => l.startsWith('EXC'));
 console.log(JSON.stringify(report, null, 2));
