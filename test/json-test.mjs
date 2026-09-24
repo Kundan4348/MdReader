@@ -36,18 +36,27 @@ report.mounted = await mount(base + '/test/fixtures/data.json');
 report.kind = await ev(`document.querySelector('#app').dataset.kind`);
 report.h1 = await ev(`document.querySelector('#app .doc h1')?.textContent`);
 report.meta = await ev(`document.querySelector('#app .doc .head .jmeta')?.textContent`);
-report.sections = await ev(`[...document.querySelectorAll('#app .sec h2 .t')].map(e=>e.textContent)`);
+report.sections = await ev(`document.querySelectorAll('#app .sec').length`);
 report.outline = await ev(`[...document.querySelectorAll('#app .toc a')].map(a=>a.textContent)`);
-report.props = await ev(`[...document.querySelectorAll('#app .sec:nth-child(1) table.jprops tbody tr')].map(tr=>[...tr.children].map(td=>td.textContent).join('='))`);
-report.menuCols = await ev(`[...document.querySelectorAll('#app .sec[data-i="2"] table thead th')].map(th=>th.firstChild.textContent.trim()+(th.classList.contains('num')?'#':''))`);
-report.menuRows = await ev(`document.querySelectorAll('#app .sec[data-i="2"] table tbody tr').length`);
-report.tree = await ev(`(()=>{const s=document.querySelector('#app .sec[data-i="1"]'); return {open:[...s.querySelectorAll('details.jn')].map(d=>d.querySelector('.jk').textContent+':'+d.open), leaves:s.querySelectorAll('.jl').length, url:!!document.querySelector('#app .jprops a[href^="https://"]')}})()`);
-report.empties = await ev(`[...document.querySelectorAll('#app .sec')].filter(s=>/^(empty|nothing)$/.test(s.querySelector('h2 .t').textContent)).map(s=>s.querySelector('.jempty')?.textContent)`);
-report.tools = await ev(`(()=>{const s=document.querySelector('#app .sec[data-i="2"] .tools'); return {edit:s.querySelector('[data-act=edit]')?'present':'none', copy:s.querySelector('[data-act=copy]').textContent}})()`);
+report.scalars = await ev(`[...document.querySelectorAll('#app .jroot > .jt > .jl')].map(l=>l.querySelector('.jk').textContent+'='+l.querySelector('.jv').textContent+'='+[...l.querySelector('.jv').classList].filter(c=>c!=='jv')[0])`);
+report.menuCols = await ev(`[...document.querySelectorAll('#app #menu table thead th')].map(th=>th.firstChild.textContent.trim()+(th.classList.contains('num')?'#':''))`);
+report.menuRows = await ev(`document.querySelectorAll('#app #menu table tbody tr').length`);
+report.tree = await ev(`(()=>{const s=document.querySelector('#app #address'); return {open:s.open, inner:[...s.querySelectorAll('details.jn')].map(d=>d.querySelector('.jk').textContent+':'+d.open), leaves:s.querySelectorAll('.jl').length, url:!!document.querySelector('#app .jroot a[href^="https://"]')}})()`);
+report.empties = await ev(`['empty','nothing'].map(k=>document.querySelector('#app #'+k+' .jempty')?.textContent)`);
+report.tools = await ev(`[...document.querySelectorAll('#app .head button.jx')].map(b=>b.dataset.act)`);
 // per-column filter on the numeric "price" column of the menu table -> 3 of 4
-report.filter = await ev(`(async()=>{const w=document.querySelector('#app .sec[data-i="2"] .table-wrap'); const ths=[...w.querySelectorAll('thead th')]; const c=ths.findIndex(t=>t.textContent.trim().startsWith('price')); ths[c].querySelector('.tf-btn').click(); const inp=w.querySelectorAll('input.tf')[c]; inp.value='>100'; inp.dispatchEvent(new Event('input',{bubbles:true})); await new Promise(r=>setTimeout(r,50)); const shown=[...w.querySelectorAll('tbody tr')].filter(tr=>!tr.classList.contains('f-hide')).map(tr=>tr.children[1].textContent); return {shown, cap:w.querySelector('.tf-count').textContent}})()`);
-await ev(`document.querySelector('#app .sec[data-i="2"] .tf-clear').click()`);
+report.filter = await ev(`(async()=>{const w=document.querySelector('#app #menu .table-wrap'); const ths=[...w.querySelectorAll('thead th')]; const c=ths.findIndex(t=>t.textContent.trim().startsWith('price')); ths[c].querySelector('.tf-btn').click(); const inp=w.querySelectorAll('input.tf')[c]; inp.value='>100'; inp.dispatchEvent(new Event('input',{bubbles:true})); await new Promise(r=>setTimeout(r,50)); const shown=[...w.querySelectorAll('tbody tr')].filter(tr=>!tr.classList.contains('f-hide')).map(tr=>tr.children[1].textContent); return {shown, cap:w.querySelector('.tf-count').textContent}})()`);
+await ev(`document.querySelector('#app #menu .tf-clear').click()`);
+// Collapse all / Expand all act on every node (the "as tree" folds excluded).
+await ev(`document.querySelector('#app .head button.jx[data-act=collapse]').click()`);
+report.afterCollapse = await ev(`[...document.querySelectorAll('#app details.jn:not(.jraw)')].filter(d=>d.open).length`);
+await ev(`document.querySelector('#app .head button.jx[data-act=expand]').click()`);
+report.afterExpand = await ev(`(()=>{const ds=[...document.querySelectorAll('#app details.jn:not(.jraw)')]; return ds.length+':'+ds.filter(d=>d.open).length})()`);
 await shot('json-mono.png');
+await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value='sections'; s.dispatchEvent(new Event('change',{bubbles:true}));})()`); await sleep(300);
+report.sectionsThemeCards = await ev(`document.querySelectorAll('#app .sec').length + ':' + getComputedStyle(document.querySelector('#app .head .chips')).display`);
+await shot('json-sections.png');
+await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value='mono'; s.dispatchEvent(new Event('change',{bubbles:true}));})()`); await sleep(200);
 // Format: the top button is visible only for JSON; it pretty-prints the source and marks the tab dirty. ⌥ minifies back.
 report.fmtVisible = await ev(`getComputedStyle(document.querySelector('#app .top button.fmt')).display`);
 report.linesBefore = await ev(`document.querySelector('#app textarea.src').value.split('\\n').length`);
@@ -65,30 +74,31 @@ report.gutter = await ev(`document.querySelector('#app .editor .gutter span').te
 await ev(`dispatchEvent(new KeyboardEvent('keydown',{key:'t',metaKey:true,bubbles:true}))`); await sleep(200);
 await ev(`(()=>{const ta=document.querySelector('#app textarea.src'); ta.value='{"a":1,"b":[1,2,3],"c":{"d":"x"}}'; ta.dispatchEvent(new Event('input',{bubbles:true}));})()`); await sleep(100);
 await ev(`document.querySelector('#app .top [data-mode=read]').click()`); await sleep(150);
-report.untitled = await ev(`({kind:document.querySelector('#app').dataset.kind, tab:document.querySelector('#app .tabs .tab.on .name').textContent, h1:document.querySelector('#app .doc h1')?.textContent, fmt:getComputedStyle(document.querySelector('#app .top button.fmt')).display, secs:[...document.querySelectorAll('#app .sec h2 .t')].map(e=>e.textContent)})`);
+report.untitled = await ev(`({kind:document.querySelector('#app').dataset.kind, tab:document.querySelector('#app .tabs .tab.on .name').textContent, h1:document.querySelector('#app .doc h1')?.textContent, fmt:getComputedStyle(document.querySelector('#app .top button.fmt')).display, keys:[...document.querySelectorAll('#app .toc a.l2')].map(e=>e.textContent), secs:document.querySelectorAll('#app .sec').length})`);
 await ev(`document.querySelector('#app .top [data-mode=edit]').click()`); await sleep(100);
 await ev(`(()=>{const ta=document.querySelector('#app textarea.src'); ta.value='# Not json\\n\\ntext'; ta.dispatchEvent(new Event('input',{bubbles:true}));})()`); await sleep(100);
 await ev(`document.querySelector('#app .top [data-mode=read]').click()`); await sleep(150);
 report.untitledMd = await ev(`({kind:document.querySelector('#app').dataset.kind, fmt:getComputedStyle(document.querySelector('#app .top button.fmt')).display})`);
 // ---- a broken file: error banner with line/column, source shown, Format refuses politely
 report.brokenMounted = await mount(base + '/test/fixtures/broken.json');
-report.broken = await ev(`({kind:document.querySelector('#app').dataset.kind, err:document.querySelector('#app .jerr')?.textContent, excerpt:document.querySelector('#app .jexcerpt')?.textContent, secs:[...document.querySelectorAll('#app .sec h2 .t')].map(e=>e.textContent)})`);
+report.broken = await ev(`({kind:document.querySelector('#app').dataset.kind, err:document.querySelector('#app .jerr')?.textContent, excerpt:document.querySelector('#app .jexcerpt')?.textContent, source:!!document.querySelector('#app .head .jsource'), secs:document.querySelectorAll('#app .sec').length})`);
 await ev(`document.querySelector('#app .top button.fmt').click()`); await sleep(100);
 report.brokenToast = await ev(`document.querySelector('#app .toast')?.textContent`);
 await shot('json-broken.png');
 
 report.jsonOk = report.mounted && report.kind === 'json' && report.h1 === 'data.json' && /Object · 12 keys/.test(report.meta) && /minified/.test(report.meta)
-  && report.sections.join() === 'Properties,address,menu,hours,empty,nothing' && report.outline.join() === 'data.json,Properties,address,menu,hours,empty,nothing'
-  && report.props.length === 7 && report.props.includes('manager=null=null') && report.props.includes('seats=24=number')
+  && report.sections === 0 && report.outline.join() === 'data.json,name,version,open,seats,rating,manager,homepage,address,menu,hours,empty,nothing'
+  && report.scalars.length === 9 && report.scalars.includes('"manager"=null=jnull') && report.scalars.includes('"seats"=24=jnum') && report.scalars.includes('"open"=true=jbool')
   && report.menuCols.join() === '##,item,price#,sold#,tags' && report.menuRows === 4
-  && report.tree.open.join() === '"geo":true' && report.tree.leaves === 4 && report.tree.url
-  && report.empties.join() === '{ },[ ]' && report.tools.edit === 'none' && report.tools.copy === 'Copy JSON'
+  && report.tree.open === true && report.tree.inner.join() === '"geo":true' && report.tree.leaves === 4 && report.tree.url
+  && report.empties.join() === '{ },[ ]' && report.tools.join() === 'expand,collapse' && report.sectionsThemeCards === '0:none'
   && report.filter.shown.join() === 'Espresso,Latte,Cold brew' && report.filter.cap === '3 of 4 rows'
+  && report.afterCollapse === 0 && /^(\d+):\1$/.test(report.afterExpand)
   && report.fmtVisible !== 'none' && report.linesBefore === 2 && report.linesAfter > 20 && report.dirtyAfterFormat && !/minified/.test(report.metaAfter) && report.h1After === 'data.json'
   && report.linesMinified === 1 && report.dirtyAfterMinify && report.gutter === 'json'
-  && report.untitled.kind === 'json' && report.untitled.tab === 'Untitled 1' && report.untitled.fmt !== 'none' && report.untitled.secs.join() === 'Properties,b,c'
+  && report.untitled.kind === 'json' && report.untitled.tab === 'Untitled 1' && report.untitled.fmt !== 'none' && report.untitled.keys.join() === 'a,b,c' && report.untitled.secs === 0
   && report.untitledMd.kind === 'md' && report.untitledMd.fmt === 'none'
-  && report.brokenMounted && report.broken.kind === 'json' && /Invalid JSON at line 3, column \d+/.test(report.broken.err) && /^3: /.test(report.broken.excerpt) && report.broken.secs.join() === 'Source'
+  && report.brokenMounted && report.broken.kind === 'json' && /Invalid JSON at line 3, column \d+/.test(report.broken.err) && /^3: /.test(report.broken.excerpt) && report.broken.source && report.broken.secs === 0
   && /Cannot format/.test(report.brokenToast) && !logs.some((l) => l.startsWith('EXC'));
 console.log(JSON.stringify(report, null, 2));
 killChrome();

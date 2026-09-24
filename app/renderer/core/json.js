@@ -80,18 +80,19 @@
   }
   const summaryOf = (v) => (Array.isArray(v) ? `[ ${plural(v.length, 'item')} ]` : `{ ${plural(Object.keys(v).length, 'key')} }`);
   // Collapsible tree. `open` levels are expanded by default; beyond that nodes start collapsed but can be toggled.
-  function treeEl(v, depth, open) {
+  // An array of flat objects is shown as a table inside its node (with a fold to see it as a tree instead).
+  // `ids` (top level only) gives each key line an id so the outline can jump to it.
+  function treeEl(v, depth, open, ids) {
     if (isScalar(v)) return h('div', { class: 'jl' }, scalarEl(v));
     const entries = Array.isArray(v) ? v.map((x, i) => [i, x]) : Object.entries(v);
     if (!entries.length) return h('div', { class: 'jl' }, h('span', { class: 'jv jempty' }, Array.isArray(v) ? '[ ]' : '{ }'));
     const kids = entries.map(([k, x]) => {
       const key = h('span', { class: Array.isArray(v) ? 'jk jidx' : 'jk' }, Array.isArray(v) ? String(k) : JSON.stringify(k));
-      if (isScalar(x)) return h('div', { class: 'jl' }, key, h('span', { class: 'jc' }, ': '), scalarEl(x));
-      const inner = treeEl(x, depth + 1, open);
+      const id = ids ? ids(k) : null;
+      if (isScalar(x)) return h('div', { class: 'jl', id }, key, h('span', { class: 'jc' }, ': '), scalarEl(x));
       const empty = Array.isArray(x) ? !x.length : !Object.keys(x).length;
-      if (empty) return h('div', { class: 'jl' }, key, h('span', { class: 'jc' }, ': '), h('span', { class: 'jv jempty' }, Array.isArray(x) ? '[ ]' : '{ }'));
-      const d = h('details', { class: 'jn', open: depth + 1 < open ? '' : null }, h('summary', {}, key, h('span', { class: 'jc' }, ': '), h('span', { class: 'jsum' }, summaryOf(x))), inner);
-      return d;
+      if (empty) return h('div', { class: 'jl', id }, key, h('span', { class: 'jc' }, ': '), h('span', { class: 'jv jempty' }, Array.isArray(x) ? '[ ]' : '{ }'));
+      return h('details', { class: 'jn', id, open: depth + 1 < open ? '' : null }, h('summary', {}, key, h('span', { class: 'jc' }, ': '), h('span', { class: 'jsum' }, summaryOf(x))), ...valueBody(x, depth + 1, open));
     });
     return h('div', { class: 'jt' }, ...kids);
   }
@@ -124,14 +125,16 @@
     });
     return h('div', { class: 'table-wrap' }, table);
   }
-  function valueBody(v, open) {
+  function valueBody(v, depth, open, ids) {
     const cols = tabular(v);
-    if (cols) return [tableEl(v, cols), h('details', { class: 'jn jraw' }, h('summary', {}, h('span', { class: 'jsum' }, 'as tree')), treeEl(v, 0, 1))];
-    return [treeEl(v, 0, open)];
+    if (cols) return [tableEl(v, cols), h('details', { class: 'jn jraw' }, h('summary', {}, h('span', { class: 'jsum' }, 'as tree')), treeEl(v, depth, 1))];
+    return [treeEl(v, depth, open, ids)];
   }
   const slug = (t) => String(t).toLowerCase().replace(/[^a-z0-9\u00C0-\uFFFF]+/g, '-').replace(/(^-|-$)/g, '') || 'key';
 
-  // Same return shape as MD.renderDoc: { headEl, sectionEls: [{el,title,index,id}], toc, stats, json: {value,error} }
+  // Same return shape as MD.renderDoc: { headEl, sectionEls, toc, stats, json: {value,error} }. A JSON document is ONE
+  // structure, so it is never split into sections: everything renders in the head as a single tree (the top-level
+  // keys get ids and outline entries so you can still jump to them).
   function renderDoc(text, opts = {}) {
     const name = opts.name || 'JSON';
     const { value, error } = parse(text);
@@ -140,13 +143,7 @@
     const headEl = h('div', {});
     const h1 = h('h1', { id: uid(name) }, name); headEl.append(h1); toc.push({ lvl: 1, id: h1.id, text: name });
     const bytes = new TextEncoder().encode(text).length, lines = text.split('\n').length;
-    const sectionEls = [];
-    const section = (title, ...body) => {
-      const id = uid(title);
-      const el = h('div', {}, h('h2', { id, html: `<span class="t">${esc(title)}</span>` }), ...body);
-      toc.push({ lvl: 2, id, text: title });
-      sectionEls.push({ el, title, index: sectionEls.length, id });
-    };
+    const done = (tables) => ({ headEl, sectionEls: [], toc, stats: { words: 0, minutes: 1, sections: 0, tables }, json: { value, error } });
     if (error) {
       const where = error.line ? ` at line ${error.line}${error.col ? `, column ${error.col}` : ''}` : '';
       headEl.append(h('p', { class: 'jerr' }, h('strong', {}, 'Invalid JSON'), `${where}: ${error.message}`));
@@ -155,40 +152,22 @@
         headEl.append(h('pre', { class: 'jexcerpt' }, h('code', {}, `${error.line}: ${error.excerpt}\n${' '.repeat(String(error.line).length + 2)}${caret}`)));
       }
       headEl.append(h('p', { class: 'jmeta' }, `${fmtSize(bytes)} · ${plural(lines, 'line')} · fix it in Edit mode (⌘E)`));
-      section('Source', h('pre', { class: 'jsource' }, h('code', {}, text)));
-      return { headEl, sectionEls, toc, stats: { words: 0, minutes: 1, sections: sectionEls.length, tables: 0 }, json: { value, error } };
+      headEl.append(h('pre', { class: 'jsource' }, h('code', {}, text)));
+      return done(0);
     }
-    const open = opts.open || 2;
-    let summary;
-    if (isObj(value)) {
-      const keys = Object.keys(value);
-      summary = `Object · ${plural(keys.length, 'key')}`;
-      const scalars = keys.filter((k) => isScalar(value[k]));
-      const nested = keys.filter((k) => !isScalar(value[k]));
-      if (scalars.length) {
-        const rows = scalars.map((k) => h('tr', {}, h('td', { class: 'jk' }, k), h('td', {}, scalarEl(value[k])), h('td', { class: 'jtype' }, kindOf(value[k]))));
-        section('Properties', h('div', { class: 'table-wrap' }, h('table', { class: 'jtable jprops' }, h('thead', {}, h('tr', {}, h('th', {}, 'key'), h('th', {}, 'value'), h('th', {}, 'type'))), h('tbody', {}, ...rows))));
-      }
-      nested.forEach((k) => section(k, h('p', { class: 'jmeta' }, summaryOf(value[k])), ...valueBody(value[k], open)));
-    } else if (Array.isArray(value)) {
-      summary = `Array · ${plural(value.length, 'item')}`;
-      section('Items', ...valueBody(value, open));
-    } else {
-      summary = `${kindOf(value)} value`;
-      section('Value', h('div', { class: 'jt' }, h('div', { class: 'jl' }, scalarEl(value))));
-    }
-    headEl.append(h('p', { class: 'jmeta' }, `${summary} · ${fmtSize(bytes)} · ${plural(lines, 'line')}${text.trim().split('\n').length === 1 && bytes > 200 ? ' · minified — use Format to pretty-print' : ''}`));
-    const tables = sectionEls.reduce((n, s) => n + s.el.querySelectorAll('table').length, 0);
-    return { headEl, sectionEls, toc, stats: { words: 0, minutes: 1, sections: sectionEls.length, tables }, json: { value, error } };
+    const open = opts.open || 3;
+    const summary = isObj(value) ? `Object · ${plural(Object.keys(value).length, 'key')}` : Array.isArray(value) ? `Array · ${plural(value.length, 'item')}` : `${kindOf(value)} value`;
+    const minified = text.trim().split('\n').length === 1 && bytes > 200;
+    const nested = !isScalar(value) && (Array.isArray(value) ? value : Object.values(value)).some((x) => !isScalar(x));
+    headEl.append(h('p', { class: 'jmeta' }, `${summary} · ${fmtSize(bytes)} · ${plural(lines, 'line')}${minified ? ' · minified — use Format to pretty-print' : ''}`,
+      nested ? h('span', { class: 'jtools' }, ' · ', h('button', { class: 'jx', 'data-act': 'expand' }, 'Expand all'), ' · ', h('button', { class: 'jx', 'data-act': 'collapse' }, 'Collapse all')) : null));
+    const ids = isObj(value) ? (k) => { const id = uid(k); toc.push({ lvl: 2, id, text: String(k) }); return id; } : null;
+    const body = h('div', { class: 'jroot' }, ...(isScalar(value) ? [h('div', { class: 'jt' }, h('div', { class: 'jl' }, scalarEl(value)))] : valueBody(value, 0, open, ids)));
+    headEl.append(body);
+    return done(body.querySelectorAll('table').length);
   }
-  // The JSON text of one section, for the section Copy button: the value under a top-level key, or the whole thing.
-  function sectionSource(text, title) {
-    const { value, error } = parse(text);
-    if (error) return text;
-    if (isObj(value) && title in value) return JSON.stringify(value[title], null, 2);
-    if (isObj(value) && title === 'Properties') return JSON.stringify(Object.fromEntries(Object.entries(value).filter(([, v]) => isScalar(v))), null, 2);
-    return JSON.stringify(value, null, 2);
-  }
+  // The pretty-printed JSON text, for a copy action.
+  function sectionSource(text) { const { value, error } = parse(text); return error ? text : JSON.stringify(value, null, 2); }
 
   global.JV = { parse, looksLikeJson, format, minify, renderDoc, sectionSource };
 })(window);

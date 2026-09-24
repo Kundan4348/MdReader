@@ -114,8 +114,9 @@
       toc.replaceChildren(...r.toc.filter((t) => t.lvl <= 3).map((t) => h('a', { class: 'l' + t.lvl, href: '#' + t.id, onclick: (e) => { e.preventDefault(); scrollTo(t.id); } }, t.text.replace(/^\d+[.)]\s*/, ''))));
       if (kind === 'json') {
         const lines = S.text.split('\n').length;
-        meta.replaceChildren(h('div', {}, `${r.stats.sections} sections · ${r.stats.tables} tables`), h('div', {}, r.json.error ? 'invalid JSON' : `${lines} lines · valid JSON`));
+        meta.replaceChildren(h('div', {}, `${Math.max(0, r.toc.length - 1)} top-level keys · ${r.stats.tables} tables`), h('div', {}, r.json.error ? 'invalid JSON' : `${lines} lines · valid JSON`));
         $('.wc', editor).textContent = lines + ' lines';
+        head.querySelectorAll('button.jx').forEach((b) => b.addEventListener('click', () => { const on = b.dataset.act === 'expand'; doc.querySelectorAll('details.jn:not(.jraw)').forEach((d) => { d.open = on; }); }));
       } else {
         meta.replaceChildren(h('div', {}, `${r.stats.sections} sections · ${r.stats.tables} tables`), h('div', {}, `~${r.stats.words} words · ${r.stats.minutes} min read`));
         $('.wc', editor).textContent = r.stats.words + ' words';
@@ -126,7 +127,7 @@
       checkPathLinks();
       wireTables();
     }
-    function copyJsonSection(title) { navigator.clipboard.writeText(JV.sectionSource(S.text, title)).then(() => flash('JSON copied')); }
+    function copyJsonSection() { navigator.clipboard.writeText(JV.sectionSource(S.text)).then(() => flash('JSON copied')); }
     // ---------- table filters ----------
     // Every table gets a funnel in each header cell (shown when the header is hovered). Clicking one reveals a row of
     // filter boxes, one per column; rows that do not match every filled box are hidden and a caption reports
