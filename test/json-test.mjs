@@ -86,11 +86,11 @@ await ev(`document.querySelector('#app .head button.jx[data-act=expand]').click(
 report.nested = {};
 for (const th of ['paper', 'sections', 'studio', 'mono']) {
   await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value='${th}'; s.dispatchEvent(new Event('change',{bubbles:true}));})()`); await sleep(250);
-  report.nested[th] = await ev(`(()=>{const ws=[...document.querySelectorAll('#app .jroot details.jn>.table-wrap')]; const pane=document.querySelector('#app .doc').getBoundingClientRect(); return ws.map(w=>{const r=w.getBoundingClientRect(); const sm=w.parentElement.querySelector('summary').getBoundingClientRect(); return {inside:r.left>=sm.left-1 && r.right<=pane.right+1, indented:r.left>sm.left+8, narrow:r.width<pane.width*0.8, rows:w.querySelectorAll('tbody tr').length}})})()`);
+  report.nested[th] = await ev(`(()=>{const ws=[...document.querySelectorAll('#app .jroot details.jn>.table-wrap')]; const pane=document.querySelector('#app .doc').getBoundingClientRect(); return ws.map(w=>{const r=w.getBoundingClientRect(); const sm=w.parentElement.querySelector('summary').getBoundingClientRect(); return {inside:r.left>=sm.left-1 && r.right<=pane.right+1, indented:r.left>sm.left+8, narrow:r.width<pane.width*0.8, rowH:Math.round(w.querySelector("tbody tr").getBoundingClientRect().height), rows:w.querySelectorAll('tbody tr').length}})})()`);
   if (th === 'paper') await shot('json-nested-paper.png');
 }
 await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value='mono'; s.dispatchEvent(new Event('change',{bubbles:true}));})()`); await sleep(200);
-report.nestedOk = report.nestedMounted && Object.values(report.nested).every((ws) => ws.length === 2 && ws.every((w) => w.inside && w.indented && w.narrow) && ws[0].rows === 2 && ws[1].rows === 3);
+report.nestedOk = report.nestedMounted && Object.values(report.nested).every((ws) => ws.length === 2 && ws.every((w) => w.inside && w.indented && w.narrow && w.rowH < 32) && ws[0].rows === 2 && ws[1].rows === 3);
 // ---- a broken file: error banner with line/column, source shown, Format refuses politely
 report.brokenMounted = await mount(base + '/test/fixtures/broken.json');
 report.broken = await ev(`({kind:document.querySelector('#app').dataset.kind, err:document.querySelector('#app .jerr')?.textContent, excerpt:document.querySelector('#app .jexcerpt')?.textContent, source:!!document.querySelector('#app .head .jsource'), secs:document.querySelectorAll('#app .sec').length})`);
