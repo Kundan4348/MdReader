@@ -177,7 +177,11 @@ button.jx{border:0;background:none;padding:0;font:inherit;color:var(--accent,inh
 button.jx:hover{text-decoration-style:solid}
 .jroot{margin-top:.6em}
 .jroot .table-wrap{margin:.4em 0}
-html[data-theme] .jroot details.jn>.table-wrap{margin:.4em 0 .4em 1.4em}
+/* Tables nested in the JSON tree stay inside their node's indentation: no theme break-out (paper centres wide tables past
+   the column, sections bleeds them 12px) and a table narrower than the pane keeps its own width. */
+html[data-theme] .jroot details.jn>.table-wrap{width:auto;max-width:calc(100% - 1.4em);left:0;transform:none;margin:.4em 0 .4em 1.4em;padding:0;display:inline-block;vertical-align:top;font-size:.95em}
+html[data-theme] .jroot details.jn>.table-wrap table{width:auto;min-width:min(420px,100%)}
+html[data-theme] .jroot details.jn>.table-wrap td,html[data-theme] .jroot details.jn>.table-wrap th{padding-left:14px;padding-right:14px}
 html[data-theme] .head .chips:empty{display:none}
 .jerr{padding:10px 14px;border-radius:10px;background:color-mix(in srgb,#d33 12%,transparent);border:1px solid color-mix(in srgb,#d33 35%,transparent)}
 .jerr strong{margin-right:6px}

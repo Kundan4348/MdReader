@@ -1,0 +1,21 @@
+{
+  "bomSpecifications": {
+    "110-006817-002": [
+      { "classId": "manufacturing", "lineItems": [
+        { "partNumber": "501-004312-001", "quantity": 2, "findNumber": "10" },
+        { "partNumber": "232-002620-001", "quantity": 1, "findNumber": "20" }
+      ] }
+    ],
+    "501-004312-001": [
+      { "classId": "manufacturing", "lineItems": [
+        { "partNumber": "210-000909-001", "quantity": 1, "findNumber": "10" },
+        { "partNumber": "283-000005-001", "quantity": 1, "findNumber": "20" },
+        { "partNumber": "283-000006-001", "quantity": 0, "findNumber": "20" }
+      ] }
+    ]
+  },
+  "items": {
+    "110-006817-002": { "itemClassId": "board", "revision": 133 },
+    "501-004312-001": { "itemClassId": "chassis", "revision": 105 }
+  }
+}

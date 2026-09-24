@@ -79,6 +79,18 @@ await ev(`document.querySelector('#app .top [data-mode=edit]').click()`); await 
 await ev(`(()=>{const ta=document.querySelector('#app textarea.src'); ta.value='# Not json\\n\\ntext'; ta.dispatchEvent(new Event('input',{bubbles:true}));})()`); await sleep(100);
 await ev(`document.querySelector('#app .top [data-mode=read]').click()`); await sleep(150);
 report.untitledMd = await ev(`({kind:document.querySelector('#app').dataset.kind, fmt:getComputedStyle(document.querySelector('#app .top button.fmt')).display})`);
+// ---- tables nested deep in the tree must stay inside their node's indentation in every theme (paper centres wide
+// tables past the column; that must not apply here), and never wider than the pane.
+report.nestedMounted = await mount(base + '/test/fixtures/nested.json');
+await ev(`document.querySelector('#app .head button.jx[data-act=expand]').click()`);
+report.nested = {};
+for (const th of ['paper', 'sections', 'studio', 'mono']) {
+  await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value='${th}'; s.dispatchEvent(new Event('change',{bubbles:true}));})()`); await sleep(250);
+  report.nested[th] = await ev(`(()=>{const ws=[...document.querySelectorAll('#app .jroot details.jn>.table-wrap')]; const pane=document.querySelector('#app .doc').getBoundingClientRect(); return ws.map(w=>{const r=w.getBoundingClientRect(); const sm=w.parentElement.querySelector('summary').getBoundingClientRect(); return {inside:r.left>=sm.left-1 && r.right<=pane.right+1, indented:r.left>sm.left+8, narrow:r.width<pane.width*0.8, rows:w.querySelectorAll('tbody tr').length}})})()`);
+  if (th === 'paper') await shot('json-nested-paper.png');
+}
+await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value='mono'; s.dispatchEvent(new Event('change',{bubbles:true}));})()`); await sleep(200);
+report.nestedOk = report.nestedMounted && Object.values(report.nested).every((ws) => ws.length === 2 && ws.every((w) => w.inside && w.indented && w.narrow) && ws[0].rows === 2 && ws[1].rows === 3);
 // ---- a broken file: error banner with line/column, source shown, Format refuses politely
 report.brokenMounted = await mount(base + '/test/fixtures/broken.json');
 report.broken = await ev(`({kind:document.querySelector('#app').dataset.kind, err:document.querySelector('#app .jerr')?.textContent, excerpt:document.querySelector('#app .jexcerpt')?.textContent, source:!!document.querySelector('#app .head .jsource'), secs:document.querySelectorAll('#app .sec').length})`);
@@ -97,7 +109,7 @@ report.jsonOk = report.mounted && report.kind === 'json' && report.h1 === 'data.
   && report.fmtVisible !== 'none' && report.linesBefore === 2 && report.linesAfter > 20 && report.dirtyAfterFormat && !/minified/.test(report.metaAfter) && report.h1After === 'data.json'
   && report.linesMinified === 1 && report.dirtyAfterMinify && report.gutter === 'json'
   && report.untitled.kind === 'json' && report.untitled.tab === 'Untitled 1' && report.untitled.fmt !== 'none' && report.untitled.keys.join() === 'a,b,c' && report.untitled.secs === 0
-  && report.untitledMd.kind === 'md' && report.untitledMd.fmt === 'none'
+  && report.untitledMd.kind === 'md' && report.untitledMd.fmt === 'none' && report.nestedOk
   && report.brokenMounted && report.broken.kind === 'json' && /Invalid JSON at line 3, column \d+/.test(report.broken.err) && /^3: /.test(report.broken.excerpt) && report.broken.source && report.broken.secs === 0
   && /Cannot format/.test(report.brokenToast) && !logs.some((l) => l.startsWith('EXC'));
 console.log(JSON.stringify(report, null, 2));
