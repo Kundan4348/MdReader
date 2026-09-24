@@ -136,40 +136,56 @@
         const rows = [...table.querySelectorAll('tbody > tr')];
         if (!ths.length || !rows.length) return;
         const wrap = table.parentElement; wrap.classList.add('filterable');
-        const st = S.filters[ti] || (S.filters[ti] = { q: ths.map(() => ''), open: false });
+        const st = S.filters[ti] || (S.filters[ti] = { q: ths.map(() => ''), all: '', open: false, col: -1 });
         while (st.q.length < ths.length) st.q.push('');
         const isNum = (c) => ths[c].classList.contains('num');
+        const onEsc = (e, clearOne) => { e.stopPropagation(); if (e.target.value) clearOne(); else close(); };
         const inputs = ths.map((th, c) => h('input', {
           type: 'text', class: 'tf' + (isNum(c) ? ' num' : ''), value: st.q[c] || '', spellcheck: 'false', autocomplete: 'off',
           placeholder: isNum(c) ? '> < = a-b …' : 'Filter…', 'aria-label': 'Filter ' + th.textContent.trim(),
+          onfocus: () => { st.col = c; },
           oninput: (e) => { st.q[c] = e.target.value; apply(); },
           onkeydown: (e) => {
-            if (e.key === 'Escape') { e.stopPropagation(); if (e.target.value) { e.target.value = ''; st.q[c] = ''; apply(); } else close(); }
+            if (e.key === 'Escape') onEsc(e, () => { e.target.value = ''; st.q[c] = ''; apply(); });
             else if (e.key === 'Enter') { e.preventDefault(); const nx = inputs[c + 1] || inputs[0]; nx.focus(); nx.select(); }
           },
         }));
         const frow = h('tr', { class: 'filters' }, ...inputs.map((inp, c) => h('td', { class: ths[c].className }, inp)));
         table.tHead.appendChild(frow);
+        // Bar above the table: one box that searches every column at once (space-separated words all have to appear
+        // somewhere in the row; `!word` excludes), the row count, and clear. Shown while the filter row is open.
+        const all = h('input', { type: 'text', class: 'tf-all', value: st.all || '', spellcheck: 'false', autocomplete: 'off', placeholder: 'Search whole table…', 'aria-label': 'Search whole table',
+          onfocus: () => { st.col = -1; },
+          oninput: (e) => { st.all = e.target.value; apply(); },
+          onkeydown: (e) => { if (e.key === 'Escape') onEsc(e, () => { e.target.value = ''; st.all = ''; apply(); }); else if (e.key === 'Enter') { e.preventDefault(); inputs[0].focus(); } } });
         const count = h('span', { class: 'tf-count' });
-        const cap = h('caption', { class: 'tf-cap' }, count, h('button', { class: 'tf-clear', title: 'Clear filters (Esc)', onclick: close, html: '&#x2715; clear' }));
-        table.prepend(cap);
+        const bar = h('div', { class: 'tf-bar' }, h('span', { class: 'tf-ico', html: FUNNEL }), all, count, h('button', { class: 'tf-clear', title: 'Clear filters and close (Esc)', onclick: close, html: '&#x2715; clear' }));
+        wrap.prepend(bar);
+        // A funnel opens the row and focuses its column; clicking the funnel of the column you are already in closes it.
         ths.forEach((th, c) => th.append(h('button', { class: 'tf-btn', title: 'Filter this column', 'aria-label': 'Filter ' + th.textContent.trim(), html: FUNNEL,
-          onclick: (e) => { e.stopPropagation(); open(); inputs[c].focus(); inputs[c].select(); } })));
+          onclick: (e) => { e.stopPropagation(); if (st.open && st.col === c) return close(); open(); st.col = c; inputs[c].focus(); inputs[c].select(); } })));
         function open() { st.open = true; wrap.classList.add('filtering'); }
-        function close() { st.q.fill(''); inputs.forEach((i) => { i.value = ''; }); st.open = false; wrap.classList.remove('filtering'); apply(); }
+        function close() { st.q.fill(''); st.all = ''; all.value = ''; inputs.forEach((i) => { i.value = ''; }); st.open = false; st.col = -1; wrap.classList.remove('filtering'); apply(); }
+        function rowPred(q) {
+          const terms = q.trim().toLowerCase().split(/\s+/).filter((t) => t && t !== '!');
+          if (!terms.length) return null;
+          return (tr) => { const t = tr.textContent.toLowerCase(); return terms.every((w) => (w.startsWith('!') ? !t.includes(w.slice(1)) : t.includes(w))); };
+        }
         function apply() {
           const preds = st.q.map((q, c) => filterPred(q || '', isNum(c)));
-          const active = preds.some(Boolean);
+          const whole = rowPred(st.all || '');
+          const active = !!whole || preds.some(Boolean);
           let shown = 0;
           rows.forEach((tr) => {
-            const ok = preds.every((p, c) => !p || p((tr.children[c] || {}).textContent || ''));
+            const ok = (!whole || whole(tr)) && preds.every((p, c) => !p || p((tr.children[c] || {}).textContent || ''));
             tr.classList.toggle('f-hide', !ok); if (ok) shown++;
           });
           inputs.forEach((inp, c) => inp.classList.toggle('on', !!preds[c]));
+          all.classList.toggle('on', !!whole);
           ths.forEach((th, c) => th.classList.toggle('filtered', !!preds[c]));
           wrap.classList.toggle('filtered', active);
           wrap.classList.toggle('f-none', active && shown === 0);
-          count.textContent = active ? `${shown} of ${rows.length} rows` : '';
+          count.textContent = active ? `${shown} of ${rows.length} rows` : `${rows.length} rows`;
         }
         if (st.open) wrap.classList.add('filtering');
         apply();

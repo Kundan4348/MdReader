@@ -133,10 +133,16 @@ html[data-theme] .filterable input.tf:focus{border-color:var(--accent,currentCol
 html[data-theme] .filterable input.tf.on{border-color:var(--accent,currentColor);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent,currentColor) 18%,transparent)}
 html[data-theme] .filterable input.tf.num{text-align:right;font-variant-numeric:tabular-nums}
 html[data-theme] .filterable tbody tr.f-hide{display:none}
-html[data-theme] .filterable caption.tf-cap{caption-side:bottom;display:none;text-align:left;font-size:12px;font-weight:500;padding:8px 10px 2px;opacity:.75;font-variant-numeric:tabular-nums}
-html[data-theme] .filterable.filtered caption.tf-cap{display:table-caption}
+html[data-theme] .filterable .tf-bar{display:none;align-items:center;gap:10px;padding:0 0 10px;font-size:12px;font-variant-numeric:tabular-nums}
+html[data-theme] .filterable.filtering .tf-bar{display:flex}
+html[data-theme] .filterable .tf-ico{display:inline-flex;opacity:.55;line-height:0}
+html[data-theme] .filterable input.tf-all{flex:1;min-width:120px;max-width:360px;box-sizing:border-box;font:inherit;font-weight:400;font-size:12.5px;line-height:1.3;padding:5px 10px;border-radius:999px;border:1px solid color-mix(in srgb,currentColor 22%,transparent);background:color-mix(in srgb,currentColor 4%,transparent);color:inherit;outline:none}
+html[data-theme] .filterable input.tf-all::placeholder{color:inherit;opacity:.4}
+html[data-theme] .filterable input.tf-all:focus{border-color:var(--accent,currentColor)}
+html[data-theme] .filterable input.tf-all.on{border-color:var(--accent,currentColor);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent,currentColor) 18%,transparent)}
+html[data-theme] .filterable .tf-count{opacity:.7;white-space:nowrap;font-weight:500}
 html[data-theme] .filterable.f-none .tf-count::after{content:" · nothing matches"}
-html[data-theme] .filterable .tf-clear{margin-left:10px;border:0;background:none;color:var(--accent,inherit);font:inherit;font-size:12px;font-weight:600;cursor:pointer;padding:0}
+html[data-theme] .filterable .tf-clear{margin-left:auto;border:0;background:none;color:var(--accent,inherit);font:inherit;font-size:12px;font-weight:600;cursor:pointer;padding:0;white-space:nowrap}
 html[data-theme] .filterable .tf-clear:hover{text-decoration:underline}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 th.num{white-space:normal}

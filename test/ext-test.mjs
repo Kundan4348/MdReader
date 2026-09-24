@@ -109,9 +109,9 @@ report.widthWhilePaged = { wNarrowPaged, wFullPaged, pAfterWidth };
 report.widthOk = report.widths.narrow < report.widths.full && wNarrowPaged < wFullPaged && Math.abs(pAfterWidth - pOut) < 0.002;
 // Per-column table filters on table 2 (Team | espresso | pour-over | cold-brew | latte | Path; 6 body rows).
 const tf = (js) => evalJs(`(()=>{const t=document.querySelectorAll('#app .doc .table-wrap > table')[1]; const w=t.parentElement; const rows=[...t.querySelectorAll('tbody > tr')]; const shown=()=>rows.filter(r=>getComputedStyle(r).display!=='none').length; const type=(c,v)=>{const i=t.querySelectorAll('tr.filters input.tf')[c]; i.value=v; i.dispatchEvent(new Event('input',{bubbles:true}));}; ${js}})()`);
-const f0 = await tf(`return { hidden: getComputedStyle(t.querySelector('tr.filters')).display==='none', funnels: t.querySelectorAll('thead th .tf-btn').length, cap: getComputedStyle(t.querySelector('caption.tf-cap')).display==='none', shown: shown() }`);
+const f0 = await tf(`return { hidden: getComputedStyle(t.querySelector('tr.filters')).display==='none', funnels: t.querySelectorAll('thead th .tf-btn').length, bar: getComputedStyle(w.querySelector('.tf-bar')).display==='none', shown: shown() }`);
 const f1 = await tf(`t.querySelectorAll('thead th .tf-btn')[1].click(); return { open: w.classList.contains('filtering') && getComputedStyle(t.querySelector('tr.filters')).display!=='none', focused: document.activeElement===t.querySelectorAll('tr.filters input.tf')[1] }`);
-const f2 = await tf(`type(1,'>1000'); return { shown: shown(), cap: t.querySelector('.tf-count').textContent, numClass: t.querySelectorAll('tr.filters input.tf')[1].classList.contains('num') }`); // 33,669 · 6,952 · 41.5 K · 266.6 M
+const f2 = await tf(`type(1,'>1000'); return { shown: shown(), cap: w.querySelector('.tf-count').textContent, numClass: t.querySelectorAll('tr.filters input.tf')[1].classList.contains('num') }`); // 33,669 · 6,952 · 41.5 K · 266.6 M
 await evalJs(`document.querySelectorAll('#app .doc .table-wrap > table')[1].scrollIntoView({block:'center'})`); await sleep(100); await shot('ext-filter.png');
 const f3 = await tf(`type(0,'total'); return shown()`); // Catering total · Store total
 const f4 = await tf(`type(0,'!total'); return shown()`); // 33,669 · 6,952
@@ -121,9 +121,21 @@ const f6 = await tf(`type(1,'>1b'); return { shown: shown(), none: w.classList.c
 await evalJs(`document.querySelector('#app .top [data-mode=edit]').click(); document.querySelector('#app .top [data-mode=read]').click();`); await sleep(150);
 const f7 = await tf(`return { shown: shown(), open: w.classList.contains('filtering'), value: t.querySelectorAll('tr.filters input.tf')[1].value }`);
 const f8 = await tf(`const i=t.querySelectorAll('tr.filters input.tf')[1]; i.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})); const a=shown(); i.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})); return { afterFirstEsc: a, shown: shown(), open: w.classList.contains('filtering'), filtered: w.classList.contains('filtered') }`);
-report.filters = { f0, f1, f2, f3, f4, f5, f6, f7, f8 };
-report.filterOk = f0.hidden && f0.funnels === 6 && f0.cap && f0.shown === 6 && f1.open && f1.focused && f2.shown === 4 && f2.cap === '4 of 6 rows' && f2.numClass
-  && f3 === 2 && f4 === 2 && f5 === 2 && f6.shown === 0 && f6.none && f7.shown === 0 && f7.open && f7.value === '>1b' && f8.afterFirstEsc === 6 && f8.shown === 6 && !f8.open && !f8.filtered;
+// the funnel is a toggle: click column 2's funnel to open, again to close; a different funnel moves focus instead
+const f9 = await tf(`const fn=t.querySelectorAll('thead th .tf-btn'); fn[2].click(); const o1=w.classList.contains('filtering'); fn[0].click(); const o2=w.classList.contains('filtering'), foc=document.activeElement===t.querySelectorAll('tr.filters input.tf')[0]; fn[0].click(); return { o1, o2, foc, closed: !w.classList.contains('filtering') }`);
+// whole-table search: every word must appear somewhere in the row, !word excludes, combines with a column filter
+const typeAll = (v) => tf(`const i=w.querySelector('input.tf-all'); i.value=${JSON.stringify(v)}; i.dispatchEvent(new Event('input',{bubbles:true})); return { shown: shown(), on: i.classList.contains('on'), cap: w.querySelector('.tf-count').textContent }`);
+await tf(`t.querySelectorAll('thead th .tf-btn')[0].click()`);
+const s1 = await typeAll('total');            // Catering total · Store total
+const s2 = await typeAll('total 41.5');       // Catering total
+const s3 = await typeAll('!total');           // 4 others
+const s4 = await typeAll('latte');            // WeekendMarkets (espresso → latte) · CampusEvents (mostly espresso → latte)
+const s5 = await tf(`type(1,'>10000'); return shown()`); // latte rows AND espresso > 10000 → WeekendMarkets only
+const s6 = await tf(`w.querySelector('.tf-clear').click(); return { shown: shown(), open: w.classList.contains('filtering'), all: w.querySelector('input.tf-all').value, col: t.querySelectorAll('tr.filters input.tf')[1].value }`);
+report.filters = { f0, f1, f2, f3, f4, f5, f6, f7, f8, f9, s1, s2, s3, s4, s5, s6 };
+report.filterOk = f0.hidden && f0.funnels === 6 && f0.bar && f0.shown === 6 && f1.open && f1.focused && f2.shown === 4 && f2.cap === '4 of 6 rows' && f2.numClass
+  && f3 === 2 && f4 === 2 && f5 === 2 && f6.shown === 0 && f6.none && f7.shown === 0 && f7.open && f7.value === '>1b' && f8.afterFirstEsc === 6 && f8.shown === 6 && !f8.open && !f8.filtered
+  && f9.o1 && f9.o2 && f9.foc && f9.closed && s1.shown === 2 && s1.on && s1.cap === '2 of 6 rows' && s2.shown === 1 && s3.shown === 4 && s4.shown === 2 && s5 === 1 && s6.shown === 6 && !s6.open && s6.all === '' && s6.col === '';
 await pinch(-8, 400); await sleep(50); const pMax = await pageVar();
 await pinch(8, 400); await sleep(50); const pMin = await pageVar();
 await evalJs(`(()=>{const el=document.querySelector('#app .doc');el.dispatchEvent(new WheelEvent('wheel',{deltaY:8,bubbles:true,cancelable:true}));})()`); await sleep(50); const pPlainWheel = await pageVar();
