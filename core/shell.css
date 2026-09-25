@@ -209,6 +209,11 @@ html[data-theme] .head .chips:empty{display:none}
 .jv.jnum{color:color-mix(in srgb,currentColor 55%,#1f5fbf)}
 .jv.jbool{color:color-mix(in srgb,currentColor 55%,#b3501f);font-weight:600}
 .jv.jnull,.jv.jempty{opacity:.5;font-style:italic}
+/* comments kept from the source: own-line comments as dim lines, same-line notes at the end of their member */
+.jl.jcm,.jcmt{opacity:.5;font-style:italic}
+.jnote{opacity:.6;font-style:italic;margin-left:1.2em;font-size:.92em;font-weight:400;color:inherit}
+.jlead{opacity:.8;font-style:italic;margin:.1em 0 .6em}
+.jroot .jt>.jl.jcm:last-child{margin-top:.15em}
 details.jn>summary{cursor:pointer;list-style:none;position:relative;user-select:none;border-radius:6px;padding:0 4px 0 1.1em;margin-left:-4px}
 details.jn>summary::-webkit-details-marker{display:none}
 details.jn>summary::before{content:"▸";position:absolute;left:2px;top:0;opacity:.45;font-size:.85em;transition:transform .12s;transform-origin:45% 55%}

@@ -1,0 +1,18 @@
+// before
+{
+  "primaryIds": ["PHY-RACK"],
+  "nextToken": null
+}
+
+// after
+// the response once the flag ships
+{
+  "primaryIds": ["PHY-RACK"],           ← same
+  "nextToken": null,                    ← same
+  /* only present on a collision */
+  "primaryIdResolution": "AMBIGUOUS",  ← new, optional
+  "unfilteredPrimaryIds": ["PHY-RACK", "PHY-MEDIA"],  ← new, optional
+  "rows": [{"id": 1, "kind": "rack"}, {"id": 2, "kind": "media"}]
+  // end of after
+}
+// tail note

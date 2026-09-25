@@ -2,12 +2,15 @@
 // the same shape md.js produces, so the shell, the outline, the section cards and the table filters all keep working:
 //  - head: file name + a summary line (kind, size, keys/items) or, for broken JSON, the error with line:column and
 //    the offending line shown
-//  - one section per top-level key of an object (top-level scalars are gathered into a leading "Properties" table);
-//    a top-level array becomes one "Items" section
+//  - ONE document renders as one continuous tree (a JSON value is one structure; it is never split into cards);
+//    SEVERAL top-level values in one file ("// before {...} // after {...}", NDJSON) render as one section each,
+//    titled by the comment above them
+//  - comments (// and /* */) and same-line notes ("nextToken": null,  ← same) are kept and shown where they were
 //  - arrays of flat objects render as a real table (union of keys as columns, numeric columns right-aligned), so
 //    the per-column filters apply to them
-//  - everything else is a collapsible tree (<details>), open two levels deep, with typed value colouring
-// Also: format()/minify() rewrite the source text, and looksLikeJson() lets an untitled paste be recognised.
+//  - everything else is a collapsible tree (<details>), open three levels deep, with typed value colouring
+// Also: format()/minify() rewrite the source text (keeping the comments), and looksLikeJson() lets an untitled paste
+// be recognised.
 (function (global) {
   const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const h = (tag, attrs = {}, ...kids) => {
@@ -24,47 +27,158 @@
   const fmtSize = (n) => (n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(1) + ' MB');
   const plural = (n, w) => `${n.toLocaleString()} ${w}${n === 1 ? '' : 's'}`;
 
-  // Parse with a useful error. V8's message sometimes carries a position, but often only a snippet, so on failure a
-  // small validating scanner walks the text and reports where it first goes wrong.
-  function locate(text) {
+  // ---------- parsing ----------
+  // Strict JSON.parse first (the common case, and fast). When that fails, a tolerant scanner accepts what people
+  // actually paste into a reader:
+  //  - `//` line comments and `/* */` block comments anywhere between tokens
+  //  - a free-text note after a member on the same line: `"nextToken": null,   ← same` -- anything that starts with
+  //    a character no JSON token can start with (arrows, dashes, #, (, *, ...) runs to the end of the line
+  //  - several top-level values one after another (a "before" and an "after" payload; NDJSON), optionally separated
+  //    by a comma
+  // Comments are kept, attached to where they sat: on the same line as a member -> a note on that member; on their
+  // own line -> the member that follows them (or, above a top-level value, that document's title); after the last
+  // member of a container -> the end of that container. Nothing else is relaxed: trailing commas, single quotes and
+  // unquoted keys still fail, with a line and column.
+  // Annotations are keyed by the member's path, rooted at its document: pathKey([docKey(i), 'a', 0, 'b']) for members,
+  // docKey(i) for the i-th document itself.
+  const docKey = (i) => 'doc#' + i;
+  const pathKey = (p) => JSON.stringify(p);
+  const NOTE_START = /[^\sA-Za-z0-9"{}[\],:\-./]/;
+  const emptyAnn = () => ({ notes: new Map(), before: new Map(), after: new Map(), any: false });
+  function scan(text) {
     let i = 0; const n = text.length;
-    const ws = () => { while (i < n && /[ \t\n\r]/.test(text[i])) i++; };
+    const ann = emptyAnn(); const docs = [];
+    let pending = [];           // own-line comments not attached yet
+    let last = null, lastEnd = 0; // the member that most recently completed (or opened), for same-line attachment
     const fail = (why) => { throw { pos: i, why }; };
+    const push = (map, k, s) => { ann.any = true; if (!map.has(k)) map.set(k, []); map.get(k).push(s); };
+    const sameLine = () => last !== null && !text.slice(lastEnd, i).includes('\n');
+    const comment = (raw) => {
+      const lines = raw.split('\n').map((t) => t.replace(/^\s*\*\s?/, '').trim()).filter(Boolean);
+      if (!lines.length) return;
+      if (sameLine()) push(ann.notes, last, lines.join(' ')); else { ann.any = true; pending.push(...lines); }
+    };
+    const skip = () => {
+      for (;;) {
+        while (i < n && /[ \t\n\r]/.test(text[i])) i++;
+        if (text[i] === '/' && text[i + 1] === '/') { const e = text.indexOf('\n', i); const end = e < 0 ? n : e; comment(text.slice(i + 2, end)); i = end; continue; }
+        if (text[i] === '/' && text[i + 1] === '*') { const e = text.indexOf('*/', i + 2); if (e < 0) fail('unterminated comment'); comment(text.slice(i + 2, e)); i = e + 2; continue; }
+        break;
+      }
+    };
+    // `1,   ← same`: free text after a member on its line, starting with a character no JSON token starts with.
+    const trailing = () => {
+      let j = i; while (j < n && (text[j] === ' ' || text[j] === '\t')) j++;
+      if (j < n && text[j] !== '\n' && text[j] !== '\r' && NOTE_START.test(text[j])) { const e = text.indexOf('\n', j); const end = e < 0 ? n : e; push(ann.notes, last, text.slice(j, end).trim()); i = end; }
+    };
+    const done = (pk) => { last = pk; lastEnd = i; trailing(); };
+    const flushAfter = (pk) => { if (pending.length) { ann.any = true; ann.after.set(pk, (ann.after.get(pk) || []).concat(pending)); pending = []; } };
+    const lead = (pk) => { if (pending.length) { ann.any = true; ann.before.set(pk, (ann.before.get(pk) || []).concat(pending)); pending = []; } };
     const str = () => {
-      if (text[i] !== '"') fail('expected a string');
-      for (i++; i < n; i++) { const c = text[i]; if (c === '"') { i++; return; } if (c === '\\') { i++; if (text[i] === 'u') { if (!/^[0-9a-fA-F]{4}$/.test(text.slice(i + 1, i + 5))) fail('bad \\u escape'); i += 4; } else if (!/["\\/bfnrt]/.test(text[i] || '')) fail('bad escape'); } else if (c < ' ') fail('control character in string'); }
+      const s = i;
+      if (text[i] !== '"') fail(text[i] === "'" ? 'single quotes are not JSON' : 'expected a string');
+      for (i++; i < n; i++) {
+        const c = text[i];
+        if (c === '"') { i++; return JSON.parse(text.slice(s, i)); }
+        if (c === '\\') { i++; if (text[i] === 'u') { if (!/^[0-9a-fA-F]{4}$/.test(text.slice(i + 1, i + 5))) fail('bad \\u escape'); i += 4; } else if (!/["\\/bfnrt]/.test(text[i] || '')) fail('bad escape'); }
+        else if (c < ' ') fail('control character in string');
+      }
       fail('unterminated string');
     };
-    const val = () => {
-      ws();
+    const val = (path, pk) => {
+      skip();
       const c = text[i];
       if (c === undefined) fail('unexpected end of input');
-      if (c === '{') { i++; ws(); if (text[i] === '}') { i++; return; } for (;;) { ws(); str(); ws(); if (text[i] !== ':') fail("expected ':'"); i++; val(); ws(); if (text[i] === ',') { i++; ws(); if (text[i] === '}') fail('trailing comma'); continue; } if (text[i] === '}') { i++; return; } fail(text[i] === undefined ? 'unexpected end of input' : "expected ',' or '}'"); } }
-      if (c === '[') { i++; ws(); if (text[i] === ']') { i++; return; } for (;;) { val(); ws(); if (text[i] === ',') { i++; ws(); if (text[i] === ']') fail('trailing comma'); continue; } if (text[i] === ']') { i++; return; } fail(text[i] === undefined ? 'unexpected end of input' : "expected ',' or ']'"); } }
+      if (c === '{') {
+        i++; last = pk; lastEnd = i; const obj = {}; skip();
+        if (text[i] === '}') { i++; flushAfter(pk); return obj; }
+        for (;;) {
+          skip();
+          const k = str(); const p = path.concat(k), kp = pathKey(p); lead(kp);
+          skip(); if (text[i] !== ':') fail("expected ':'"); i++;
+          const v = val(p, kp); Object.defineProperty(obj, k, { value: v, enumerable: true, writable: true, configurable: true });
+          done(kp); skip();
+          if (text[i] === ',') { i++; done(kp); skip(); if (text[i] === '}') fail('trailing comma'); continue; }
+          if (text[i] === '}') { i++; flushAfter(pk); return obj; }
+          fail(text[i] === undefined ? 'unexpected end of input' : "expected ',' or '}'");
+        }
+      }
+      if (c === '[') {
+        i++; last = pk; lastEnd = i; const arr = []; skip();
+        if (text[i] === ']') { i++; flushAfter(pk); return arr; }
+        for (;;) {
+          skip();
+          const p = path.concat(arr.length), kp = pathKey(p); lead(kp);
+          arr.push(val(p, kp)); done(kp); skip();
+          if (text[i] === ',') { i++; done(kp); skip(); if (text[i] === ']') fail('trailing comma'); continue; }
+          if (text[i] === ']') { i++; flushAfter(pk); return arr; }
+          fail(text[i] === undefined ? 'unexpected end of input' : "expected ',' or ']'");
+        }
+      }
       if (c === '"') return str();
-      const m = /^(-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?|true|false|null)/.exec(text.slice(i, i + 64));
-      if (m) { i += m[0].length; return; }
+      const m = /^(-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?|true|false|null)(?![\w.])/.exec(text.slice(i, i + 64));
+      if (m) { i += m[0].length; return JSON.parse(m[0]); }
       if (c === "'") fail('single quotes are not JSON');
       fail(`unexpected '${c}'`);
     };
-    try { val(); ws(); if (i < n) fail('unexpected text after the value'); return null; } catch (e) { return e && typeof e.pos === 'number' ? e : null; }
+    for (;;) {
+      skip(); if (i >= n) break;
+      if (text[i] === ',' && docs.length) { i++; continue; } // tolerate a comma between two top-level values
+      const idx = docs.length, pk = docKey(idx);
+      const leadLines = pending; pending = [];
+      const value = val([pk], pk); done(pk);
+      docs.push({ value, lead: leadLines, tail: [] });
+    }
+    if (!docs.length) { i = 0; fail(pending.length ? 'only comments, no JSON value' : 'unexpected end of input'); }
+    if (pending.length) { docs[docs.length - 1].tail = pending; pending = []; }
+    return { docs, ann };
   }
   function parse(text) {
-    try { return { value: JSON.parse(text), error: null }; } catch (e) {
-      let msg = String(e && e.message || e).replace(/^JSON\.parse:\s*/, '');
-      let pos = null, line = null, col = null;
-      let m = /line (\d+) column (\d+)/i.exec(msg);
-      if (m) { line = +m[1]; col = +m[2]; }
-      else if ((m = /position (\d+)/i.exec(msg))) pos = +m[1];
-      else { const loc = locate(text); if (loc) { pos = loc.pos; msg = loc.why; } }
-      if (pos !== null) { const before = text.slice(0, pos); line = before.split('\n').length; col = pos - before.lastIndexOf('\n'); }
-      const lines = text.split('\n');
-      return { value: undefined, error: { message: msg, line, col, excerpt: line ? lines[line - 1] : null } };
+    try { const value = JSON.parse(text); return { value, error: null, docs: [{ value, lead: [], tail: [] }], ann: emptyAnn() }; } catch (e0) {
+      try { const { docs, ann } = scan(text); return { value: docs[0].value, error: null, docs, ann }; } catch (e) {
+        if (!e || typeof e.pos !== 'number') return { value: undefined, error: { message: String(e && e.message || e), line: null, col: null, excerpt: null }, docs: [], ann: emptyAnn() };
+        const before = text.slice(0, e.pos); const line = before.split('\n').length, col = e.pos - before.lastIndexOf('\n');
+        return { value: undefined, error: { message: e.why, line, col, excerpt: text.split('\n')[line - 1] }, docs: [], ann: emptyAnn() };
+      }
     }
   }
-  const looksLikeJson = (text) => { const t = (text || '').trim(); return /^[\[{]/.test(t) && /[\]}]$/.test(t) && !parse(t).error; };
-  function format(text, indent = 2) { const { value, error } = parse(text); if (error) throw new Error(error.message); return JSON.stringify(value, null, indent) + '\n'; }
-  function minify(text) { const { value, error } = parse(text); if (error) throw new Error(error.message); return JSON.stringify(value); }
+  // An untitled paste is JSON when every top-level value is an object or an array (comments allowed around them).
+  const looksLikeJson = (text) => { const t = (text || '').trim(); if (!/^[[{/]/.test(t)) return false; const r = parse(t); return !r.error && r.docs.length > 0 && r.docs.every((d) => d.value !== null && typeof d.value === 'object'); };
+
+  // Pretty text. With no annotations this is byte-for-byte JSON.stringify(value, null, indent); comments come back as
+  // `// ...` lines where they sat and same-line notes as `// note` at the end of their member's first line.
+  const noteTag = (ann, pk) => { const nt = ann.notes.get(pk); return nt && nt.length ? ' // ' + nt.join(' · ') : ''; };
+  function emit(v, path, pk, lvl, ann, indent) {
+    if (isScalar(v)) return JSON.stringify(v);
+    const arr = Array.isArray(v); const entries = arr ? v.map((x, i) => [i, x]) : Object.entries(v);
+    const pad = ' '.repeat(indent * (lvl + 1)), end = ' '.repeat(indent * lvl);
+    const lines = [];
+    entries.forEach(([k, x], idx) => {
+      const p = path.concat(k), kp = pathKey(p);
+      (ann.before.get(kp) || []).forEach((c) => lines.push(pad + '// ' + c));
+      let body = emit(x, p, kp, lvl + 1, ann, indent); const tag = noteTag(ann, kp); const nl = body.indexOf('\n');
+      if (tag && nl > 0) body = body.slice(0, nl) + tag + body.slice(nl); // container: note on its opening line
+      lines.push(pad + (arr ? '' : JSON.stringify(k) + ': ') + body + (idx < entries.length - 1 ? ',' : '') + (tag && nl < 0 ? tag : ''));
+    });
+    (ann.after.get(pk) || []).forEach((c) => lines.push(pad + '// ' + c));
+    if (!lines.length) return arr ? '[]' : '{}';
+    return (arr ? '[' : '{') + '\n' + lines.join('\n') + '\n' + end + (arr ? ']' : '}');
+  }
+  function docText(d, i, ann, indent) {
+    const pk = docKey(i); const out = d.lead.map((c) => '// ' + c);
+    let body = emit(d.value, [pk], pk, 0, ann, indent); const tag = noteTag(ann, pk); const nl = body.indexOf('\n');
+    out.push(tag && nl > 0 ? body.slice(0, nl) + tag + body.slice(nl) : body + tag);
+    d.tail.forEach((c) => out.push('// ' + c));
+    return out.join('\n') + '\n';
+  }
+  function format(text, indent = 2) { const r = parse(text); if (r.error) throw new Error(r.error.message); return r.docs.map((d, i) => docText(d, i, r.ann, indent)).join('\n'); }
+  // One line per document. Comments above a document survive as `// ...` lines; notes inside a value cannot live on
+  // one line without losing their place, so minify refuses rather than silently dropping them.
+  function minify(text) {
+    const r = parse(text); if (r.error) throw new Error(r.error.message);
+    if (r.ann.notes.size || r.ann.before.size || r.ann.after.size) throw new Error('inline comments would be lost — use Format instead');
+    return r.docs.map((d) => [...d.lead.map((c) => '// ' + c), JSON.stringify(d.value), ...d.tail.map((c) => '// ' + c)].join('\n')).join('\n');
+  }
 
   // ---------- rendering ----------
   const URL_RE = /^https?:\/\/\S+$/i;
@@ -79,22 +193,33 @@
     return h('span', { class: 'jv jstr' }, JSON.stringify(s));
   }
   const summaryOf = (v) => (Array.isArray(v) ? `[ ${plural(v.length, 'item')} ]` : `{ ${plural(Object.keys(v).length, 'key')} }`);
+  const noteEl = (ann, pk) => { const nt = ann.notes.get(pk); return nt && nt.length ? h('span', { class: 'jnote' }, nt.join(' · ')) : null; };
+  const cmLines = (arr) => (arr || []).map((c) => h('div', { class: 'jl jcm' }, h('span', { class: 'jcmt' }, '// ' + c)));
+  // Is anything annotated inside this container? (then it must render as a tree, a table has nowhere to show it)
+  function annUnder(ann, path) {
+    if (!ann.any) return false;
+    const pre = pathKey(path).slice(0, -1) + ',';
+    return [ann.notes, ann.before, ann.after].some((m) => [...m.keys()].some((k) => k.startsWith(pre)));
+  }
   // Collapsible tree. `open` levels are expanded by default; beyond that nodes start collapsed but can be toggled.
   // An array of flat objects is shown as a table inside its node (with a fold to see it as a tree instead).
-  // `ids` (top level only) gives each key line an id so the outline can jump to it.
-  function treeEl(v, depth, open, ids) {
+  // `ids` (top level only) gives each key line an id so the outline can jump to it. Comments above a member render
+  // as dim `// ...` lines before it; a same-line note sits at the end of the member's line.
+  function treeEl(v, depth, open, ids, path, pk, ann) {
     if (isScalar(v)) return h('div', { class: 'jl' }, scalarEl(v));
     const entries = Array.isArray(v) ? v.map((x, i) => [i, x]) : Object.entries(v);
     if (!entries.length) return h('div', { class: 'jl' }, h('span', { class: 'jv jempty' }, Array.isArray(v) ? '[ ]' : '{ }'));
     const kids = entries.map(([k, x]) => {
+      const p = path.concat(k), kp = pathKey(p);
       const key = h('span', { class: Array.isArray(v) ? 'jk jidx' : 'jk' }, Array.isArray(v) ? String(k) : JSON.stringify(k));
       const id = ids ? ids(k) : null;
-      if (isScalar(x)) return h('div', { class: 'jl', id }, key, h('span', { class: 'jc' }, ': '), scalarEl(x));
+      const before = cmLines(ann.before.get(kp));
+      if (isScalar(x)) return [...before, h('div', { class: 'jl', id }, key, h('span', { class: 'jc' }, ': '), scalarEl(x), noteEl(ann, kp))];
       const empty = Array.isArray(x) ? !x.length : !Object.keys(x).length;
-      if (empty) return h('div', { class: 'jl', id }, key, h('span', { class: 'jc' }, ': '), h('span', { class: 'jv jempty' }, Array.isArray(x) ? '[ ]' : '{ }'));
-      return h('details', { class: 'jn', id, open: depth + 1 < open ? '' : null }, h('summary', {}, key, h('span', { class: 'jc' }, ': '), h('span', { class: 'jsum' }, summaryOf(x))), ...valueBody(x, depth + 1, open));
+      if (empty) return [...before, h('div', { class: 'jl', id }, key, h('span', { class: 'jc' }, ': '), h('span', { class: 'jv jempty' }, Array.isArray(x) ? '[ ]' : '{ }'), noteEl(ann, kp)), ...cmLines(ann.after.get(kp))];
+      return [...before, h('details', { class: 'jn', id, open: depth + 1 < open ? '' : null }, h('summary', {}, key, h('span', { class: 'jc' }, ': '), h('span', { class: 'jsum' }, summaryOf(x)), noteEl(ann, kp)), ...valueBody(x, depth + 1, open, null, p, kp, ann))];
     });
-    return h('div', { class: 'jt' }, ...kids);
+    return h('div', { class: 'jt' }, ...kids.flat(), ...cmLines(ann.after.get(pk)));
   }
   // An array of objects whose values are all scalars (or short arrays of scalars) reads better as a table.
   function tabular(arr) {
@@ -125,25 +250,27 @@
     });
     return h('div', { class: 'table-wrap' }, table);
   }
-  function valueBody(v, depth, open, ids) {
-    const cols = tabular(v);
-    if (cols) return [tableEl(v, cols), h('details', { class: 'jn jraw' }, h('summary', {}, h('span', { class: 'jsum' }, 'as tree')), treeEl(v, depth, 1))];
-    return [treeEl(v, depth, open, ids)];
+  function valueBody(v, depth, open, ids, path, pk, ann) {
+    const cols = annUnder(ann, path) ? null : tabular(v);
+    if (cols) return [tableEl(v, cols), h('details', { class: 'jn jraw' }, h('summary', {}, h('span', { class: 'jsum' }, 'as tree')), treeEl(v, depth, 1, null, path, pk, ann))];
+    return [treeEl(v, depth, open, ids, path, pk, ann)];
   }
   const slug = (t) => String(t).toLowerCase().replace(/[^a-z0-9\u00C0-\uFFFF]+/g, '-').replace(/(^-|-$)/g, '') || 'key';
+  const summaryLine = (v) => (isObj(v) ? `Object · ${plural(Object.keys(v).length, 'key')}` : Array.isArray(v) ? `Array · ${plural(v.length, 'item')}` : `${kindOf(v)} value`);
+  const hasNested = (v) => !isScalar(v) && (Array.isArray(v) ? v : Object.values(v)).some((x) => !isScalar(x));
 
-  // Same return shape as MD.renderDoc: { headEl, sectionEls, toc, stats, json: {value,error} }. A JSON document is ONE
-  // structure, so it is never split into sections: everything renders in the head as a single tree (the top-level
-  // keys get ids and outline entries so you can still jump to them).
+  // Same return shape as MD.renderDoc: { headEl, sectionEls, toc, stats, json: {value,error,docs} }. One JSON value is
+  // ONE structure and renders as a single tree in the head (its top-level keys get ids and outline entries). A file
+  // holding several top-level values renders one section per value, titled by the comment above it.
   function renderDoc(text, opts = {}) {
     const name = opts.name || 'JSON';
-    const { value, error } = parse(text);
+    const { value, error, docs, ann } = parse(text);
     const toc = []; const used = new Set();
     const uid = (t) => { let id = slug(t), n = 1; while (used.has(id)) id = slug(t) + '-' + (++n); used.add(id); return id; };
     const headEl = h('div', {});
     const h1 = h('h1', { id: uid(name) }, name); headEl.append(h1); toc.push({ lvl: 1, id: h1.id, text: name });
     const bytes = new TextEncoder().encode(text).length, lines = text.split('\n').length;
-    const done = (tables) => ({ headEl, sectionEls: [], toc, stats: { words: 0, minutes: 1, sections: 0, tables }, json: { value, error } });
+    const done = (sectionEls) => ({ headEl, sectionEls, toc, stats: { words: 0, minutes: 1, sections: sectionEls.length, tables: [headEl, ...sectionEls.map((s) => s.el)].reduce((n, el) => n + el.querySelectorAll('table').length, 0) }, json: { value, error, docs } });
     if (error) {
       const where = error.line ? ` at line ${error.line}${error.col ? `, column ${error.col}` : ''}` : '';
       headEl.append(h('p', { class: 'jerr' }, h('strong', {}, 'Invalid JSON'), `${where}: ${error.message}`));
@@ -153,21 +280,39 @@
       }
       headEl.append(h('p', { class: 'jmeta' }, `${fmtSize(bytes)} · ${plural(lines, 'line')} · fix it in Edit mode (⌘E)`));
       headEl.append(h('pre', { class: 'jsource' }, h('code', {}, text)));
-      return done(0);
+      return done([]);
     }
     const open = opts.open || 3;
-    const summary = isObj(value) ? `Object · ${plural(Object.keys(value).length, 'key')}` : Array.isArray(value) ? `Array · ${plural(value.length, 'item')}` : `${kindOf(value)} value`;
-    const minified = text.trim().split('\n').length === 1 && bytes > 200;
-    const nested = !isScalar(value) && (Array.isArray(value) ? value : Object.values(value)).some((x) => !isScalar(x));
-    headEl.append(h('p', { class: 'jmeta' }, `${summary} · ${fmtSize(bytes)} · ${plural(lines, 'line')}${minified ? ' · minified — use Format to pretty-print' : ''}`,
-      nested ? h('span', { class: 'jtools' }, ' · ', h('button', { class: 'jx', 'data-act': 'expand' }, 'Expand all'), ' · ', h('button', { class: 'jx', 'data-act': 'collapse' }, 'Collapse all')) : null));
-    const ids = isObj(value) ? (k) => { const id = uid(k); toc.push({ lvl: 2, id, text: String(k) }); return id; } : null;
-    const body = h('div', { class: 'jroot' }, ...(isScalar(value) ? [h('div', { class: 'jt' }, h('div', { class: 'jl' }, scalarEl(value)))] : valueBody(value, 0, open, ids)));
-    headEl.append(body);
-    return done(body.querySelectorAll('table').length);
+    const nested = docs.some((d) => hasNested(d.value));
+    const tools = () => (nested ? h('span', { class: 'jtools' }, ' · ', h('button', { class: 'jx', 'data-act': 'expand' }, 'Expand all'), ' · ', h('button', { class: 'jx', 'data-act': 'collapse' }, 'Collapse all')) : null);
+    const comments = [...ann.notes.values(), ...ann.before.values(), ...ann.after.values()].reduce((n, a) => n + a.length, 0) + docs.reduce((n, d) => n + d.lead.length + d.tail.length, 0);
+    const leadEl = (arr) => (arr.length ? h('p', { class: 'jlead' }, ...arr.map((c, i) => [i ? h('br') : null, c])) : null);
+    const rootEl = (d, i, ids) => h('div', { class: 'jroot' }, ...(isScalar(d.value) ? [h('div', { class: 'jt' }, h('div', { class: 'jl' }, scalarEl(d.value), noteEl(ann, docKey(i))))] : valueBody(d.value, 0, open, ids, [docKey(i)], docKey(i), ann)), ...(d.tail.length ? [h('div', { class: 'jt' }, ...cmLines(d.tail))] : []));
+    if (docs.length === 1) {
+      const d = docs[0];
+      const minified = text.trim().split('\n').length === 1 && bytes > 200;
+      headEl.append(h('p', { class: 'jmeta' }, `${summaryLine(d.value)} · ${fmtSize(bytes)} · ${plural(lines, 'line')}${minified ? ' · minified — use Format to pretty-print' : ''}${comments ? ` · ${plural(comments, 'comment')}` : ''}`, isScalar(d.value) ? null : noteEl(ann, docKey(0)) && [' ', noteEl(ann, docKey(0))], tools()));
+      if (d.lead.length) headEl.append(leadEl(d.lead));
+      const ids = isObj(d.value) ? (k) => { const id = uid(k); toc.push({ lvl: 2, id, text: String(k) }); return id; } : null;
+      headEl.append(rootEl(d, 0, ids));
+      return done([]);
+    }
+    // several documents -> one section each, titled by the comment above it
+    headEl.append(h('p', { class: 'jmeta' }, `${plural(docs.length, 'document')} · ${fmtSize(bytes)} · ${plural(lines, 'line')}${comments ? ` · ${plural(comments, 'comment')}` : ''}`, tools()));
+    const sectionEls = docs.map((d, i) => {
+      const title = d.lead[0] || `Document ${i + 1}`;
+      const id = uid(title); toc.push({ lvl: 2, id, text: title });
+      const el = h('div', {}, h('h2', { id }, h('span', { class: 'n' }, String(i + 1).padStart(2, '0')), h('span', { class: 't' }, title)));
+      if (d.lead.length > 1) el.append(leadEl(d.lead.slice(1)));
+      el.append(h('p', { class: 'jmeta' }, summaryLine(d.value), isScalar(d.value) ? null : noteEl(ann, docKey(i)) && [' ', noteEl(ann, docKey(i))]));
+      const ids = isObj(d.value) && Object.keys(d.value).length <= 20 ? (k) => { const kid = uid(k); toc.push({ lvl: 3, id: kid, text: String(k) }); return kid; } : null;
+      el.append(rootEl(d, i, ids));
+      return { el, title, index: i, id };
+    });
+    return done(sectionEls);
   }
-  // The pretty-printed JSON text, for a copy action.
-  function sectionSource(text) { const { value, error } = parse(text); return error ? text : JSON.stringify(value, null, 2); }
+  // Strict, pretty-printed JSON of one document (the i-th; the only one by default), for a copy action.
+  function sectionSource(text, i = 0) { const { docs, error } = parse(text); const d = docs[i] || docs[0]; return error || !d ? text : JSON.stringify(d.value, null, 2); }
 
   global.JV = { parse, looksLikeJson, format, minify, renderDoc, sectionSource };
 })(window);

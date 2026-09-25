@@ -110,6 +110,43 @@ for (const th of ['paper', 'sections', 'studio', 'mono']) {
 }
 await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value='mono'; s.dispatchEvent(new Event('change',{bubbles:true}));})()`); await sleep(200);
 report.nestedOk = report.nestedMounted && Object.values(report.nested).every((ws) => ws.length === 2 && ws.every((w) => w.inside && w.indented && w.narrow && w.rowH < 32) && ws[0].rows === 2 && ws[1].rows === 3);
+// ---- several top-level values with comments and same-line notes: one section per document, comments kept in place
+report.multiMounted = await mount(base + '/test/fixtures/multi.json');
+report.multi = await ev(`(()=>{const secs=[...document.querySelectorAll('#app .sec')]; const s1=secs[1];
+  return {kind:document.querySelector('#app').dataset.kind, meta:document.querySelector('#app .doc .head .jmeta').textContent, secs:secs.length,
+    titles:secs.map(s=>s.querySelector('h2 .t').textContent), nums:secs.map(s=>s.querySelector('h2 .n')?.textContent),
+    lead:s1.querySelector('.jlead')?.textContent, headTrees:document.querySelectorAll('#app .head .jroot').length, stray:[...secs[0].querySelector('.body').childNodes].filter(n=>n.nodeType===3&&n.textContent.trim()).length,
+    notes:[...s1.querySelectorAll('.jroot > .jt > .jl:not(.jcm), .jroot > .jt > details.jn > summary')].map(l=>l.querySelector('.jk')?.textContent+'='+(l.querySelector('.jnote')?.textContent||'')),
+    comments:[...s1.querySelectorAll('.jl.jcm')].map(l=>l.textContent), table:s1.querySelectorAll('table tbody tr').length,
+    outline:[...document.querySelectorAll('#app .toc a')].map(a=>[...a.classList].filter(c=>c!=='active').join()+':'+a.textContent), side:document.querySelector('#app .meta')?.textContent||document.querySelector('#app .outline .meta')?.textContent}})()`);
+report.multiSource = await ev(`document.querySelector('#app textarea.src').value`);
+await ev(`document.querySelector('#app .top button.fmt').click()`); await sleep(150);
+report.multiFormatted = await ev(`document.querySelector('#app textarea.src').value`);
+report.multiAfterFormat = await ev(`({secs:document.querySelectorAll('#app .sec').length, notes:document.querySelectorAll('#app .jnote').length, comments:document.querySelectorAll('#app .jl.jcm').length, dirty:document.querySelector('#app').classList.contains('dirty')})`);
+await ev(`document.querySelector('#app .top button.fmt').dispatchEvent(new MouseEvent('click',{altKey:true,bubbles:true}))`); await sleep(150);
+report.multiMinifyToast = await ev(`document.querySelector('#app .toast')?.textContent`);
+await shot('json-multi.png');
+await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value='paper'; s.dispatchEvent(new Event('change',{bubbles:true}));})()`); await sleep(250);
+await shot('json-multi-paper.png');
+await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value='mono'; s.dispatchEvent(new Event('change',{bubbles:true}));})()`); await sleep(150);
+// pasted into an untitled tab, the same text (comments first) is still recognised as JSON
+await ev(`dispatchEvent(new KeyboardEvent('keydown',{key:'t',metaKey:true,bubbles:true}))`); await sleep(200);
+await ev(`(()=>{const ta=document.querySelector('#app textarea.src'); ta.value=${JSON.stringify('// before\n{"a": 1}\n// after\n{"a": 2,  ← changed\n"b": true}')}; ta.dispatchEvent(new Event('input',{bubbles:true}));})()`); await sleep(100);
+await ev(`document.querySelector('#app .top [data-mode=read]').click()`); await sleep(150);
+report.multiUntitled = await ev(`({kind:document.querySelector('#app').dataset.kind, secs:[...document.querySelectorAll('#app .sec h2 .t')].map(e=>e.textContent), note:document.querySelector('#app .jnote')?.textContent})`);
+await ev(`document.querySelector('#app .top [data-mode=edit]').click()`); await sleep(100);
+await ev(`(()=>{const ta=document.querySelector('#app textarea.src'); ta.value=''; ta.dispatchEvent(new Event('input',{bubbles:true}));})()`); await sleep(100);
+await ev(`document.querySelector('#app .tabs .tab.on .x')?.click()`); await sleep(150);
+report.multiOk = report.multiMounted && report.multi.kind === 'json' && /^2 documents · .* · \d+ lines · 10 comments/.test(report.multi.meta) && report.multi.secs === 2
+  && report.multi.titles.join('|') === 'before|after' && report.multi.nums.join() === '01,02' && report.multi.lead === 'the response once the flag ships' && report.multi.headTrees === 0 && report.multi.stray === 0
+  && report.multi.notes.join('|') === '"primaryIds"=← same|"nextToken"=← same|"primaryIdResolution"=← new, optional|"unfilteredPrimaryIds"=← new, optional|"rows"='
+  && report.multi.comments.join('|') === '// only present on a collision|// end of after|// tail note' && report.multi.table === 2
+  && report.multi.outline.join() === 'l1:multi.json,l2:before,l3:primaryIds,l3:nextToken,l2:after,l3:primaryIds,l3:nextToken,l3:primaryIdResolution,l3:unfilteredPrimaryIds,l3:rows'
+  && /^\/\/ before\n\{\n  "primaryIds": \[\n/.test(report.multiFormatted) && /\n\n\/\/ after\n\/\/ the response once the flag ships\n\{\n  "primaryIds": \[ \/\/ ← same\n/.test(report.multiFormatted)
+  && /  "nextToken": null, \/\/ ← same\n  \/\/ only present on a collision\n  "primaryIdResolution": "AMBIGUOUS", \/\/ ← new, optional\n/.test(report.multiFormatted) && /  \/\/ end of after\n\}\n\/\/ tail note\n$/.test(report.multiFormatted)
+  && report.multiAfterFormat.secs === 2 && report.multiAfterFormat.notes === 4 && report.multiAfterFormat.comments === 3 && report.multiAfterFormat.dirty
+  && /inline comments would be lost/.test(report.multiMinifyToast)
+  && report.multiUntitled.kind === 'json' && report.multiUntitled.secs.join('|') === 'before|after' && report.multiUntitled.note === '← changed';
 // ---- a broken file: error banner with line/column, source shown, Format refuses politely
 report.brokenMounted = await mount(base + '/test/fixtures/broken.json');
 report.broken = await ev(`({kind:document.querySelector('#app').dataset.kind, err:document.querySelector('#app .jerr')?.textContent, excerpt:document.querySelector('#app .jexcerpt')?.textContent, source:!!document.querySelector('#app .head .jsource'), secs:document.querySelectorAll('#app .sec').length})`);
@@ -128,7 +165,7 @@ report.jsonOk = report.mounted && report.kind === 'json' && report.h1 === 'data.
   && report.fmtVisible !== 'none' && report.linesBefore === 2 && report.linesAfter > 20 && report.dirtyAfterFormat && !/minified/.test(report.metaAfter) && report.h1After === 'data.json'
   && report.linesMinified === 1 && report.dirtyAfterMinify && report.gutter === 'json'
   && report.untitled.kind === 'json' && report.untitled.tab === 'Untitled 1' && report.untitled.fmt !== 'none' && report.untitled.keys.join() === 'a,b,c' && report.untitled.secs === 0
-  && report.untitledMd.kind === 'md' && report.untitledMd.fmt === 'none' && report.nestedOk && report.manyTabsOk
+  && report.untitledMd.kind === 'md' && report.untitledMd.fmt === 'none' && report.nestedOk && report.manyTabsOk && report.multiOk
   && report.brokenMounted && report.broken.kind === 'json' && /Invalid JSON at line 3, column \d+/.test(report.broken.err) && /^3: /.test(report.broken.excerpt) && report.broken.source && report.broken.secs === 0
   && /Cannot format/.test(report.brokenToast) && !logs.some((l) => l.startsWith('EXC'));
 console.log(JSON.stringify(report, null, 2));

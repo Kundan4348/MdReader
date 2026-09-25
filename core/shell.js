@@ -109,12 +109,12 @@
       secs.replaceChildren(...r.sectionEls.map((s) => h('section', { class: 'sec', 'data-i': s.index, id: 'sec-' + s.index },
         h('div', { class: 'tools' },
           kind === 'json' ? null : h('button', { 'data-act': 'edit', onclick: () => editSection(s.index) }, 'Edit section'),
-          h('button', { 'data-act': 'copy', onclick: () => (kind === 'json' ? copyJsonSection(s.title) : copySection(s.index)) }, kind === 'json' ? 'Copy JSON' : 'Copy')),
+          h('button', { 'data-act': 'copy', onclick: () => (kind === 'json' ? copyJsonSection(s.index) : copySection(s.index)) }, kind === 'json' ? 'Copy JSON' : 'Copy')),
         h('div', { class: 'body' }, ...s.el.childNodes))));
       toc.replaceChildren(...r.toc.filter((t) => t.lvl <= 3).map((t) => h('a', { class: 'l' + t.lvl, href: '#' + t.id, onclick: (e) => { e.preventDefault(); scrollTo(t.id); } }, t.text.replace(/^\d+[.)]\s*/, ''))));
       if (kind === 'json') {
-        const lines = S.text.split('\n').length;
-        meta.replaceChildren(h('div', {}, `${Math.max(0, r.toc.length - 1)} top-level keys · ${r.stats.tables} tables`), h('div', {}, r.json.error ? 'invalid JSON' : `${lines} lines · valid JSON`));
+        const lines = S.text.split('\n').length; const nd = (r.json.docs || []).length;
+        meta.replaceChildren(h('div', {}, nd > 1 ? `${nd} documents · ${r.stats.tables} tables` : `${Math.max(0, r.toc.length - 1)} top-level keys · ${r.stats.tables} tables`), h('div', {}, r.json.error ? 'invalid JSON' : `${lines} lines · valid JSON`));
         $('.wc', editor).textContent = lines + ' lines';
         head.querySelectorAll('button.jx').forEach((b) => b.addEventListener('click', () => { const on = b.dataset.act === 'expand'; doc.querySelectorAll('details.jn:not(.jraw)').forEach((d) => { d.open = on; }); }));
       } else {
@@ -127,7 +127,7 @@
       checkPathLinks();
       wireTables();
     }
-    function copyJsonSection() { navigator.clipboard.writeText(JV.sectionSource(S.text)).then(() => flash('JSON copied')); }
+    function copyJsonSection(i) { navigator.clipboard.writeText(JV.sectionSource(S.text, i)).then(() => flash('JSON copied')); }
     // ---------- table filters ----------
     // Every table gets a funnel in each header cell (shown when the header is hovered). Clicking one reveals a row of
     // filter boxes, one per column; rows that do not match every filled box are hidden and a caption reports
