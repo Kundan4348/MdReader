@@ -49,6 +49,7 @@
       if (!table.parentElement.classList.contains('table-wrap')) {
         const wrap = document.createElement('div');
         wrap.className = 'table-wrap';
+        if (table.dataset.l0) { wrap.dataset.l0 = table.dataset.l0; wrap.dataset.l1 = table.dataset.l1; delete table.dataset.l0; delete table.dataset.l1; }
         table.replaceWith(wrap);
         wrap.appendChild(table);
       }
@@ -137,9 +138,31 @@
   }
 
   // Render one chunk of markdown to an element; decorate; return toc entries.
+  // Every block-level element is stamped with the source lines it came from (data-l0 inclusive, data-l1 exclusive,
+  // counted from the start of the whole document via opts.lineOff): the shell uses them to lock the split view's
+  // two panes together and to mirror a selection from one side onto the other. Blocks are rendered one token at a
+  // time from the lexer, whose token.raw slices are contiguous in the source, so the stamps are exact.
+  const countNl = (s) => { let n = 0, i = -1; while ((i = s.indexOf('\n', i + 1)) >= 0) n++; return n; };
   function renderChunk(md, toc, used, opts) {
     const el = document.createElement('div');
-    el.innerHTML = marked.parse(md);
+    const off = (opts && opts.lineOff) || 0;
+    const tokens = marked.lexer(md);
+    let cursor = 0, line = 0;
+    for (const tok of tokens) {
+      let at = md.indexOf(tok.raw, cursor); if (at < 0) at = cursor;
+      line += countNl(md.slice(cursor, at));
+      const l0 = line, end = at + tok.raw.length;
+      line += countNl(tok.raw); cursor = end;
+      if (tok.type === 'space') continue;
+      const l1 = line + (md[end - 1] === '\n' ? 0 : 1);
+      const one = [tok]; one.links = tokens.links;
+      const tmp = document.createElement('div');
+      tmp.innerHTML = marked.parser(one);
+      for (const c of [...tmp.childNodes]) {
+        if (c.nodeType === 1) { c.dataset.l0 = off + l0; c.dataset.l1 = off + l1; }
+        el.append(c);
+      }
+    }
     decorateHeadings(el, toc, used);
     decorateTables(el);
     decorateMisc(el, opts);
@@ -171,9 +194,9 @@
     const toc = [];
     const used = new Set();
     const { head, sections } = split(md);
-    const headEl = renderChunk(head, toc, used, opts);
+    const headEl = renderChunk(head, toc, used, Object.assign({}, opts, { lineOff: 0 }));
     const sectionEls = sections.map((s, i) => {
-      const el = renderChunk(s.src, toc, used, opts);
+      const el = renderChunk(s.src, toc, used, Object.assign({}, opts, { lineOff: s.start }));
       const h2 = el.querySelector('h2');
       const m = h2 && h2.textContent.match(/^\s*(\d+)[.)]\s+(.*)$/);
       if (h2 && m) h2.innerHTML = `<span class="n">${m[1].padStart(2, '0')}</span><span class="t">${h2.innerHTML.replace(/^\s*\d+[.)]\s+/, '')}</span>`;

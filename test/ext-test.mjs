@@ -156,5 +156,28 @@ if (report.editorVisible) {
   report.editRendered = await evalJs(`document.querySelector('#app h1')?.textContent.includes('[EXT-EDIT]')`);
   await shot('ext-edited.png');
 }
+// Split sync: a long document (6 copies) so both panes scroll; the panes must follow each other, and a selection on
+// either side must be mirrored on the other (exact words on the right, <mark> over the source on the left).
+await evalJs(`document.querySelector('#app .top [data-mode=edit]').click(); const ta=document.querySelector('#app textarea.src'); ta.value=Array.from({length:6},(_,i)=>ta.value.replace(/^# .*$/m,'# Copy '+(i+1))).join('\\n\\n'); ta.dispatchEvent(new Event('input',{bubbles:true}));`);
+await sleep(250);
+await evalJs(`document.querySelector('#app .top [data-mode=split]').click()`); await sleep(400);
+const topLine = `(()=>{const ta=document.querySelector('#app textarea.src'),hl=document.querySelector('#app .srchl');return [...hl.children].findIndex(d=>d.offsetTop+d.offsetHeight>ta.scrollTop+parseFloat(getComputedStyle(hl).paddingTop))})()`;
+const topBlock = `(()=>{const c=document.querySelector('#app .content'),cr=c.getBoundingClientRect();const b=[...document.querySelectorAll('#app .doc [data-l0]')].find(e=>e.getBoundingClientRect().bottom>cr.top+2);return b?[+b.dataset.l0,+b.dataset.l1]:null})()`;
+const sp = {};
+sp.layout = await evalJs(`(()=>{const ed=document.querySelector('#app .editor'),ta=document.querySelector('#app textarea.src'),hl=document.querySelector('#app .srchl'),c=document.querySelector('#app .content');return {paneScrolls:ed.scrollHeight>ed.clientHeight,taScrolls:ta.scrollHeight>ta.clientHeight,mirrorLines:hl.children.length,taLines:ta.value.split('\\n').length,blocks:document.querySelectorAll('#app .doc [data-l0]').length}})()`);
+sp.left = []; for (const y of [600, 1800, 3200]) { await evalJs(`document.querySelector('#app textarea.src').scrollTop=${y}`); await sleep(120); sp.left.push({ line: await evalJs(topLine), block: await evalJs(topBlock) }); }
+sp.right = []; for (const y of [400, 2500, 0]) { await evalJs(`document.querySelector('#app .content').scrollTop=${y}`); await sleep(120); sp.right.push({ line: await evalJs(topLine), block: await evalJs(topBlock), ta: await evalJs(`document.querySelector('#app textarea.src').scrollTop`) }); }
+// left selection ("steeping hard limit" in copy 2) -> block tinted, words highlighted, scrolled into view on the right
+sp.selL = await evalJs(`(async()=>{const ta=document.querySelector('#app textarea.src');const v=ta.value;const i=v.indexOf('steeping hard limit',v.indexOf('# Copy 2'));ta.focus();ta.setSelectionRange(i,i+19);ta.dispatchEvent(new Event('select'));await new Promise(r=>setTimeout(r,900));const m=[...document.querySelectorAll('#app .doc .mirror')];let txt=null;for(const r of (CSS.highlights.get('mdr-mirror')||[]))txt=r.toString();const c=document.querySelector('#app .content'),cr=c.getBoundingClientRect(),r0=m[0]&&m[0].getBoundingClientRect();return {mirrors:m.map(e=>e.tagName+':'+e.dataset.l0+'-'+e.dataset.l1),hlText:txt,inView:!!r0&&r0.top>=cr.top&&r0.bottom<=cr.bottom}})()`);
+// right selection ("top three" in copy 3's paragraph) -> exact <mark> over the source line, scrolled into view on the left, right echo dropped
+sp.selR = await evalJs(`(async()=>{const p=[...document.querySelectorAll('#app .doc p')].filter(p=>p.textContent.startsWith('19 accounts'))[2];const t=[...p.childNodes].find(n=>n.nodeType===3&&n.nodeValue.includes('top three'));const sel=getSelection(),r=document.createRange(),a=t.nodeValue.indexOf('top three');r.setStart(t,a);r.setEnd(t,a+9);sel.removeAllRanges();sel.addRange(r);await new Promise(r=>setTimeout(r,1200));const ta=document.querySelector('#app textarea.src'),hl=document.querySelector('#app .srchl'),marks=[...hl.querySelectorAll('mark')],ln=marks[0]?[...hl.children].indexOf(marks[0].parentElement):-1,y=marks[0]?marks[0].parentElement.offsetTop:-1;return {marks:marks.map(m=>m.textContent),line:ln,srcLine:ln>=0?ta.value.split('\\n')[ln]:null,visible:y>=ta.scrollTop&&y<=ta.scrollTop+ta.clientHeight,rightEcho:document.querySelectorAll('#app .doc .mirror').length,mirrorFollows:hl.scrollTop===ta.scrollTop}})()`);
+sp.clear = await evalJs(`(async()=>{getSelection().removeAllRanges();document.dispatchEvent(new Event('selectionchange'));await new Promise(r=>setTimeout(r,200));return document.querySelectorAll('#app .srchl mark').length})()`);
+await shot('ext-split.png');
+report.split = sp;
+const near = (line, [l0, l1]) => line >= l0 - 1 && line <= l1; // the pane's top line sits inside (or one line before) the block at the top of the other pane
+report.splitOk = !sp.layout.paneScrolls && sp.layout.taScrolls && sp.layout.mirrorLines === sp.layout.taLines && sp.layout.blocks > 60
+  && sp.left.every((x) => x.block && near(x.line, x.block)) && sp.right.every((x) => x.block && near(x.line, x.block)) && sp.right[2].ta === 0 && sp.right[2].line === 0
+  && sp.selL.mirrors.length === 1 && sp.selL.hlText === 'steeping hard limit' && sp.selL.inView
+  && sp.selR.marks.join() === 'top three' && /^19 accounts/.test(sp.selR.srcLine || '') && sp.selR.visible && sp.selR.rightEcho === 0 && sp.selR.mirrorFollows && sp.clear === 0;
 console.log(JSON.stringify(report, null, 2));
-clearTimeout(hardStop); killChrome(); process.exit(report.mounted && report.tables > 0 && report.pinchOk && report.buttonsOk && report.widthOk && report.filterOk ? 0 : 1);
+clearTimeout(hardStop); killChrome(); process.exit(report.mounted && report.tables > 0 && report.pinchOk && report.buttonsOk && report.widthOk && report.filterOk && report.splitOk ? 0 : 1);

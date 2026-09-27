@@ -63,10 +63,12 @@
     const head = h('div', { class: 'head' });
     const secs = h('div', { class: 'secs' });
     const doc = h('article', { class: 'doc' }, head, secs);
-    const ta = h('textarea', { class: 'src', spellcheck: 'false', oninput: onInput, onkeydown: onEditorKey });
-    const editor = h('section', { class: 'editor' }, h('div', { class: 'gutter' }, h('span', {}, 'markdown'), h('span', { class: 'wc' })), ta);
+    const ta = h('textarea', { class: 'src', spellcheck: 'false', oninput: onInput, onkeydown: onEditorKey, onscroll: onSrcScroll });
+    // .srchl mirrors the textarea's text line by line (transparent, laid over it) -- see "split sync" below.
+    const hl = h('div', { class: 'srchl', 'aria-hidden': 'true' });
+    const editor = h('section', { class: 'editor' }, h('div', { class: 'gutter' }, h('span', {}, 'markdown'), h('span', { class: 'wc' })), h('div', { class: 'srcwrap' }, ta, hl));
     const tabsEl = h('nav', { class: 'tabs', role: 'tablist' });
-    const content = h('main', { class: 'content', onscroll: debounce(spy, 40) }, doc, editor);
+    const content = h('main', { class: 'content', onscroll: onContentScroll }, doc, editor);
     const centre = h('div', { class: 'centre' }, tabsEl, content);
 
     const toc = h('nav', { class: 'toc' });
@@ -126,6 +128,7 @@
       spy();
       checkPathLinks();
       wireTables();
+      if (global.CSS && CSS.highlights) CSS.highlights.delete('mdr-mirror'); // ranges pointed at the old nodes
     }
     function copyJsonSection(i) { navigator.clipboard.writeText(JV.sectionSource(S.text, i)).then(() => flash('JSON copied')); }
     // ---------- table filters ----------
@@ -255,6 +258,7 @@
     function setText(text, fromEditor) {
       S.text = text;
       if (!fromEditor) ta.value = text;
+      if (S.mode === 'split') buildMirrorSoon();
       setDirty(S.text !== S.saved);
       $('.wc', editor).textContent = text.split(/\s+/).filter(Boolean).length + ' words';
     }
@@ -279,6 +283,180 @@
       for (const el of hs) if (el.getBoundingClientRect().top < topY) cur = el;
       toc.querySelectorAll('a').forEach((a) => a.classList.toggle('active', !!cur && a.getAttribute('href') === '#' + cur.id));
     }
+    const spyLater = debounce(spy, 40);
+
+    // ---------- split sync ----------
+    // In Split the two panes are locked together. md.js stamps every rendered block with the source lines it came
+    // from (data-l0/data-l1). A mirror of the textarea (.srchl: one div per source line, same font, padding and
+    // width, transparent text, laid over the textarea) gives the pixel row of any source line, so a scroll on either
+    // side is converted line -> block (or block -> line) and applied to the other. The mirror is also where a
+    // selection made on the right is painted (<mark> over the matching source); a selection made on the left tints
+    // its block(s) on the right and, when the words can be found in the rendered text, highlights them exactly.
+    const sync = { lines: [], starts: [], marked: [], raf: 0, prog: new Map() };
+    const inSplit = () => S.mode === 'split' && root.dataset.kind !== 'json';
+    const now = () => performance.now();
+    // A scroll this code sets on one pane must not be echoed back by that pane's own scroll event. A time window is
+    // not enough (a long smooth scroll outlives it and its tail drags the other pane away again), so the pane is
+    // ignored until it has reached the target it was sent to, with a time cap as the safety net.
+    function setScroll(el, top, smooth) {
+      top = Math.max(0, Math.min(top, el.scrollHeight - el.clientHeight));
+      sync.prog.set(el, { top, until: now() + (smooth ? 1500 : 150) });
+      if (smooth) el.scrollTo({ top, behavior: 'smooth' }); else el.scrollTop = top;
+    }
+    function echo(el) { // true while el is still travelling to a target this code set
+      const p = sync.prog.get(el); if (!p) return false;
+      if (Math.abs(el.scrollTop - p.top) < 1 || now() > p.until) { sync.prog.delete(el); return true; }
+      return true;
+    }
+    function buildMirror() {
+      if (S.mode !== 'split') return;
+      const cs = getComputedStyle(ta);
+      for (const p of ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'tabSize', 'paddingTop', 'paddingLeft', 'paddingBottom', 'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth', 'borderRadius']) hl.style[p] = cs[p];
+      const bars = ta.offsetWidth - ta.clientWidth - parseFloat(cs.borderLeftWidth) - parseFloat(cs.borderRightWidth); // a visible scrollbar narrows the wrap width
+      hl.style.paddingRight = (parseFloat(cs.paddingRight) + Math.max(0, bars)) + 'px';
+      const text = ta.value, lines = text.split('\n');
+      sync.starts = []; let pos = 0; for (const l of lines) { sync.starts.push(pos); pos += l.length + 1; }
+      sync.lines = lines.map((l) => h('div', { class: 'ln' }, l || '\u200b'));
+      sync.marked = [];
+      hl.replaceChildren(...sync.lines);
+      hl.scrollTop = ta.scrollTop;
+    }
+    const buildMirrorSoon = debounce(buildMirror, 60);
+    // The editor pane fills exactly the visible height of the content pane in Split, so the textarea is the only
+    // thing that scrolls on the left (the pane itself never does).
+    function fitEditor() {
+      if (S.mode !== 'split') { editor.style.height = ''; return; }
+      const z = parseFloat(getComputedStyle(editor).zoom) || 1;
+      editor.style.height = (content.clientHeight / z) + 'px';
+    }
+    const lineOf = (pos) => { const st = sync.starts; let lo = 0, hi = st.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (st[m] <= pos) lo = m; else hi = m - 1; } return lo; };
+    const hlPad = () => parseFloat(hl.style.paddingTop) || 0;
+    function lineY(ln) { // pixel row (textarea scroll coords) of a fractional source line
+      const L = sync.lines; if (!L.length) return 0;
+      const i = Math.min(L.length - 1, Math.max(0, Math.floor(ln))), d = L[i];
+      return d.offsetTop + Math.min(1, Math.max(0, ln - i)) * d.offsetHeight;
+    }
+    function lineAtY(y) { // fractional source line at a pixel row
+      const L = sync.lines; if (!L.length) return 0;
+      let lo = 0, hi = L.length - 1;
+      while (lo < hi) { const m = (lo + hi + 1) >> 1; if (L[m].offsetTop <= y) lo = m; else hi = m - 1; }
+      const d = L[lo]; return lo + Math.min(1, Math.max(0, (y - d.offsetTop) / (d.offsetHeight || 1)));
+    }
+    function blocks() { // rendered blocks with their source lines and their rows in content scroll coords
+      const cr = content.getBoundingClientRect(), st = content.scrollTop;
+      return [...doc.querySelectorAll('[data-l0]')].filter((el) => !el.closest('[data-l0] [data-l0]') && el.offsetParent).map((el) => {
+        const r = el.getBoundingClientRect(); return { el, l0: +el.dataset.l0, l1: +el.dataset.l1, top: r.top - cr.top + st, bottom: r.bottom - cr.top + st };
+      });
+    }
+    // Interpolate within a block, or across the gap to the next one, in both directions.
+    function lineToY(ln, bs) {
+      let b = null, nx = null;
+      for (let i = 0; i < bs.length; i++) { if (bs[i].l0 <= ln) b = bs[i]; else { nx = bs[i]; break; } }
+      if (!b) return nx ? nx.top : 0;
+      if (ln < b.l1) return b.top + (ln - b.l0) / Math.max(1, b.l1 - b.l0) * (b.bottom - b.top);
+      if (!nx) return b.bottom;
+      return b.bottom + (ln - b.l1) / Math.max(1, nx.l0 - b.l1) * (nx.top - b.bottom);
+    }
+    function yToLine(y, bs) {
+      let b = null, nx = null;
+      for (let i = 0; i < bs.length; i++) { if (bs[i].top <= y) b = bs[i]; else { nx = bs[i]; break; } }
+      if (!b) return nx ? nx.l0 : 0;
+      if (y < b.bottom) return b.l0 + (y - b.top) / Math.max(1, b.bottom - b.top) * (b.l1 - b.l0);
+      if (!nx) return b.l1;
+      return b.l1 + (y - b.bottom) / Math.max(1, nx.top - b.bottom) * (nx.l0 - b.l1);
+    }
+    function onSrcScroll() {
+      hl.scrollTop = ta.scrollTop;
+      if (!inSplit() || echo(ta) || !sync.lines.length) return;
+      cancelAnimationFrame(sync.raf);
+      sync.raf = requestAnimationFrame(() => {
+        const bs = blocks(); if (!bs.length) return;
+        const ln = lineAtY(ta.scrollTop + hlPad());
+        const gap = bs[0].top; // the document's top padding: line 0 at the top of the left pane <-> scrollTop 0 on the right
+        const y = Math.max(0, lineToY(ln, bs) - gap);
+        if (Math.abs(content.scrollTop - y) < 1) return;
+        setScroll(content, y);
+      });
+    }
+    function onContentScroll() {
+      spyLater();
+      if (!inSplit() || echo(content) || !sync.lines.length) return;
+      cancelAnimationFrame(sync.raf);
+      sync.raf = requestAnimationFrame(() => {
+        const bs = blocks(); if (!bs.length) return;
+        const ln = yToLine(content.scrollTop + bs[0].top, bs);
+        const y = Math.max(0, lineY(ln) - hlPad());
+        if (Math.abs(ta.scrollTop - y) < 1) return;
+        setScroll(ta, y);
+      });
+    }
+    // Right -> left: paint the selected source in the mirror. The selected text is looked for verbatim in the source
+    // of the block(s) it spans; when inline syntax gets in the way (**bold**, links) the whole block's lines are marked.
+    function clearLeftMarks() { sync.marked.forEach((i) => { const d = sync.lines[i]; if (d) d.textContent = ta.value.split('\n')[i] || '\u200b'; }); sync.marked = []; }
+    function markLeft(lo, hi, text) {
+      clearLeftMarks();
+      const lines = ta.value.split('\n'); hi = Math.min(hi, lines.length);
+      const src = lines.slice(lo, hi).join('\n');
+      const t = (text || '').trim(); let a = 0, b = src.length;
+      const idx = t.length >= 2 ? src.indexOf(t) : -1;
+      if (idx >= 0) { a = idx; b = idx + t.length; }
+      let pos = 0;
+      for (let i = lo; i < hi; i++) {
+        const l = lines[i], s = pos, e = pos + l.length; pos = e + 1;
+        const ma = Math.max(a, s) - s, mb = Math.min(b, e) - s;
+        if (mb < ma || (mb === ma && l.length)) continue;
+        const d = sync.lines[i]; if (!d) continue;
+        d.replaceChildren(l.slice(0, ma), h('mark', {}, l.slice(ma, mb) || '\u200b'), l.slice(mb) || '');
+        sync.marked.push(i);
+      }
+      if (!sync.marked.length) return;
+      const y0 = lineY(sync.marked[0]), y1 = lineY(sync.marked[sync.marked.length - 1] + 1);
+      if (y0 < ta.scrollTop + 8 || y1 > ta.scrollTop + ta.clientHeight - 8) setScroll(ta, y0 - hlPad() - Math.min(80, ta.clientHeight / 4), true);
+    }
+    const onSelChange = debounce(() => {
+      if (!inSplit()) return;
+      const sel = document.getSelection();
+      const an = sel && sel.rangeCount ? sel.anchorNode : null;
+      if (!an || !doc.contains(an) || sel.isCollapsed) return clearLeftMarks(); // selection left the rendering (or collapsed)
+      clearRightMarks(); // the user is now selecting on the right; drop the echo of an earlier left selection
+      const blkOf = (n) => n && (n.nodeType === 1 ? n : n.parentElement).closest('[data-l0]');
+      const bs = [blkOf(an), blkOf(sel.focusNode)].filter(Boolean);
+      if (!bs.length) return;
+      markLeft(Math.min(...bs.map((b) => +b.dataset.l0)), Math.max(...bs.map((b) => +b.dataset.l1)), sel.toString());
+    }, 80);
+    // Left -> right: tint the blocks the textarea selection spans and highlight the exact words when they are found
+    // in the rendered text (CSS Custom Highlight API; whitespace-insensitive, inline markup stripped from the query).
+    const HL_NAME = 'mdr-mirror';
+    function clearRightMarks() { doc.querySelectorAll('.mirror').forEach((el) => el.classList.remove('mirror')); if (global.CSS && CSS.highlights) CSS.highlights.delete(HL_NAME); }
+    function findInBlock(el, query) {
+      const q = query.replace(/\s+/g, ' ').trim().toLowerCase(); if (q.length < 2) return null;
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); const nodes = [];
+      let full = ''; while (walker.nextNode()) { nodes.push({ n: walker.currentNode, at: full.length }); full += walker.currentNode.nodeValue; }
+      let norm = '', map = []; // norm index -> full index
+      for (let i = 0; i < full.length; i++) { const c = full[i]; if (/\s/.test(c)) { if (norm.endsWith(' ')) continue; norm += ' '; } else norm += c.toLowerCase(); map.push(i); }
+      const i0 = norm.indexOf(q); if (i0 < 0) return null;
+      const f0 = map[i0], f1 = map[i0 + q.length - 1] + 1;
+      const locate = (f) => { let k = nodes.length - 1; while (k > 0 && nodes[k].at > f) k--; return [nodes[k].n, f - nodes[k].at]; };
+      const r = document.createRange(); const [n0, o0] = locate(f0), [n1, o1] = locate(f1 - 1);
+      r.setStart(n0, o0); r.setEnd(n1, Math.min(o1 + 1, n1.nodeValue.length)); return r;
+    }
+    const onSrcSelect = debounce(() => {
+      if (!inSplit()) return;
+      const s = ta.selectionStart, e = ta.selectionEnd;
+      clearRightMarks();
+      if (s === e) return;
+      const lo = lineOf(s), hi = lineOf(Math.max(s, e - 1)) + 1;
+      const bs = blocks().filter((b) => b.l0 < hi && b.l1 > lo);
+      if (!bs.length) return;
+      bs.forEach((b) => b.el.classList.add('mirror'));
+      const query = ta.value.slice(s, e).replace(/[*_`~]+|^\s*(?:#{1,6}|>|[-+*]|\d+[.)])\s+/gm, '');
+      if (global.CSS && CSS.highlights && global.Highlight) { for (const b of bs) { const r = findInBlock(b.el, query); if (r) { CSS.highlights.set(HL_NAME, new Highlight(r)); break; } } }
+      const top = bs[0].top, bottom = bs[bs.length - 1].bottom, vt = content.scrollTop, vb = vt + content.clientHeight;
+      if (top < vt + 8 || bottom > vb - 8) setScroll(content, top - Math.min(80, content.clientHeight / 4), true);
+    }, 60);
+    document.addEventListener('selectionchange', onSelChange);
+    ['select', 'keyup', 'mouseup'].forEach((ev) => ta.addEventListener(ev, onSrcSelect));
+    if (global.ResizeObserver) new ResizeObserver(() => { fitEditor(); if (S.mode === 'split') buildMirrorSoon(); }).observe(content);
 
     // ---------- modes / theme / panels ----------
     function setMode(m, quiet) {
@@ -286,6 +464,7 @@
       S.mode = m; root.dataset.mode = m;
       seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
       if (m === 'read') paint(); else if (m === 'split') paint();
+      fitEditor(); if (m === 'split') requestAnimationFrame(buildMirror);
       if (m !== 'read') setTimeout(() => ta.focus(), 0);
       if (!quiet) adapter.setPref && adapter.setPref('mode', m);
     }
@@ -293,6 +472,7 @@
       if (!THEMES.some((x) => x.id === t)) t = DEFAULT_THEME;
       S.theme = t; document.documentElement.dataset.theme = t; themeSel.value = t;
       refreeze();
+      if (S.mode === 'split') requestAnimationFrame(() => { fitEditor(); buildMirror(); });
       revealActiveTab(); requestAnimationFrame(revealActiveTab); // the strip's padding and zoom change per theme, which can scroll the active tab out of view
       adapter.setPref && adapter.setPref('theme', t);
     }
@@ -313,7 +493,7 @@
     // ---------- zoom / reading width ----------
     // Auto-zoom: on wide screens a fixed 16px column looks tiny, so the document scales with the
     // content pane (1.0 at <=1200px, up to 1.5 at 2400px+), then the user's A-/A+ steps multiply it.
-    function applyZoom() { root.style.setProperty('--zoom', (S.zoom * S.autoZoom).toFixed(3)); root.style.setProperty('--ui-zoom', (1 + (S.autoZoom - 1) * 0.6).toFixed(3)); zoomPct.textContent = pct() + '%'; }
+    function applyZoom() { root.style.setProperty('--zoom', (S.zoom * S.autoZoom).toFixed(3)); root.style.setProperty('--ui-zoom', (1 + (S.autoZoom - 1) * 0.6).toFixed(3)); zoomPct.textContent = pct() + '%'; fitEditor(); }
     // ---------- magnification ----------
     // One zoom model. --zoom is the base (auto-zoom for wide panes times any saved text-size preference); --page is
     // the live magnifier that BOTH the trackpad pinch and the A-/A+ buttons drive. Chromium delivers a macOS pinch as
