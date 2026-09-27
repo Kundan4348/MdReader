@@ -44,10 +44,18 @@
   const docKey = (i) => 'doc#' + i;
   const pathKey = (p) => JSON.stringify(p);
   const NOTE_START = /[^\sA-Za-z0-9"{}[\],:\-./]/;
-  const emptyAnn = () => ({ notes: new Map(), before: new Map(), after: new Map(), any: false });
+  const emptyAnn = () => ({ notes: new Map(), before: new Map(), after: new Map(), any: false, loc: new Map() });
+  // Line index (0-based) of a character offset, for stamping rendered nodes with their source lines.
+  function lineIndexer(text) {
+    const starts = [0]; for (let i = 0; i < text.length; i++) if (text[i] === '\n') starts.push(i + 1);
+    return (pos) => { let lo = 0, hi = starts.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (starts[m] <= pos) lo = m; else hi = m - 1; } return lo; };
+  }
   function scan(text) {
     let i = 0; const n = text.length;
     const ann = emptyAnn(); const docs = [];
+    const lineAt = lineIndexer(text);
+    // ann.loc: path key -> [l0, l1) source lines of that member (key through value) or document.
+    const span = (pk, s) => ann.loc.set(pk, [lineAt(s), lineAt(Math.max(s, i - 1)) + 1]);
     let pending = [];           // own-line comments not attached yet
     let last = null, lastEnd = 0; // the member that most recently completed (or opened), for same-line attachment
     const fail = (why) => { throw { pos: i, why }; };
@@ -94,10 +102,10 @@
         if (text[i] === '}') { i++; flushAfter(pk); return obj; }
         for (;;) {
           skip();
-          const k = str(); const p = path.concat(k), kp = pathKey(p); lead(kp);
+          const ks = i; const k = str(); const p = path.concat(k), kp = pathKey(p); lead(kp);
           skip(); if (text[i] !== ':') fail("expected ':'"); i++;
           const v = val(p, kp); Object.defineProperty(obj, k, { value: v, enumerable: true, writable: true, configurable: true });
-          done(kp); skip();
+          span(kp, ks); done(kp); skip();
           if (text[i] === ',') { i++; done(kp); skip(); if (text[i] === '}') fail('trailing comma'); continue; }
           if (text[i] === '}') { i++; flushAfter(pk); return obj; }
           fail(text[i] === undefined ? 'unexpected end of input' : "expected ',' or '}'");
@@ -109,7 +117,7 @@
         for (;;) {
           skip();
           const p = path.concat(arr.length), kp = pathKey(p); lead(kp);
-          arr.push(val(p, kp)); done(kp); skip();
+          const vs = i; arr.push(val(p, kp)); span(kp, vs); done(kp); skip();
           if (text[i] === ',') { i++; done(kp); skip(); if (text[i] === ']') fail('trailing comma'); continue; }
           if (text[i] === ']') { i++; flushAfter(pk); return arr; }
           fail(text[i] === undefined ? 'unexpected end of input' : "expected ',' or ']'");
@@ -126,7 +134,7 @@
       if (text[i] === ',' && docs.length) { i++; continue; } // tolerate a comma between two top-level values
       const idx = docs.length, pk = docKey(idx);
       const leadLines = pending; pending = [];
-      const value = val([pk], pk); done(pk);
+      const ds = i; const value = val([pk], pk); span(pk, ds); done(pk);
       docs.push({ value, lead: leadLines, tail: [] });
     }
     if (!docs.length) { i = 0; fail(pending.length ? 'only comments, no JSON value' : 'unexpected end of input'); }
@@ -134,7 +142,12 @@
     return { docs, ann };
   }
   function parse(text) {
-    try { const value = JSON.parse(text); return { value, error: null, docs: [{ value, lead: [], tail: [] }], ann: emptyAnn() }; } catch (e0) {
+    try {
+      const value = JSON.parse(text);
+      // Strict JSON: the value is settled, but the scanner is still run for the source spans (ann.loc) the split
+      // view needs; should it ever disagree, the JSON.parse result stands and the spans are simply absent.
+      try { const { docs, ann } = scan(text); return { value: docs[0].value, error: null, docs, ann }; } catch { return { value, error: null, docs: [{ value, lead: [], tail: [] }], ann: emptyAnn() }; }
+    } catch (e0) {
       try { const { docs, ann } = scan(text); return { value: docs[0].value, error: null, docs, ann }; } catch (e) {
         if (!e || typeof e.pos !== 'number') return { value: undefined, error: { message: String(e && e.message || e), line: null, col: null, excerpt: null }, docs: [], ann: emptyAnn() };
         const before = text.slice(0, e.pos); const line = before.split('\n').length, col = e.pos - before.lastIndexOf('\n');
@@ -195,6 +208,13 @@
   const summaryOf = (v) => (Array.isArray(v) ? `[ ${plural(v.length, 'item')} ]` : `{ ${plural(Object.keys(v).length, 'key')} }`);
   const noteEl = (ann, pk) => { const nt = ann.notes.get(pk); return nt && nt.length ? h('span', { class: 'jnote' }, nt.join(' · ')) : null; };
   const cmLines = (arr) => (arr || []).map((c) => h('div', { class: 'jl jcm' }, h('span', { class: 'jcmt' }, '// ' + c)));
+  // Source-line stamps (data-l0 inclusive, data-l1 exclusive), same convention as md.js, so the split view can lock
+  // the two panes together and mirror selections. A row gets its member's lines; a container's summary gets only its
+  // opening line (its children carry their own), so no stamped node is nested inside another stamped node.
+  // A container carries its whole span as data-r0/data-r1 (a different name, so it does not count as a stamped
+  // ancestor): while it is folded, the split view maps all of those lines onto its summary row.
+  const range = (el, ann, pk) => { const L = ann.loc && ann.loc.get(pk); if (L) { el.dataset.r0 = L[0]; el.dataset.r1 = L[1]; } return el; };
+  const stamp = (el, ann, pk, firstLineOnly) => { const L = ann.loc && ann.loc.get(pk); if (L) { el.dataset.l0 = L[0]; el.dataset.l1 = firstLineOnly ? L[0] + 1 : L[1]; } return el; };
   // Is anything annotated inside this container? (then it must render as a tree, a table has nowhere to show it)
   function annUnder(ann, path) {
     if (!ann.any) return false;
@@ -214,10 +234,10 @@
       const key = h('span', { class: Array.isArray(v) ? 'jk jidx' : 'jk' }, Array.isArray(v) ? String(k) : JSON.stringify(k));
       const id = ids ? ids(k) : null;
       const before = cmLines(ann.before.get(kp));
-      if (isScalar(x)) return [...before, h('div', { class: 'jl', id }, key, h('span', { class: 'jc' }, ': '), scalarEl(x), noteEl(ann, kp))];
+      if (isScalar(x)) return [...before, stamp(h('div', { class: 'jl', id }, key, h('span', { class: 'jc' }, ': '), scalarEl(x), noteEl(ann, kp)), ann, kp)];
       const empty = Array.isArray(x) ? !x.length : !Object.keys(x).length;
-      if (empty) return [...before, h('div', { class: 'jl', id }, key, h('span', { class: 'jc' }, ': '), h('span', { class: 'jv jempty' }, Array.isArray(x) ? '[ ]' : '{ }'), noteEl(ann, kp)), ...cmLines(ann.after.get(kp))];
-      return [...before, h('details', { class: 'jn', id, open: depth + 1 < open ? '' : null }, h('summary', {}, key, h('span', { class: 'jc' }, ': '), h('span', { class: 'jsum' }, summaryOf(x)), noteEl(ann, kp)), ...valueBody(x, depth + 1, open, null, p, kp, ann))];
+      if (empty) return [...before, stamp(h('div', { class: 'jl', id }, key, h('span', { class: 'jc' }, ': '), h('span', { class: 'jv jempty' }, Array.isArray(x) ? '[ ]' : '{ }'), noteEl(ann, kp)), ann, kp), ...cmLines(ann.after.get(kp))];
+      return [...before, range(h('details', { class: 'jn', id, open: depth + 1 < open ? '' : null }, stamp(h('summary', {}, key, h('span', { class: 'jc' }, ': '), h('span', { class: 'jsum' }, summaryOf(x)), noteEl(ann, kp)), ann, kp, true), ...valueBody(x, depth + 1, open, null, p, kp, ann)), ann, kp)];
     });
     return h('div', { class: 'jt' }, ...kids.flat(), ...cmLines(ann.after.get(pk)));
   }
@@ -230,16 +250,16 @@
     return cols.length && cols.length <= 40 ? cols : null;
   }
   const cellText = (v) => (v === undefined ? '' : v === null ? 'null' : Array.isArray(v) ? v.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join(', ') : typeof v === 'string' ? v : String(v));
-  function tableEl(arr, cols) {
+  function tableEl(arr, cols, path, ann) {
     const table = h('table', { class: 'jtable' },
       h('thead', {}, h('tr', {}, h('th', { class: 'num jidxcol' }, '#'), ...cols.map((c) => h('th', {}, c)))),
-      h('tbody', {}, ...arr.map((o, i) => h('tr', {}, h('td', { class: 'num jidxcol' }, String(i)), ...cols.map((c) => {
+      h('tbody', {}, ...arr.map((o, i) => stamp(h('tr', {}, h('td', { class: 'num jidxcol' }, String(i)), ...cols.map((c) => {
         const v = o[c];
         const td = h('td', {}, cellText(v));
         if (typeof v === 'number') td.classList.add('num');
         if (v === undefined) td.classList.add('jundef');
         return td;
-      })))));
+      })), ann, pathKey(path.concat(i))))));
     // Column numeric if most present values are numbers (same 60% rule md.js uses).
     cols.forEach((c, ci) => {
       const vals = arr.map((o) => o[c]).filter((v) => v !== undefined && v !== null && v !== '');
@@ -252,7 +272,7 @@
   }
   function valueBody(v, depth, open, ids, path, pk, ann) {
     const cols = annUnder(ann, path) ? null : tabular(v);
-    if (cols) return [tableEl(v, cols), h('details', { class: 'jn jraw' }, h('summary', {}, h('span', { class: 'jsum' }, 'as tree')), treeEl(v, depth, 1, null, path, pk, ann))];
+    if (cols) return [tableEl(v, cols, path, ann), h('details', { class: 'jn jraw' }, h('summary', {}, h('span', { class: 'jsum' }, 'as tree')), treeEl(v, depth, 1, null, path, pk, ann))];
     return [treeEl(v, depth, open, ids, path, pk, ann)];
   }
   const slug = (t) => String(t).toLowerCase().replace(/[^a-z0-9\u00C0-\uFFFF]+/g, '-').replace(/(^-|-$)/g, '') || 'key';
@@ -287,7 +307,7 @@
     const tools = () => (nested ? h('span', { class: 'jtools' }, ' · ', h('button', { class: 'jx', 'data-act': 'expand' }, 'Expand all'), ' · ', h('button', { class: 'jx', 'data-act': 'collapse' }, 'Collapse all')) : null);
     const comments = [...ann.notes.values(), ...ann.before.values(), ...ann.after.values()].reduce((n, a) => n + a.length, 0) + docs.reduce((n, d) => n + d.lead.length + d.tail.length, 0);
     const leadEl = (arr) => (arr.length ? h('p', { class: 'jlead' }, ...arr.map((c, i) => [i ? h('br') : null, c])) : null);
-    const rootEl = (d, i, ids) => h('div', { class: 'jroot' }, ...(isScalar(d.value) ? [h('div', { class: 'jt' }, h('div', { class: 'jl' }, scalarEl(d.value), noteEl(ann, docKey(i))))] : valueBody(d.value, 0, open, ids, [docKey(i)], docKey(i), ann)), ...(d.tail.length ? [h('div', { class: 'jt' }, ...cmLines(d.tail))] : []));
+    const rootEl = (d, i, ids) => h('div', { class: 'jroot' }, ...(isScalar(d.value) ? [h('div', { class: 'jt' }, stamp(h('div', { class: 'jl' }, scalarEl(d.value), noteEl(ann, docKey(i))), ann, docKey(i)))] : valueBody(d.value, 0, open, ids, [docKey(i)], docKey(i), ann)), ...(d.tail.length ? [h('div', { class: 'jt' }, ...cmLines(d.tail))] : []));
     if (docs.length === 1) {
       const d = docs[0];
       const minified = text.trim().split('\n').length === 1 && bytes > 200;
@@ -302,7 +322,7 @@
     const sectionEls = docs.map((d, i) => {
       const title = d.lead[0] || `Document ${i + 1}`;
       const id = uid(title); toc.push({ lvl: 2, id, text: title });
-      const el = h('div', {}, h('h2', { id }, h('span', { class: 'n' }, String(i + 1).padStart(2, '0')), h('span', { class: 't' }, title)));
+      const el = h('div', {}, stamp(h('h2', { id }, h('span', { class: 'n' }, String(i + 1).padStart(2, '0')), h('span', { class: 't' }, title)), ann, docKey(i), true));
       if (d.lead.length > 1) el.append(leadEl(d.lead.slice(1)));
       el.append(h('p', { class: 'jmeta' }, summaryLine(d.value), isScalar(d.value) ? null : noteEl(ann, docKey(i)) && [' ', noteEl(ann, docKey(i))]));
       const ids = isObj(d.value) && Object.keys(d.value).length <= 20 ? (k) => { const kid = uid(k); toc.push({ lvl: 3, id: kid, text: String(k) }); return kid; } : null;

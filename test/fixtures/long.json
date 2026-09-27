@@ -1,0 +1,412 @@
+// long fixture for the split view
+{
+  "name": "long fixture",
+  "version": 3,
+  "sites": {
+    "site-00": {
+      "region": "PDX",
+      "racks": 3,
+      "online": false,
+      "contact": {
+        "name": "Owner 0",
+        "email": "owner0@example.com",
+        "shifts": [
+          "day"
+        ]
+      }
+    },
+    "site-01": {
+      "region": "IAD",
+      "racks": 10,
+      "online": true,
+      "contact": {
+        "name": "Owner 1",
+        "email": "owner1@example.com",
+        "shifts": [
+          "day",
+          "night"
+        ]
+      }
+    },
+    "site-02": {
+      "region": "DUB",
+      "racks": 17,
+      "online": true,
+      "contact": {
+        "name": "Owner 2",
+        "email": "owner2@example.com",
+        "shifts": [
+          "day"
+        ]
+      }
+    },
+    "site-03": {
+      "region": "NRT",
+      "racks": 24,
+      "online": false,
+      "contact": {
+        "name": "Owner 3",
+        "email": "owner3@example.com",
+        "shifts": [
+          "day",
+          "night"
+        ]
+      }
+    },
+    "site-04": {
+      "region": "PDX",
+      "racks": 31,
+      "online": true,
+      "contact": {
+        "name": "Owner 4",
+        "email": "owner4@example.com",
+        "shifts": [
+          "day"
+        ]
+      }
+    },
+    "site-05": {
+      "region": "IAD",
+      "racks": 38,
+      "online": true,
+      "contact": {
+        "name": "Owner 5",
+        "email": "owner5@example.com",
+        "shifts": [
+          "day",
+          "night"
+        ]
+      }
+    },
+    "site-06": {
+      "region": "DUB",
+      "racks": 45,
+      "online": false,
+      "contact": {
+        "name": "Owner 6",
+        "email": "owner6@example.com",
+        "shifts": [
+          "day"
+        ]
+      }
+    },
+    "site-07": {
+      "region": "NRT",
+      "racks": 52,
+      "online": true,
+      "contact": {
+        "name": "Owner 7",
+        "email": "owner7@example.com",
+        "shifts": [
+          "day",
+          "night"
+        ]
+      }
+    },
+    "site-08": {
+      "region": "PDX",
+      "racks": 59,
+      "online": true,
+      "contact": {
+        "name": "Owner 8",
+        "email": "owner8@example.com",
+        "shifts": [
+          "day"
+        ]
+      }
+    },
+    "site-09": {
+      "region": "IAD",
+      "racks": 66,
+      "online": false,
+      "contact": {
+        "name": "Owner 9",
+        "email": "owner9@example.com",
+        "shifts": [
+          "day",
+          "night"
+        ]
+      }
+    },
+    "site-10": {
+      "region": "DUB",
+      "racks": 73,
+      "online": true,
+      "contact": {
+        "name": "Owner 10",
+        "email": "owner10@example.com",
+        "shifts": [
+          "day"
+        ]
+      }
+    },
+    "site-11": {
+      "region": "NRT",
+      "racks": 80,
+      "online": true,
+      "contact": {
+        "name": "Owner 11",
+        "email": "owner11@example.com",
+        "shifts": [
+          "day",
+          "night"
+        ]
+      }
+    }
+  },
+  // bill of materials
+  "lineItems": [
+    {
+      "partNumber": "PN-1000",
+      "qty": 1,
+      "unitCost": 3.5,
+      "vendor": "Acme"
+    },
+    {
+      "partNumber": "PN-1001",
+      "qty": 38,
+      "unitCost": 4.75,
+      "vendor": "Globex"
+    },
+    {
+      "partNumber": "PN-1002",
+      "qty": 75,
+      "unitCost": 6.0,
+      "vendor": "Initech"
+    },
+    {
+      "partNumber": "PN-1003",
+      "qty": 22,
+      "unitCost": 7.25,
+      "vendor": "Acme"
+    },
+    {
+      "partNumber": "PN-1004",
+      "qty": 59,
+      "unitCost": 8.5,
+      "vendor": "Globex"
+    },
+    {
+      "partNumber": "PN-1005",
+      "qty": 6,
+      "unitCost": 9.75,
+      "vendor": "Initech"
+    },
+    {
+      "partNumber": "PN-1006",
+      "qty": 43,
+      "unitCost": 11.0,
+      "vendor": "Acme"
+    },
+    {
+      "partNumber": "PN-1007",
+      "qty": 80,
+      "unitCost": 12.25,
+      "vendor": "Globex"
+    },
+    {
+      "partNumber": "PN-1008",
+      "qty": 27,
+      "unitCost": 13.5,
+      "vendor": "Initech"
+    },
+    {
+      "partNumber": "PN-1009",
+      "qty": 64,
+      "unitCost": 14.75,
+      "vendor": "Acme"
+    },
+    {
+      "partNumber": "PN-1010",
+      "qty": 11,
+      "unitCost": 16.0,
+      "vendor": "Globex"
+    },
+    {
+      "partNumber": "PN-1011",
+      "qty": 48,
+      "unitCost": 17.25,
+      "vendor": "Initech"
+    },
+    {
+      "partNumber": "PN-1012",
+      "qty": 85,
+      "unitCost": 18.5,
+      "vendor": "Acme"
+    },
+    {
+      "partNumber": "PN-1013",
+      "qty": 32,
+      "unitCost": 19.75,
+      "vendor": "Globex"
+    },
+    {
+      "partNumber": "PN-1014",
+      "qty": 69,
+      "unitCost": 21.0,
+      "vendor": "Initech"
+    },
+    {
+      "partNumber": "PN-1015",
+      "qty": 16,
+      "unitCost": 22.25,
+      "vendor": "Acme"
+    },
+    {
+      "partNumber": "PN-1016",
+      "qty": 53,
+      "unitCost": 23.5,
+      "vendor": "Globex"
+    },
+    {
+      "partNumber": "PN-1017",
+      "qty": 90,
+      "unitCost": 24.75,
+      "vendor": "Initech"
+    },
+    {
+      "partNumber": "PN-1018",
+      "qty": 37,
+      "unitCost": 26.0,
+      "vendor": "Acme"
+    },
+    {
+      "partNumber": "PN-1019",
+      "qty": 74,
+      "unitCost": 27.25,
+      "vendor": "Globex"
+    },
+    {
+      "partNumber": "PN-1020",
+      "qty": 21,
+      "unitCost": 28.5,
+      "vendor": "Initech"
+    },
+    {
+      "partNumber": "PN-1021",
+      "qty": 58,
+      "unitCost": 29.75,
+      "vendor": "Acme"
+    },
+    {
+      "partNumber": "PN-1022",
+      "qty": 5,
+      "unitCost": 31.0,
+      "vendor": "Globex"
+    },
+    {
+      "partNumber": "PN-1023",
+      "qty": 42,
+      "unitCost": 32.25,
+      "vendor": "Initech"
+    },
+    {
+      "partNumber": "PN-1024",
+      "qty": 79,
+      "unitCost": 33.5,
+      "vendor": "Acme"
+    },
+    {
+      "partNumber": "PN-1025",
+      "qty": 26,
+      "unitCost": 34.75,
+      "vendor": "Globex"
+    },
+    {
+      "partNumber": "PN-1026",
+      "qty": 63,
+      "unitCost": 36.0,
+      "vendor": "Initech"
+    },
+    {
+      "partNumber": "PN-1027",
+      "qty": 10,
+      "unitCost": 37.25,
+      "vendor": "Acme"
+    },
+    {
+      "partNumber": "PN-1028",
+      "qty": 47,
+      "unitCost": 38.5,
+      "vendor": "Globex"
+    },
+    {
+      "partNumber": "PN-1029",
+      "qty": 84,
+      "unitCost": 39.75,
+      "vendor": "Initech"
+    }
+  ],
+  "matrix": [
+    [
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      1,
+      2,
+      3
+    ],
+    [
+      0,
+      2,
+      4,
+      6
+    ],
+    [
+      0,
+      3,
+      6,
+      9
+    ],
+    [
+      0,
+      4,
+      8,
+      12
+    ],
+    [
+      0,
+      5,
+      10,
+      15
+    ],
+    [
+      0,
+      6,
+      12,
+      18
+    ],
+    [
+      0,
+      7,
+      14,
+      21
+    ],
+    [
+      0,
+      8,
+      16,
+      24
+    ],
+    [
+      0,
+      9,
+      18,
+      27
+    ]
+  ],
+  "notes": [
+    "alpha",
+    "beta",
+    "gamma"
+  ],
+  "closing": {
+    "reviewed": true,
+    "by": "kunoku",
+    "when": "2026-09-27"
+  }
+}

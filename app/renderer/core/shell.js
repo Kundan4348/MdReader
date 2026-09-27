@@ -293,7 +293,7 @@
     // selection made on the right is painted (<mark> over the matching source); a selection made on the left tints
     // its block(s) on the right and, when the words can be found in the rendered text, highlights them exactly.
     const sync = { lines: [], starts: [], marked: [], raf: 0, prog: new Map() };
-    const inSplit = () => S.mode === 'split' && root.dataset.kind !== 'json';
+    const inSplit = () => S.mode === 'split'; // json.js stamps its rows the same way md.js does, so JSON syncs too
     const now = () => performance.now();
     // A scroll this code sets on one pane must not be echoed back by that pane's own scroll event. A time window is
     // not enough (a long smooth scroll outlives it and its tail drags the other pane away again), so the pane is
@@ -305,7 +305,8 @@
     }
     function echo(el) { // true while el is still travelling to a target this code set
       const p = sync.prog.get(el); if (!p) return false;
-      if (Math.abs(el.scrollTop - p.top) < 1 || now() > p.until) { sync.prog.delete(el); return true; }
+      if (Math.abs(el.scrollTop - p.top) < 1) { sync.prog.delete(el); return true; } // arrived: this event is the echo
+      if (now() > p.until) { sync.prog.delete(el); return false; } // never arrived (clamped, interrupted): this one is the user's
       return true;
     }
     function buildMirror() {
@@ -342,17 +343,24 @@
       while (lo < hi) { const m = (lo + hi + 1) >> 1; if (L[m].offsetTop <= y) lo = m; else hi = m - 1; }
       const d = L[lo]; return lo + Math.min(1, Math.max(0, (y - d.offsetTop) / (d.offsetHeight || 1)));
     }
+    // Rows folded away inside a closed <details> (JSON tree) still have an offsetParent -- Chromium hides them with
+    // content-visibility, not display:none -- so visibility is asked for explicitly; checkVisibility sees through that.
+    const shown = (el) => (el.checkVisibility ? el.checkVisibility() : !!el.offsetParent);
     function blocks() { // rendered blocks with their source lines and their rows in content scroll coords
       const cr = content.getBoundingClientRect(), st = content.scrollTop;
-      return [...doc.querySelectorAll('[data-l0]')].filter((el) => !el.closest('[data-l0] [data-l0]') && el.offsetParent).map((el) => {
-        const r = el.getBoundingClientRect(); return { el, l0: +el.dataset.l0, l1: +el.dataset.l1, top: r.top - cr.top + st, bottom: r.bottom - cr.top + st };
+      return [...doc.querySelectorAll('[data-l0]')].filter((el) => !el.closest('[data-l0] [data-l0]') && shown(el)).map((el) => {
+        const r = el.getBoundingClientRect(); let l1 = +el.dataset.l1;
+        const d = el.tagName === 'SUMMARY' ? el.parentElement : null; // a folded JSON node: its hidden lines belong to the summary row
+        if (d && d.dataset.r1 && !d.open) l1 = +d.dataset.r1;
+        return { el, l0: +el.dataset.l0, l1, top: r.top - cr.top + st, bottom: r.bottom - cr.top + st };
       });
     }
-    // Interpolate within a block, or across the gap to the next one, in both directions.
+    // Interpolate within a block, or across the gap to the next one, in both directions. Lines before the first block
+    // (a JSON file's opening brace and leading comments, rendered as the header) map onto the space above it.
     function lineToY(ln, bs) {
       let b = null, nx = null;
       for (let i = 0; i < bs.length; i++) { if (bs[i].l0 <= ln) b = bs[i]; else { nx = bs[i]; break; } }
-      if (!b) return nx ? nx.top : 0;
+      if (!b) return nx ? nx.top * Math.min(1, Math.max(0, ln) / Math.max(1, nx.l0)) : 0;
       if (ln < b.l1) return b.top + (ln - b.l0) / Math.max(1, b.l1 - b.l0) * (b.bottom - b.top);
       if (!nx) return b.bottom;
       return b.bottom + (ln - b.l1) / Math.max(1, nx.l0 - b.l1) * (nx.top - b.bottom);
@@ -360,11 +368,15 @@
     function yToLine(y, bs) {
       let b = null, nx = null;
       for (let i = 0; i < bs.length; i++) { if (bs[i].top <= y) b = bs[i]; else { nx = bs[i]; break; } }
-      if (!b) return nx ? nx.l0 : 0;
+      if (!b) return nx ? nx.l0 * Math.min(1, Math.max(0, y) / Math.max(1, nx.top)) : 0;
       if (y < b.bottom) return b.l0 + (y - b.top) / Math.max(1, b.bottom - b.top) * (b.l1 - b.l0);
       if (!nx) return b.l1;
       return b.l1 + (y - b.bottom) / Math.max(1, nx.top - b.bottom) * (nx.l0 - b.l1);
     }
+    // When the very first source line is itself the first block (markdown: the h1), its offset is the document's top
+    // padding and is cancelled so line 0 at the top of the left pane <-> scrollTop 0 on the right. Otherwise the
+    // space above the first block is the header the leading lines map onto, and nothing is cancelled.
+    const topGap = (bs) => (bs[0].l0 === 0 ? bs[0].top : 0);
     function onSrcScroll() {
       hl.scrollTop = ta.scrollTop;
       if (!inSplit() || echo(ta) || !sync.lines.length) return;
@@ -372,8 +384,7 @@
       sync.raf = requestAnimationFrame(() => {
         const bs = blocks(); if (!bs.length) return;
         const ln = lineAtY(ta.scrollTop + hlPad());
-        const gap = bs[0].top; // the document's top padding: line 0 at the top of the left pane <-> scrollTop 0 on the right
-        const y = Math.max(0, lineToY(ln, bs) - gap);
+        const y = Math.max(0, lineToY(ln, bs) - topGap(bs));
         if (Math.abs(content.scrollTop - y) < 1) return;
         setScroll(content, y);
       });
@@ -384,7 +395,7 @@
       cancelAnimationFrame(sync.raf);
       sync.raf = requestAnimationFrame(() => {
         const bs = blocks(); if (!bs.length) return;
-        const ln = yToLine(content.scrollTop + bs[0].top, bs);
+        const ln = yToLine(content.scrollTop + topGap(bs), bs);
         const y = Math.max(0, lineY(ln) - hlPad());
         if (Math.abs(ta.scrollTop - y) < 1) return;
         setScroll(ta, y);
@@ -446,11 +457,20 @@
       clearRightMarks();
       if (s === e) return;
       const lo = lineOf(s), hi = lineOf(Math.max(s, e - 1)) + 1;
+      // Selected lines hidden inside folded JSON nodes: unfold those nodes (not the "as tree" duplicate of a table)
+      // so the exact row can be tinted; a selection on the summary's own line leaves the node folded.
+      for (const d of doc.querySelectorAll('details[data-r0]:not([open]):not(.jraw)')) {
+        const r0 = +d.dataset.r0, r1 = +d.dataset.r1; // hidden lines are (r0, r1): everything after the summary's line
+        if (hi > r0 + 1 && lo < r1) d.open = true;
+      }
       const bs = blocks().filter((b) => b.l0 < hi && b.l1 > lo);
       if (!bs.length) return;
       bs.forEach((b) => b.el.classList.add('mirror'));
-      const query = ta.value.slice(s, e).replace(/[*_`~]+|^\s*(?:#{1,6}|>|[-+*]|\d+[.)])\s+/gm, '');
-      if (global.CSS && CSS.highlights && global.Highlight) { for (const b of bs) { const r = findInBlock(b.el, query); if (r) { CSS.highlights.set(HL_NAME, new Highlight(r)); break; } } }
+      const raw = ta.value.slice(s, e);
+      const isJson = root.dataset.kind === 'json';
+      // JSON: tree rows show strings quoted, table cells bare -- try both; markdown: drop the inline markup.
+      const queries = isJson ? [...new Set([raw.replace(/,\s*$/, ''), raw.replace(/,\s*$/, '').replace(/"/g, '')])] : [raw.replace(/[*_`~]+|^\s*(?:#{1,6}|>|[-+*]|\d+[.)])\s+/gm, '')];
+      if (global.CSS && CSS.highlights && global.Highlight) { outer: for (const b of bs) for (const query of queries) { const r = findInBlock(b.el, query); if (r) { CSS.highlights.set(HL_NAME, new Highlight(r)); break outer; } } }
       const top = bs[0].top, bottom = bs[bs.length - 1].bottom, vt = content.scrollTop, vb = vt + content.clientHeight;
       if (top < vt + 8 || bottom > vb - 8) setScroll(content, top - Math.min(80, content.clientHeight / 4), true);
     }, 60);

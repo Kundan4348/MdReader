@@ -147,6 +147,36 @@ report.multiOk = report.multiMounted && report.multi.kind === 'json' && /^2 docu
   && report.multiAfterFormat.secs === 2 && report.multiAfterFormat.notes === 4 && report.multiAfterFormat.comments === 3 && report.multiAfterFormat.dirty
   && /inline comments would be lost/.test(report.multiMinifyToast)
   && report.multiUntitled.kind === 'json' && report.multiUntitled.secs.join('|') === 'before|after' && report.multiUntitled.note === '← changed';
+// ---- split view on JSON: rows/summaries/table rows carry source-line stamps, so scroll-lock and selection mirroring
+// work as they do for markdown (long.json: 412 lines, comments, nested objects, a 30-row table).
+report.longMounted = await mount(base + '/test/fixtures/long.json');
+await ev(`document.querySelector('#app .top [data-mode=split]').click()`); await sleep(500);
+const SJ = `const ta=document.querySelector('#app textarea.src'),hl=document.querySelector('#app .srchl'),c=document.querySelector('#app .content'),L=ta.value.split('\\n');
+  const pad=parseFloat(hl.style.paddingTop)||0; const lineOf=(s)=>L.findIndex(l=>l.includes(s));
+  const vis=()=>[...document.querySelectorAll('#app .doc [data-l0]')].filter(e=>e.checkVisibility()&&!e.closest('[data-l0] [data-l0]'));
+  const topBlock=()=>{const cr=c.getBoundingClientRect();return vis().map(e=>({e,d:e.getBoundingClientRect().top-cr.top})).filter(b=>b.d>-4).sort((a,b)=>a.d-b.d)[0]};
+  const topLine=()=>{const y=ta.scrollTop+pad;const ls=[...hl.children];let k=0;for(let i=0;i<ls.length;i++)if(ls[i].offsetTop<=y+1)k=i;return k};
+  const blockAt=(ln)=>vis().find(e=>+e.dataset.l0<=ln&&+e.dataset.l1>ln);`;
+const sj = {};
+sj.layout = await ev(`(()=>{${SJ} const st=vis(); return {kind:document.querySelector('#app').dataset.kind, lines:L.length, mirrorLines:hl.children.length, blocks:st.length, tags:[...new Set(st.map(e=>e.tagName.toLowerCase()))].sort().join(), tableRows:st.filter(e=>e.tagName==='TR').length, taScrolls:ta.scrollHeight>ta.clientHeight, cScrolls:c.scrollHeight>c.clientHeight, minL0:Math.min(...st.map(e=>+e.dataset.l0)), maxL1:Math.max(...st.map(e=>+e.dataset.l1))}})()`);
+// left -> right: scroll the source so line N is at the top; the block for line N must be at the top of the right pane
+sj.l2r = await ev(`(async()=>{${SJ} const out=[]; for (const s of ['"site-06"','"lineItems"','"closing"']) { const ln=lineOf(s); ta.scrollTop=hl.children[ln].offsetTop-pad; ta.dispatchEvent(new Event('scroll')); await new Promise(r=>setTimeout(r,350)); const tb=topBlock(); const atEnd=c.scrollTop>=c.scrollHeight-c.clientHeight-1; out.push({want:topLine(), got:tb?+tb.e.dataset.l0:-1, tag:tb?tb.e.tagName:null, atEnd, ok:atEnd||(tb&&+tb.e.dataset.l0<=topLine()+2&&(+tb.e.dataset.l1>=topLine()-1||+(tb.e.parentElement.dataset.r1||0)>=topLine()-1))}); } return out;})()`);
+// right -> left: scroll the rendering so a block is at the top; the source must show that block's first line at the top
+sj.r2l = await ev(`(async()=>{${SJ} const out=[]; for (const s of ['"site-09"','"PN-1017"','"matrix"']) { const ln=lineOf(s); const b=blockAt(ln); if(!b){out.push({want:ln,got:'no block'});continue;} const cr=c.getBoundingClientRect(); c.scrollTop=c.scrollTop+b.getBoundingClientRect().top-cr.top; c.dispatchEvent(new Event('scroll')); await new Promise(r=>setTimeout(r,350)); out.push({want:+b.dataset.l0, got:topLine(), tag:b.tagName}); } return out;})()`);
+// right selection -> source mark on exactly that line
+sj.selR = await ev(`(async()=>{${SJ} const ln=lineOf('"by": "kunoku"'); const row=blockAt(ln); const t=[...row.querySelectorAll('.jk')][0].firstChild; const sel=getSelection(),r=document.createRange(); r.setStart(t,0); r.setEnd(t,t.nodeValue.length); sel.removeAllRanges(); sel.addRange(r); await new Promise(r=>setTimeout(r,900)); const marks=[...hl.querySelectorAll('mark')]; return {want:ln, line:marks[0]?[...hl.children].indexOf(marks[0].parentElement):-1, mark:marks[0]?.textContent, rightEcho:document.querySelectorAll('#app .doc .mirror').length};})()`);
+// left selection -> the row on the right is tinted (a tree row, then a table row); words highlighted via CSS highlights
+sj.selL = await ev(`(async()=>{${SJ} getSelection().removeAllRanges(); const out=[]; for (const s of ['"email": "owner4@example.com"','"PN-1022"']) { const ln=lineOf(s); const st=L.slice(0,ln).join('\\n').length+(ln?1:0)+L[ln].indexOf(s.replace(/^"/,'"')); ta.focus(); ta.setSelectionRange(st, st+s.length); ta.dispatchEvent(new Event('select')); await new Promise(r=>setTimeout(r,1300)); const m=[...document.querySelectorAll('#app .doc .mirror')]; const cr=c.getBoundingClientRect(); out.push({want:ln, got:m.map(e=>+e.dataset.l0), contains:m.every(e=>+e.dataset.l0<=ln&&+e.dataset.l1>ln), tags:m.map(e=>e.tagName), hl:CSS.highlights.has('mdr-mirror'), inView:m.length?(m[0].getBoundingClientRect().top>=cr.top-1&&m[0].getBoundingClientRect().bottom<=cr.bottom+1):false}); } ta.setSelectionRange(0,0); ta.dispatchEvent(new Event('select')); await new Promise(r=>setTimeout(r,200)); return {cases:out, cleared:document.querySelectorAll('#app .doc .mirror').length};})()`);
+await shot('json-split.png');
+report.splitJson = sj;
+const near = (a, b, d = 2) => Math.abs(a - b) <= d;
+report.splitJsonOk = report.longMounted && sj.layout.kind === 'json' && sj.layout.mirrorLines === sj.layout.lines && sj.layout.blocks > 140 && sj.layout.tableRows === 30
+  && sj.layout.tags === 'div,summary,tr' && sj.layout.taScrolls && sj.layout.cScrolls && sj.layout.minL0 === 2 && sj.layout.maxL1 >= sj.layout.lines - 3
+  && sj.l2r.every((x) => x.ok) && sj.l2r.filter((x) => !x.atEnd).length >= 2 && sj.r2l.every((x) => near(x.got, x.want))
+  && sj.selR.line === sj.selR.want && sj.selR.mark === '"by"' && sj.selR.rightEcho === 0
+  && sj.selL.cases[0].got.join() === String(sj.selL.cases[0].want) && sj.selL.cases[0].tags.join() === 'DIV' && sj.selL.cases[0].hl && sj.selL.cases[0].inView
+  && sj.selL.cases[1].got.length === 1 && sj.selL.cases[1].contains && sj.selL.cases[1].tags.join() === 'TR' && sj.selL.cases[1].hl && sj.selL.cases[1].inView && sj.selL.cleared === 0;
+await ev(`document.querySelector('#app .top [data-mode=read]').click()`); await sleep(150);
 // ---- a broken file: error banner with line/column, source shown, Format refuses politely
 report.brokenMounted = await mount(base + '/test/fixtures/broken.json');
 report.broken = await ev(`({kind:document.querySelector('#app').dataset.kind, err:document.querySelector('#app .jerr')?.textContent, excerpt:document.querySelector('#app .jexcerpt')?.textContent, source:!!document.querySelector('#app .head .jsource'), secs:document.querySelectorAll('#app .sec').length})`);
@@ -165,7 +195,7 @@ report.jsonOk = report.mounted && report.kind === 'json' && report.h1 === 'data.
   && report.fmtVisible !== 'none' && report.linesBefore === 2 && report.linesAfter > 20 && report.dirtyAfterFormat && !/minified/.test(report.metaAfter) && report.h1After === 'data.json'
   && report.linesMinified === 1 && report.dirtyAfterMinify && report.gutter === 'json'
   && report.untitled.kind === 'json' && report.untitled.tab === 'Untitled 1' && report.untitled.fmt !== 'none' && report.untitled.keys.join() === 'a,b,c' && report.untitled.secs === 0
-  && report.untitledMd.kind === 'md' && report.untitledMd.fmt === 'none' && report.nestedOk && report.manyTabsOk && report.multiOk
+  && report.untitledMd.kind === 'md' && report.untitledMd.fmt === 'none' && report.nestedOk && report.manyTabsOk && report.multiOk && report.splitJsonOk
   && report.brokenMounted && report.broken.kind === 'json' && /Invalid JSON at line 3, column \d+/.test(report.broken.err) && /^3: /.test(report.broken.excerpt) && report.broken.source && report.broken.secs === 0
   && /Cannot format/.test(report.brokenToast) && !logs.some((l) => l.startsWith('EXC'));
 console.log(JSON.stringify(report, null, 2));
