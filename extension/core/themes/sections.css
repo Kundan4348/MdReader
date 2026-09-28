@@ -30,7 +30,7 @@ html[data-theme=sections] .tree .file.on{background:#fff;color:var(--accent);opa
 html[data-theme=sections] .app{--measure:min(100%,clamp(900px,64cqw,1240px))}
 html[data-theme=sections] .doc{padding:34px 24px 120px;font-size:16px;line-height:1.7}
 html[data-theme=sections] .editor{padding:28px 24px 120px}
-html[data-theme=sections] .src{background:#fff;border:1px solid var(--line);border-radius:16px;padding:22px 26px;font-size:13.5px;color:var(--ink);caret-color:var(--accent);min-height:calc(100vh - var(--top-h) - 100px)}
+html[data-theme=sections] .src{--src-pad-l:26px;background:#fff;border:1px solid var(--line);border-radius:16px;padding:22px 26px;font-size:13.5px;color:var(--ink);caret-color:var(--accent);min-height:calc(100vh - var(--top-h) - 100px)}
 html[data-theme=sections] .src:focus{border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
 html[data-theme=sections] .app[data-mode=split] .editor{padding:22px 12px 22px 22px}
 html[data-theme=sections] .app[data-mode=split] .doc{padding:22px 22px 120px 12px}

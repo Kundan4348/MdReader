@@ -130,7 +130,14 @@ html[data-theme] .app.paged .doc{max-width:none}
 .srcwrap .src{display:block}
 .srchl{position:absolute;inset:0;overflow:hidden;pointer-events:none;color:transparent;background:transparent;border-style:solid;border-color:transparent;box-sizing:border-box;white-space:pre-wrap;overflow-wrap:break-word;word-break:normal;z-index:1;
   font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:14px;line-height:1.75;tab-size:2}
-.app:not([data-mode=split]) .srchl{display:none}
+.app[data-mode=read] .srchl{display:none}
+/* Line numbers. The textarea's left padding is widened by --lnw (set by the shell from the line count); each mirror
+   row prints its number in that padding, right-aligned against the text, so wrapped lines keep one number at their
+   first row. The rule between gutter and text is a background on the mirror (stays put while the rows scroll). */
+html[data-theme] .editor .src{padding-left:calc(var(--src-pad-l,0px) + var(--lnw,3ch + 22px))}
+.srchl{counter-reset:line;background-image:linear-gradient(to right,transparent calc(var(--src-pad-l,0px) + var(--lnw,3ch + 22px) - 11px),var(--line,#ddd) calc(var(--src-pad-l,0px) + var(--lnw,3ch + 22px) - 11px),var(--line,#ddd) calc(var(--src-pad-l,0px) + var(--lnw,3ch + 22px) - 10px),transparent calc(var(--src-pad-l,0px) + var(--lnw,3ch + 22px) - 10px))}
+.srchl .ln{position:relative;counter-increment:line}
+.srchl .ln::before{content:counter(line);position:absolute;right:calc(100% + 18px);top:0;color:var(--ink-3,var(--ink,#555));opacity:.55;white-space:nowrap;user-select:none}
 .srchl mark{color:transparent;background:color-mix(in srgb,var(--accent,#3b82f6) 30%,transparent);border-radius:3px;box-decoration-break:clone}
 html[data-theme] .doc .mirror{background:color-mix(in srgb,var(--accent,#3b82f6) 9%,transparent);box-shadow:0 0 0 6px color-mix(in srgb,var(--accent,#3b82f6) 9%,transparent);border-radius:4px}
 ::highlight(mdr-mirror){background:color-mix(in srgb,var(--accent,#3b82f6) 32%,transparent)}

@@ -32,7 +32,7 @@ html[data-theme=studio] .content{background:radial-gradient(900px 400px at 30% -
 html[data-theme=studio] .app{--measure:min(100%,clamp(880px,62cqw,1200px))}
 html[data-theme=studio] .doc{padding:44px 56px 120px;font-size:15.5px;line-height:1.7;color:#d5dae2}
 html[data-theme=studio] .editor{padding:32px 56px 120px}
-html[data-theme=studio] .src{border:1px solid var(--line-2);border-radius:12px;background:var(--panel);color:#d5dae2;font-size:13.5px;padding:22px 26px;caret-color:var(--accent);min-height:calc(100vh - var(--top-h) - 110px)}
+html[data-theme=studio] .src{--src-pad-l:26px;border:1px solid var(--line-2);border-radius:12px;background:var(--panel);color:#d5dae2;font-size:13.5px;padding:22px 26px;caret-color:var(--accent);min-height:calc(100vh - var(--top-h) - 110px)}
 html[data-theme=studio] .src:focus{border-color:#3a4a60}
 html[data-theme=studio] .app[data-mode=split] .editor{padding:24px 20px 24px 24px}
 html[data-theme=studio] .app[data-mode=split] .doc{padding:44px 36px 120px}

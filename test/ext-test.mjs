@@ -172,6 +172,19 @@ sp.selL = await evalJs(`(async()=>{const ta=document.querySelector('#app textare
 // right selection ("top three" in copy 3's paragraph) -> exact <mark> over the source line, scrolled into view on the left, right echo dropped
 sp.selR = await evalJs(`(async()=>{const p=[...document.querySelectorAll('#app .doc p')].filter(p=>p.textContent.startsWith('19 accounts'))[2];const t=[...p.childNodes].find(n=>n.nodeType===3&&n.nodeValue.includes('top three'));const sel=getSelection(),r=document.createRange(),a=t.nodeValue.indexOf('top three');r.setStart(t,a);r.setEnd(t,a+9);sel.removeAllRanges();sel.addRange(r);await new Promise(r=>setTimeout(r,1200));const ta=document.querySelector('#app textarea.src'),hl=document.querySelector('#app .srchl'),marks=[...hl.querySelectorAll('mark')],ln=marks[0]?[...hl.children].indexOf(marks[0].parentElement):-1,y=marks[0]?marks[0].parentElement.offsetTop:-1;return {marks:marks.map(m=>m.textContent),line:ln,srcLine:ln>=0?ta.value.split('\\n')[ln]:null,visible:y>=ta.scrollTop&&y<=ta.scrollTop+ta.clientHeight,rightEcho:document.querySelectorAll('#app .doc .mirror').length,mirrorFollows:hl.scrollTop===ta.scrollTop}})()`);
 sp.clear = await evalJs(`(async()=>{getSelection().removeAllRanges();document.dispatchEvent(new Event('selectionchange'));await new Promise(r=>setTimeout(r,200));return document.querySelectorAll('#app .srchl mark').length})()`);
+// Line numbers: the mirror rows carry them (::before counter) in Split and Edit, hidden in Read; the gutter widens the
+// textarea's left padding and grows with the digit count; wrapped lines keep one number; the mirror follows scrolls.
+const lnum = `(()=>{const ta=document.querySelector('#app textarea.src'),hl=document.querySelector('#app .srchl'),rows=[...hl.children];const cs=getComputedStyle(ta);const hr=hl.getBoundingClientRect(),tr=ta.getBoundingClientRect();return {display:getComputedStyle(hl).display,rows:rows.length,taLines:ta.value.split('\\n').length,gutter:parseFloat(cs.paddingLeft),counter:rows.length?getComputedStyle(rows[0],'::before').content:null,aligned:Math.abs(hr.left-tr.left)<1&&Math.abs(hr.top-tr.top)<1,wrapped:rows.filter(d=>d.offsetHeight>parseFloat(cs.lineHeight)*1.5).length,lnw:getComputedStyle(document.querySelector('#app .editor')).getPropertyValue('--lnw').trim(),follows:hl.scrollTop===ta.scrollTop}})()`;
+const ln = {};
+ln.split = await evalJs(lnum);
+await evalJs(`document.querySelector('#app .top [data-mode=edit]').click()`); await sleep(300);
+await evalJs(`document.querySelector('#app textarea.src').scrollTop=300`); await sleep(100);
+ln.edit = await evalJs(lnum);
+await evalJs(`document.querySelector('#app .top [data-mode=read]').click()`); await sleep(150);
+ln.read = await evalJs(`getComputedStyle(document.querySelector('#app .srchl')).display`);
+await evalJs(`document.querySelector('#app .top [data-mode=split]').click()`); await sleep(300);
+report.lnum = ln;
+report.lnumOk = ['split', 'edit'].every((k) => ln[k].display !== 'none' && ln[k].rows === ln[k].taLines && ln[k].counter === 'counter(line)' && ln[k].aligned && ln[k].gutter > 30 && ln[k].lnw === 'calc(3ch + 22px)' && ln[k].follows) && ln.split.wrapped > 0 && ln.read === 'none';
 await shot('ext-split.png');
 report.split = sp;
 const near = (line, [l0, l1]) => line >= l0 - 1 && line <= l1; // the pane's top line sits inside (or one line before) the block at the top of the other pane
@@ -180,4 +193,4 @@ report.splitOk = !sp.layout.paneScrolls && sp.layout.taScrolls && sp.layout.mirr
   && sp.selL.mirrors.length === 1 && sp.selL.hlText === 'steeping hard limit' && sp.selL.inView
   && sp.selR.marks.join() === 'top three' && /^19 accounts/.test(sp.selR.srcLine || '') && sp.selR.visible && sp.selR.rightEcho === 0 && sp.selR.mirrorFollows && sp.clear === 0;
 console.log(JSON.stringify(report, null, 2));
-clearTimeout(hardStop); killChrome(); process.exit(report.mounted && report.tables > 0 && report.pinchOk && report.buttonsOk && report.widthOk && report.filterOk && report.splitOk ? 0 : 1);
+clearTimeout(hardStop); killChrome(); process.exit(report.mounted && report.tables > 0 && report.pinchOk && report.buttonsOk && report.widthOk && report.filterOk && report.splitOk && report.lnumOk ? 0 : 1);

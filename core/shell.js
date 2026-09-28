@@ -258,7 +258,7 @@
     function setText(text, fromEditor) {
       S.text = text;
       if (!fromEditor) ta.value = text;
-      if (S.mode === 'split') buildMirrorSoon();
+      if (S.mode !== 'read') buildMirrorSoon();
       setDirty(S.text !== S.saved);
       $('.wc', editor).textContent = text.split(/\s+/).filter(Boolean).length + ' words';
     }
@@ -309,8 +309,12 @@
       if (now() > p.until) { sync.prog.delete(el); return false; } // never arrived (clamped, interrupted): this one is the user's
       return true;
     }
+    // The mirror is also the line-number gutter: every .ln row carries its number in a ::before drawn to the left of
+    // the text, so numbers stay aligned with wrapped lines. Built in Edit as well as Split for that reason.
     function buildMirror() {
-      if (S.mode !== 'split') return;
+      if (S.mode === 'read') return;
+      const digits = Math.max(2, String(ta.value.split('\n').length).length);
+      editor.style.setProperty('--lnw', 'calc(' + digits + 'ch + 22px)'); // gutter width: textarea padding-left grows with it
       const cs = getComputedStyle(ta);
       for (const p of ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'tabSize', 'paddingTop', 'paddingLeft', 'paddingBottom', 'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth', 'borderRadius']) hl.style[p] = cs[p];
       const bars = ta.offsetWidth - ta.clientWidth - parseFloat(cs.borderLeftWidth) - parseFloat(cs.borderRightWidth); // a visible scrollbar narrows the wrap width
@@ -476,7 +480,7 @@
     }, 60);
     document.addEventListener('selectionchange', onSelChange);
     ['select', 'keyup', 'mouseup'].forEach((ev) => ta.addEventListener(ev, onSrcSelect));
-    if (global.ResizeObserver) new ResizeObserver(() => { fitEditor(); if (S.mode === 'split') buildMirrorSoon(); }).observe(content);
+    if (global.ResizeObserver) new ResizeObserver(() => { fitEditor(); if (S.mode !== 'read') buildMirrorSoon(); }).observe(content);
 
     // ---------- modes / theme / panels ----------
     function setMode(m, quiet) {
@@ -484,7 +488,7 @@
       S.mode = m; root.dataset.mode = m;
       seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
       if (m === 'read') paint(); else if (m === 'split') paint();
-      fitEditor(); if (m === 'split') requestAnimationFrame(buildMirror);
+      fitEditor(); if (m !== 'read') requestAnimationFrame(buildMirror);
       if (m !== 'read') setTimeout(() => ta.focus(), 0);
       if (!quiet) adapter.setPref && adapter.setPref('mode', m);
     }
@@ -492,7 +496,7 @@
       if (!THEMES.some((x) => x.id === t)) t = DEFAULT_THEME;
       S.theme = t; document.documentElement.dataset.theme = t; themeSel.value = t;
       refreeze();
-      if (S.mode === 'split') requestAnimationFrame(() => { fitEditor(); buildMirror(); });
+      if (S.mode !== 'read') requestAnimationFrame(() => { fitEditor(); buildMirror(); });
       revealActiveTab(); requestAnimationFrame(revealActiveTab); // the strip's padding and zoom change per theme, which can scroll the active tab out of view
       adapter.setPref && adapter.setPref('theme', t);
     }
