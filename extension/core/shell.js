@@ -327,10 +327,10 @@
       hl.scrollTop = ta.scrollTop;
     }
     const buildMirrorSoon = debounce(buildMirror, 60);
-    // The editor pane fills exactly the visible height of the content pane in Split, so the textarea is the only
-    // thing that scrolls on the left (the pane itself never does).
+    // The editor pane fills exactly the visible height of the content pane in Edit and Split, so the textarea is the
+    // only thing that scrolls (the pane itself never does) and the source runs to the bottom of the window.
     function fitEditor() {
-      if (S.mode !== 'split') { editor.style.height = ''; return; }
+      if (S.mode === 'read') { editor.style.height = ''; return; }
       const z = parseFloat(getComputedStyle(editor).zoom) || 1;
       editor.style.height = (content.clientHeight / z) + 'px';
     }
@@ -480,7 +480,7 @@
     }, 60);
     document.addEventListener('selectionchange', onSelChange);
     ['select', 'keyup', 'mouseup'].forEach((ev) => ta.addEventListener(ev, onSrcSelect));
-    if (global.ResizeObserver) new ResizeObserver(() => { fitEditor(); if (S.mode !== 'read') buildMirrorSoon(); }).observe(content);
+    if (global.ResizeObserver) new ResizeObserver(() => { refreeze(); fitEditor(); if (S.mode !== 'read') buildMirrorSoon(); }).observe(content);
 
     // ---------- modes / theme / panels ----------
     function setMode(m, quiet) {
@@ -488,6 +488,7 @@
       S.mode = m; root.dataset.mode = m;
       seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
       if (m === 'read') paint(); else if (m === 'split') paint();
+      refreeze(); // the pane is half as wide in Split: a frozen (magnified) layout must re-lay out for it
       fitEditor(); if (m !== 'read') requestAnimationFrame(buildMirror);
       if (m !== 'read') setTimeout(() => ta.focus(), 0);
       if (!quiet) adapter.setPref && adapter.setPref('mode', m);

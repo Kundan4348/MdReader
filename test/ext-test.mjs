@@ -185,6 +185,26 @@ ln.read = await evalJs(`getComputedStyle(document.querySelector('#app .srchl')).
 await evalJs(`document.querySelector('#app .top [data-mode=split]').click()`); await sleep(300);
 report.lnum = ln;
 report.lnumOk = ['split', 'edit'].every((k) => ln[k].display !== 'none' && ln[k].rows === ln[k].taLines && ln[k].counter === 'counter(line)' && ln[k].aligned && ln[k].gutter > 30 && ln[k].lnw === 'calc(3ch + 22px)' && ln[k].follows) && ln.split.wrapped > 0 && ln.read === 'none';
+// Editor fills the pane: in Edit and Split the editor's bottom meets the content pane's bottom (no blank band), the
+// pane itself does not scroll in Edit, and in Split the rendered document is exactly its column wide even when it
+// holds a wide table and even while magnified (it used to grow to the table's min-content and spill off-screen).
+const fillQ = `(()=>{const c=document.querySelector('#app .content'),ed=document.querySelector('#app .editor'),d=document.querySelector('#app .doc'),cr=c.getBoundingClientRect(),er=ed.getBoundingClientRect(),dr=d.getBoundingClientRect();return {edGap:Math.round(cr.bottom-er.bottom),paneScrolls:c.scrollHeight>c.clientHeight+1,docW:Math.round(dr.width),colW:Math.round(parseFloat((getComputedStyle(c).gridTemplateColumns.split(" ")[1]))||cr.width/2),overflowX:c.scrollWidth>c.clientWidth+1}})()`;
+const fl = {};
+for (const t of ['paper', 'studio', 'sections', 'mono']) {
+  await evalJs(`(()=>{const s=document.querySelector('#app select.theme'); s.value='${t}'; s.dispatchEvent(new Event('change',{bubbles:true}));})()`); await sleep(200);
+  await evalJs(`document.querySelector('#app .top [data-mode=edit]').click()`); await sleep(250);
+  const edit = await evalJs(fillQ);
+  await evalJs(`document.querySelector('#app .top [data-mode=split]').click()`); await sleep(250);
+  fl[t] = { edit, split: await evalJs(fillQ) };
+}
+await evalJs(`document.querySelector('#app .top [data-mode=read]').click()`); await sleep(150);
+await evalJs(`(()=>{const b=[...document.querySelectorAll('#app .top button')].find(b=>/Larger/.test(b.title));b.click();b.click();})()`); await sleep(250); // magnify in Read, then Split
+await evalJs(`document.querySelector('#app .top [data-mode=split]').click()`); await sleep(350);
+fl.magSplit = await evalJs(fillQ); fl.magSplit.paged = await evalJs(`document.querySelector('#app').classList.contains('paged')`);
+await evalJs(`(()=>{const b=[...document.querySelectorAll('#app .top button')].find(b=>/Reset zoom/.test(b.title));b.click();})()`); await sleep(150);
+report.fill = fl;
+report.fillOk = ['paper', 'studio', 'sections', 'mono'].every((t) => fl[t].edit.edGap <= 1 && !fl[t].edit.paneScrolls && fl[t].split.edGap <= 1 && Math.abs(fl[t].split.docW - fl[t].split.colW) <= 2 && !fl[t].split.overflowX)
+  && fl.magSplit.paged && Math.abs(fl.magSplit.docW - fl.magSplit.colW) <= 2 && !fl.magSplit.overflowX;
 await shot('ext-split.png');
 report.split = sp;
 const near = (line, [l0, l1]) => line >= l0 - 1 && line <= l1; // the pane's top line sits inside (or one line before) the block at the top of the other pane
@@ -193,4 +213,4 @@ report.splitOk = !sp.layout.paneScrolls && sp.layout.taScrolls && sp.layout.mirr
   && sp.selL.mirrors.length === 1 && sp.selL.hlText === 'steeping hard limit' && sp.selL.inView
   && sp.selR.marks.join() === 'top three' && /^19 accounts/.test(sp.selR.srcLine || '') && sp.selR.visible && sp.selR.rightEcho === 0 && sp.selR.mirrorFollows && sp.clear === 0;
 console.log(JSON.stringify(report, null, 2));
-clearTimeout(hardStop); killChrome(); process.exit(report.mounted && report.tables > 0 && report.pinchOk && report.buttonsOk && report.widthOk && report.filterOk && report.splitOk && report.lnumOk ? 0 : 1);
+clearTimeout(hardStop); killChrome(); process.exit(report.mounted && report.tables > 0 && report.pinchOk && report.buttonsOk && report.widthOk && report.filterOk && report.splitOk && report.lnumOk && report.fillOk ? 0 : 1);

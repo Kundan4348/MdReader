@@ -115,14 +115,18 @@ html[data-theme] .app.paged .doc{max-width:none}
 .src{width:100%;min-height:calc(100vh - var(--top-h) - 120px);border:0;outline:0;resize:none;background:transparent;
   font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:14px;line-height:1.75;padding:0;tab-size:2}
 .app[data-mode=edit] .doc{display:none}.app[data-mode=edit] .editor{display:block}
-/* Split: the editor pane is exactly as tall as the content pane (height set by the shell) and never scrolls itself;
-   the textarea fills it and is the only scroller on the left, so scroll positions map cleanly to the right pane. */
+/* Edit and Split: the editor pane is exactly as tall as the content pane (height set by the shell) and never scrolls
+   itself; the textarea fills it and is the only scroller, so the source runs to the bottom of the window and, in
+   Split, scroll positions map cleanly to the right pane. */
+.app:not([data-mode=read]) .editor{display:flex;flex-direction:column;height:calc(100vh - var(--top-h));max-height:none;overflow:hidden;box-sizing:border-box}
+.app:not([data-mode=read]) .editor .gutter{flex:none}
+.app:not([data-mode=read]) .srcwrap{flex:1;min-height:0}
+.app:not([data-mode=read]) .src{height:100%;min-height:0;box-sizing:border-box}
+html[data-theme] .app:not([data-mode=read]) .editor{padding-bottom:28px} /* themes' reading-mode 120-140px tails would leave a blank band under the source */
 .app[data-mode=split] .content{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0;align-items:start}
-.app[data-mode=split] .editor{display:flex;flex-direction:column;position:sticky;top:0;height:calc(100vh - var(--top-h));max-height:none;overflow:hidden;box-sizing:border-box;order:-1;max-width:none;margin:0}
-.app[data-mode=split] .editor .gutter{flex:none}
-.app[data-mode=split] .srcwrap{flex:1;min-height:0}
-.app[data-mode=split] .src{height:100%;min-height:0;box-sizing:border-box}
-.app[data-mode=split] .doc{max-width:none}
+.app[data-mode=split] .editor{position:sticky;top:0;order:-1;max-width:none;margin:0;border-right:1px solid var(--line,var(--rule,#e2e2e2))} /* a visible seam between the two panes */
+.app[data-mode=split] .doc{max-width:none;min-width:0;width:100%;margin:0} /* exactly the column: with auto margins a grid item is fit-content, i.e. as wide as its widest table, and spills out of the pane */
+.app[data-mode=split] .editor{min-width:0}
 .app[data-mode=split] .sec .tools{display:none}
 /* Mirror of the textarea used for the split sync: same metrics (copied from the textarea by the shell), transparent
    text, laid over it; only the <mark> of a selection made on the right is visible. */
