@@ -420,13 +420,17 @@
     // Right -> left: paint the selected source in the mirror. The selected text is looked for verbatim in the source
     // of the block(s) it spans; when inline syntax gets in the way (**bold**, links) the whole block's lines are marked.
     function clearLeftMarks() { sync.marked.forEach((i) => { const d = sync.lines[i]; if (d) d.textContent = ta.value.split('\n')[i] || '\u200b'; }); sync.marked = []; }
-    function markLeft(lo, hi, text) {
+    function markLeft(lo, hi, text, nth) {
       clearLeftMarks();
       const lines = ta.value.split('\n'); hi = Math.min(hi, lines.length);
       const src = lines.slice(lo, hi).join('\n');
       const t = (text || '').trim(); let a = 0, b = src.length;
-      const idx = t.length >= 2 ? src.indexOf(t) : -1;
-      if (idx >= 0) { a = idx; b = idx + t.length; }
+      if (t.length) {
+        // All occurrences in the block's source; take the one at the same rank as the selection had in the rendered
+        // text (so "a" selected in the second bullet marks that "a", not the first one in the list).
+        const occ = []; for (let i = src.indexOf(t); i >= 0 && occ.length < 500; i = src.indexOf(t, i + 1)) occ.push(i);
+        if (occ.length) { const idx = occ[Math.min(nth || 0, occ.length - 1)]; a = idx; b = idx + t.length; }
+      }
       let pos = 0;
       for (let i = lo; i < hi; i++) {
         const l = lines[i], s = pos, e = pos + l.length; pos = e + 1;
@@ -449,19 +453,30 @@
       const blkOf = (n) => n && (n.nodeType === 1 ? n : n.parentElement).closest('[data-l0]');
       const bs = [blkOf(an), blkOf(sel.focusNode)].filter(Boolean);
       if (!bs.length) return;
-      markLeft(Math.min(...bs.map((b) => +b.dataset.l0)), Math.max(...bs.map((b) => +b.dataset.l1)), sel.toString());
+      const text = sel.toString(), t = text.trim();
+      // Rank of this selection among identical strings in the block's rendered text: count occurrences before it.
+      let nth = 0;
+      if (t.length && bs[0] === bs[bs.length - 1]) {
+        const r = sel.getRangeAt(0), pre = document.createRange();
+        pre.selectNodeContents(bs[0]); pre.setEnd(r.startContainer, r.startOffset);
+        const before = pre.toString() + text.slice(0, text.length - text.trimStart().length);
+        for (let i = before.indexOf(t); i >= 0; i = before.indexOf(t, i + 1)) nth++;
+      }
+      markLeft(Math.min(...bs.map((b) => +b.dataset.l0)), Math.max(...bs.map((b) => +b.dataset.l1)), text, nth);
     }, 80);
     // Left -> right: tint the blocks the textarea selection spans and highlight the exact words when they are found
     // in the rendered text (CSS Custom Highlight API; whitespace-insensitive, inline markup stripped from the query).
     const HL_NAME = 'mdr-mirror';
     function clearRightMarks() { doc.querySelectorAll('.mirror').forEach((el) => el.classList.remove('mirror')); if (global.CSS && CSS.highlights) CSS.highlights.delete(HL_NAME); }
-    function findInBlock(el, query) {
-      const q = query.replace(/\s+/g, ' ').trim().toLowerCase(); if (q.length < 2) return null;
+    function findInBlock(el, query, nth) {
+      const q = query.replace(/\s+/g, ' ').trim().toLowerCase(); if (!q.length) return null;
       const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); const nodes = [];
       let full = ''; while (walker.nextNode()) { nodes.push({ n: walker.currentNode, at: full.length }); full += walker.currentNode.nodeValue; }
       let norm = '', map = []; // norm index -> full index
       for (let i = 0; i < full.length; i++) { const c = full[i]; if (/\s/.test(c)) { if (norm.endsWith(' ')) continue; norm += ' '; } else norm += c.toLowerCase(); map.push(i); }
-      const i0 = norm.indexOf(q); if (i0 < 0) return null;
+      const occ = []; for (let i = norm.indexOf(q); i >= 0 && occ.length < 500; i = norm.indexOf(q, i + 1)) occ.push(i);
+      if (!occ.length) return null;
+      const i0 = occ[Math.min(nth || 0, occ.length - 1)];
       const f0 = map[i0], f1 = map[i0 + q.length - 1] + 1;
       const locate = (f) => { let k = nodes.length - 1; while (k > 0 && nodes[k].at > f) k--; return [nodes[k].n, f - nodes[k].at]; };
       const r = document.createRange(); const [n0, o0] = locate(f0), [n1, o1] = locate(f1 - 1);
@@ -479,14 +494,26 @@
         const r0 = +d.dataset.r0, r1 = +d.dataset.r1; // hidden lines are (r0, r1): everything after the summary's line
         if (hi > r0 + 1 && lo < r1) d.open = true;
       }
-      const bs = blocks().filter((b) => b.l0 < hi && b.l1 > lo);
+      // Innermost stamped elements the selection spans (a bullet or table row rather than the whole list/table).
+      const cand = [...doc.querySelectorAll('[data-l0]')].filter((el) => shown(el) && +el.dataset.l0 < hi && +el.dataset.l1 > lo);
+      const inner = cand.filter((el) => !cand.some((o) => o !== el && el.contains(o)));
+      const bs = inner.map((el) => { const r = el.getBoundingClientRect(), cr = content.getBoundingClientRect(); return { el, l0: +el.dataset.l0, l1: +el.dataset.l1, top: r.top - cr.top + content.scrollTop, bottom: r.bottom - cr.top + content.scrollTop }; }).sort((a, b) => a.top - b.top);
       if (!bs.length) return;
       bs.forEach((b) => b.el.classList.add('mirror'));
       const raw = ta.value.slice(s, e);
       const isJson = root.dataset.kind === 'json';
+      const strip = (x) => (isJson ? x.replace(/,\s*$/, '') : x.replace(/[*_`~]+|^\s*(?:#{1,6}|>|[-+*]|\d+[.)])\s+/gm, ''));
       // JSON: tree rows show strings quoted, table cells bare -- try both; markdown: drop the inline markup.
-      const queries = isJson ? [...new Set([raw.replace(/,\s*$/, ''), raw.replace(/,\s*$/, '').replace(/"/g, '')])] : [raw.replace(/[*_`~]+|^\s*(?:#{1,6}|>|[-+*]|\d+[.)])\s+/gm, '')];
-      if (global.CSS && CSS.highlights && global.Highlight) { outer: for (const b of bs) for (const query of queries) { const r = findInBlock(b.el, query); if (r) { CSS.highlights.set(HL_NAME, new Highlight(r)); break outer; } } }
+      const queries = isJson ? [...new Set([strip(raw), strip(raw).replace(/"/g, '')])] : [strip(raw)];
+      // Rank of the selection among identical strings in the block's source before it, so the right highlight lands
+      // on the same occurrence (not the first one in the block).
+      const rank = (b, q) => {
+        const qn = q.replace(/\s+/g, ' ').trim().toLowerCase(); if (!qn) return 0;
+        const lines = ta.value.split('\n'), start = lines.slice(0, b.l0).join('\n').length + (b.l0 ? 1 : 0);
+        const before = strip(ta.value.slice(start, Math.max(start, s))).replace(/\s+/g, ' ').toLowerCase();
+        let n = 0; for (let i = before.indexOf(qn); i >= 0; i = before.indexOf(qn, i + 1)) n++; return n;
+      };
+      if (global.CSS && CSS.highlights && global.Highlight) { outer: for (const b of bs) for (const query of queries) { const r = findInBlock(b.el, query, rank(b, query)); if (r) { CSS.highlights.set(HL_NAME, new Highlight(r)); break outer; } } }
       const top = bs[0].top, bottom = bs[bs.length - 1].bottom, vt = content.scrollTop, vb = vt + content.clientHeight;
       if (top < vt + 8 || bottom > vb - 8) setScroll(content, top - Math.min(80, content.clientHeight / 4), true);
     }, 60);

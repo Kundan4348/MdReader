@@ -180,6 +180,25 @@
   // two panes together and to mirror a selection from one side onto the other. Blocks are rendered one token at a
   // time from the lexer, whose token.raw slices are contiguous in the source, so the stamps are exact.
   const countNl = (s) => { let n = 0, i = -1; while ((i = s.indexOf('\n', i + 1)) >= 0) n++; return n; };
+  // Finer stamps inside a block, so a selection in one bullet or one table row maps to just its own lines:
+  // each top-level <li> gets the lines of its item (the lexer's items[].raw are contiguous in the list's raw),
+  // each <tr> its single source line. Nested lists inside an item stay covered by the item's range.
+  function stampInner(el, tok, base) {
+    if (tok.type === 'list' && el.tagName in { UL: 1, OL: 1 }) {
+      const lis = [...el.children].filter((c) => c.tagName === 'LI');
+      let cursor = 0, line = 0;
+      tok.items.forEach((it, i) => {
+        let at = tok.raw.indexOf(it.raw, cursor); if (at < 0) at = cursor;
+        line += countNl(tok.raw.slice(cursor, at));
+        const s = line; line += countNl(it.raw); cursor = at + it.raw.length;
+        const e = line + (it.raw.endsWith('\n') ? 0 : 1);
+        if (lis[i]) { lis[i].dataset.l0 = base + s; lis[i].dataset.l1 = base + Math.max(e, s + 1); }
+      });
+    } else if (tok.type === 'table' && el.tagName === 'TABLE') {
+      const hr = el.querySelector('thead tr'); if (hr) { hr.dataset.l0 = base; hr.dataset.l1 = base + 1; }
+      [...el.querySelectorAll('tbody tr')].forEach((tr, i) => { tr.dataset.l0 = base + 2 + i; tr.dataset.l1 = base + 3 + i; });
+    }
+  }
   function renderChunk(md, toc, used, opts) {
     const el = document.createElement('div');
     const off = (opts && opts.lineOff) || 0;
@@ -196,7 +215,7 @@
       const tmp = document.createElement('div');
       tmp.innerHTML = marked.parser(one);
       for (const c of [...tmp.childNodes]) {
-        if (c.nodeType === 1) { c.dataset.l0 = off + l0; c.dataset.l1 = off + l1; }
+        if (c.nodeType === 1) { c.dataset.l0 = off + l0; c.dataset.l1 = off + l1; stampInner(c, tok, off + l0); }
         el.append(c);
       }
     }
