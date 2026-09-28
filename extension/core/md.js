@@ -10,6 +10,19 @@
   marked.use({ gfm: true, breaks: false, mangle: false, headerIds: false });
 
   const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  // Fenced code. marked keeps only the first word of the info string as the language, so a fence written as
+  // "```WITH p AS (" (opening line glued to the fence -- easy to do when a doc is generated) loses its first line and
+  // grows a bogus "WITH" badge. If the info string is not a plain language token, it is that first line: put it back.
+  marked.use({
+    renderer: {
+      code({ text, lang }) {
+        let info = (lang || '').trim(), code = text;
+        if (info && (/\s|[^\w.+#-]/.test(info) || (global.HL && !HL.alias(info) && /[()=:;'"]/.test(info)))) { code = info + '\n' + code; info = ''; }
+        const cls = info ? ` class="language-${esc(info)}"` : '';
+        return `<pre><code${cls}>${esc(code)}\n</code></pre>\n`;
+      },
+    },
+  });
   const slugify = (t) => t.toLowerCase().replace(/<[^>]+>/g, '').replace(/&[a-z]+;/g, '').replace(/[^a-z0-9\u00C0-\uFFFF]+/g, '-').replace(/(^-|-$)/g, '') || 'section';
 
   // Loose numeric test: "58.8 M", "+20–30", "0.16 %", "~1.3 s", "—", "1,935", "+400–600 ms"
@@ -68,15 +81,39 @@
   }
 
   function decorateMisc(root, opts) {
-    root.querySelectorAll('pre > code').forEach((code) => {
-      const lang = [...code.classList].find((c) => c.startsWith('language-'));
-      if (lang) code.parentElement.dataset.lang = lang.slice(9);
-      code.parentElement.classList.add('code');
-    });
+    root.querySelectorAll('pre > code').forEach((code) => decorateCode(code.parentElement, code));
     root.querySelectorAll('input[type=checkbox]').forEach((cb) => { cb.disabled = true; cb.closest('li')?.classList.add('task'); });
     root.querySelectorAll('a[href^="http"]').forEach((a) => { a.target = '_blank'; a.rel = 'noopener'; });
     rebaseImages(root, opts && opts.base, opts && opts.home);
     linkifyPaths(root);
+  }
+
+  // A fenced block becomes <div class="codeblock" data-lang><div class="codebar">lang · Copy</div><pre class="code">
+  // <code class="hl">…</code></pre></div>: tokens coloured by core/hl.js (language from the fence, or detected when the
+  // fence has none), a header that stays put while the code scrolls sideways, and a line-number gutter once the block
+  // is long enough for numbers to help (8+ lines). The source-line stamp moves from the <pre> onto the wrapper, like
+  // .table-wrap, so the split view keeps locking to it. The <code>'s DOM text stays exactly the source (see hl.js).
+  const LANG_LABEL = { javascript: 'JavaScript', typescript: 'TypeScript', python: 'Python', bash: 'Shell', sql: 'SQL', json: 'JSON', yaml: 'YAML', html: 'HTML', css: 'CSS', diff: 'Diff', markdown: 'Markdown', java: 'Java', ini: 'Config', http: 'HTTP' };
+  function decorateCode(pre, code) {
+    if (pre.parentElement && pre.parentElement.classList.contains('codeblock')) return;
+    const src = code.textContent.replace(/\n$/, '');
+    const langCls = [...code.classList].find((c) => c.startsWith('language-'));
+    const asked = langCls ? langCls.slice(9) : '';
+    let lang = asked, html = null, lines = src.split('\n').length;
+    if (global.HL) { const r = HL.highlight(src, asked); html = r.html; lang = r.lang || asked; lines = r.lines; }
+    if (html !== null) code.innerHTML = html;
+    code.classList.add('hl');
+    pre.classList.add('code');
+    const wrap = document.createElement('div');
+    wrap.className = 'codeblock';
+    if (lang) { wrap.dataset.lang = lang; wrap.dataset.label = LANG_LABEL[lang] || asked || lang; }
+    if (lines >= 8) { wrap.classList.add('numbered'); wrap.style.setProperty('--gutter', String(lines).length + 'ch'); }
+    if (pre.dataset.l0) { wrap.dataset.l0 = pre.dataset.l0; wrap.dataset.l1 = pre.dataset.l1; delete pre.dataset.l0; delete pre.dataset.l1; }
+    const bar = document.createElement('div');
+    bar.className = 'codebar';
+    bar.innerHTML = `<span class="lang">${esc(wrap.dataset.label || '')}</span><span class="lc">${lines} line${lines === 1 ? '' : 's'}</span><button type="button" class="copy" title="Copy code">Copy</button>`;
+    pre.replaceWith(wrap);
+    wrap.append(bar, pre);
   }
 
   // `![x](diagrams/out/a.png)` is relative to the .md FILE, but the page rendering it lives elsewhere (the app bundle,

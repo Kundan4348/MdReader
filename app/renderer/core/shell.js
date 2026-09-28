@@ -128,6 +128,7 @@
       spy();
       checkPathLinks();
       wireTables();
+      wireCode();
       if (global.CSS && CSS.highlights) CSS.highlights.delete('mdr-mirror'); // ranges pointed at the old nodes
     }
     function copyJsonSection(i) { navigator.clipboard.writeText(JV.sectionSource(S.text, i)).then(() => flash('JSON copied')); }
@@ -164,6 +165,17 @@
       return (t) => t.toLowerCase().includes(needle) !== neg;
     }
     const FUNNEL = '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M1.5 2.5h13L9.5 8.6V14l-3-1.6V8.6z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>';
+    // Copy on a fenced block copies the source text of that block (the <code>'s DOM text equals the source, hl.js).
+    function wireCode() {
+      doc.querySelectorAll('.codeblock .codebar button.copy').forEach((b) => b.addEventListener('click', () => {
+        const code = b.closest('.codeblock').querySelector('pre > code');
+        const text = code.textContent.replace(/\n$/, '');
+        const ok = () => { b.textContent = 'Copied'; b.classList.add('done'); flash('Code copied'); setTimeout(() => { b.textContent = 'Copy'; b.classList.remove('done'); }, 1400); };
+        // execCommand fallback for when the async clipboard is refused (window not focused, permission not granted).
+        const legacy = () => { const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.append(ta); ta.select(); let done = false; try { done = document.execCommand('copy'); } catch { /* refused */ } ta.remove(); done ? ok() : flash('Copy failed'); };
+        (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(ok, legacy);
+      }));
+    }
     function wireTables() {
       S.filters = S.filters || {};
       [...doc.querySelectorAll('.table-wrap > table')].forEach((table, ti) => {
