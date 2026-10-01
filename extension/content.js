@@ -1,7 +1,7 @@
 // Content script: turns Chrome's plain-text rendering of a .md file into the MdReader UI.
 (async () => {
   // Only act on real plain-text markdown / JSON documents (Chrome renders those as <pre> inside an empty body).
-  if (document.contentType && !/^(text\/(plain|markdown|x-markdown)|application\/json)$/i.test(document.contentType)) return;
+  if (document.contentType && !/^(text\/(plain|markdown|x-markdown|x-sql)|application\/(json|sql|x-sql))$/i.test(document.contentType)) return;
   const pre = document.body && document.body.children.length === 1 && document.body.firstElementChild.tagName === 'PRE' ? document.body.firstElementChild : null;
   if (!pre && !/^(text\/markdown|application\/json)$/i.test(document.contentType || '')) return;
   let text = pre ? pre.textContent : document.body.innerText;
@@ -32,8 +32,8 @@
       // p null = an untitled tab (⌘T): always ask where to save, never write it over the page's own file.
       if (p && isFile) return MdExt.saveViaPicker('url:' + href, disp.name, t, flash);
       if (!window.showSaveFilePicker) throw new Error('Saving is not available on this page');
-      const json = hint && hint.ext === 'json';
-      const h = await window.showSaveFilePicker({ suggestedName: p ? disp.name : (json ? 'untitled.json' : 'untitled.md'), types: [json ? { description: 'JSON', accept: { 'application/json': ['.json'] } } : { description: 'Markdown', accept: { 'text/markdown': ['.md'] } }] });
+      const json = hint && hint.ext === 'json', sql = hint && hint.ext === 'sql';
+      const h = await window.showSaveFilePicker({ suggestedName: p ? disp.name : (json ? 'untitled.json' : sql ? 'untitled.sql' : 'untitled.md'), types: [json ? { description: 'JSON', accept: { 'application/json': ['.json'] } } : sql ? { description: 'SQL', accept: { 'application/sql': ['.sql'] } } : { description: 'Markdown', accept: { 'text/markdown': ['.md'] } }] });
       await MdExt.writeHandle(h, t);
     },
     getPref: MdExt.prefs.get,

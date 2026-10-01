@@ -58,7 +58,7 @@ for (const th of ['paper', 'studio', 'sections']) {
 await shot('code-sections.png');
 const distinct = (o) => o.kwColor !== o.strColor && o.kwColor !== o.base;
 report.codeOk = report.mounted && blocks.length === 6
-  && sql.lang === 'sql' && sql.label === 'SQL' && sql.lines === 15 && sql.lc === '15 lines' && sql.kw >= 20 && sql.str >= 3 && sql.num >= 2 && sql.com === 1 && sql.fn >= 4 && sql.numbered && sql.gutter === 'counter(ln)' && sql.copy && sql.stamped && sql.barInsidePre
+  && sql.lang === 'sql' && sql.label === 'SQL' && sql.lines === 15 && sql.lc === '15 lines' && sql.kw >= 12 && sql.str >= 3 && sql.num >= 2 && sql.com === 1 && sql.fn >= 4 && sql.numbered && sql.gutter === 'counter(ln)' && sql.copy && sql.stamped && sql.barInsidePre
   && sql.text.startsWith('WITH p AS (\n  SELECT date_format(')
   && glued.lang === 'sql' && glued.text.startsWith('WITH q AS (\n  SELECT 1 AS one') && glued.lines === 4 && !glued.numbered
   && json.lang === 'json' && json.attr === 6 && json.str === 3 && json.num === 1 && json.kw === 2

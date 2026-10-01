@@ -195,6 +195,7 @@
   function highlight(code, lang) {
     const src = String(code).replace(/\r\n/g, '\n');
     const name = alias(lang) || (lang && String(lang).trim() ? null : detect(src));
+    if (name === 'sql' && global.SQLV) return SQLV.highlight(src); // role-based colouring, core/sql.js
     const tokens = name ? tokenize(src, langs[name].rules) : [[src, null]];
     const html = toHtml(tokens);
     return { html, lang: name, lines: src.replace(/\n$/, '').split('\n').length };
