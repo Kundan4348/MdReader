@@ -227,7 +227,7 @@ html[data-theme=mono] .codeblock .codebar{font-family:var(--mono)}
 @media (max-width:820px){.app{--files-w:0px}.app .files{display:none}}
 /* JSON documents (core/json.js): Format button only for JSON, typed value colours, collapsible tree, error banner */
 .top button.fmt{display:none;border-radius:8px;padding:6px 12px;font-size:12.5px;font-weight:600}
-.app[data-kind=json] .top button.fmt{display:inline-block}
+.app[data-kind=json] .top button.fmt,.app[data-kind=sql] .top button.fmt{display:inline-block}
 .app[data-kind=json] .sec .tools [data-act=edit]{display:none}
 .jmeta{opacity:.65;font-size:.9em;margin:.2em 0 .8em}
 .jmeta .jtools{opacity:1}
@@ -334,3 +334,21 @@ html[data-theme=studio] .app{--r-define:#c99cf0;--r-output:#82aaff;--r-source:#6
 .sqlsum code.tk-out{text-decoration:none;color:var(--r-output);background:color-mix(in srgb,var(--r-output) 10%,transparent)}
 .sqlsum .cx{opacity:.6}
 .sqlb .codebar .lc{opacity:.55}
+/* role legend above the first query */
+.sqllegend{display:flex;flex-wrap:wrap;align-items:center;gap:.35em .9em;margin:.1em 0 1.25em;padding:.55em .8em .55em .9em;border:1px solid color-mix(in srgb,currentColor 12%,transparent);border-radius:10px;font-size:.8em;line-height:1.5;background:color-mix(in srgb,currentColor 3%,transparent)}
+.sqllegend .lgt{font-family:var(--sans,system-ui);font-weight:600;opacity:.6;margin-right:.2em}
+.sqllegend .lg{display:inline-flex;align-items:center;gap:.4em;white-space:nowrap}
+.sqllegend .lg::before{content:"";width:4px;height:1.15em;border-radius:2px;background:var(--lgc,currentColor);flex:none}
+.sqllegend .lg b{font-family:var(--sans,system-ui);font-size:.82em;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--lgc,currentColor)}
+.sqllegend .lg code{font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:.92em;opacity:.8}
+.sqllegend .lg code.tk-al,.sqllegend .lg code.tk-cte{opacity:1;padding:0 5px;margin:0}
+.sqllegend .lg .cx{opacity:.6}
+.sqllegend .lg-define{--lgc:var(--r-define)}.sqllegend .lg-output{--lgc:var(--r-output)}.sqllegend .lg-source{--lgc:var(--r-source)}.sqllegend .lg-filter{--lgc:var(--r-filter)}
+.sqllegend .lg-shape{--lgc:var(--r-shape)}.sqllegend .lg-combine{--lgc:var(--r-combine)}.sqllegend .lg-write{--lgc:var(--r-write)}.sqllegend .lg-note{--lgc:var(--r-note)}
+.sqllegend .lg-alias::before{background:linear-gradient(var(--hfg-0),var(--hfg-1),var(--hfg-2))}.sqllegend .lg-alias b{color:inherit;opacity:.7}
+.sqllegend .lgx{margin-left:auto;border:0;background:none;color:inherit;opacity:.45;cursor:pointer;font-size:1em;padding:0 .2em;line-height:1}.sqllegend .lgx:hover{opacity:.9}
+/* hidden: collapses to a strip of role dots; click brings it back */
+.sqllegend.off{gap:.45em;padding:.3em .6em;cursor:pointer;background:none;border-color:transparent;width:max-content;margin-bottom:.9em}
+.sqllegend.off .lgt,.sqllegend.off .lgx,.sqllegend.off .lg b,.sqllegend.off .lg code,.sqllegend.off .lg .cx{display:none}
+.sqllegend.off .lg::before{width:.7em;height:.7em;border-radius:50%}
+.sqllegend.off::after{content:"legend";font-family:var(--sans,system-ui);font-size:.85em;opacity:.45;margin-left:.2em}

@@ -53,8 +53,8 @@
     const zoomIn = h('button', { class: 'icon zoom-in', title: 'Larger (⌘+)', onclick: () => stepZoom(1), html: 'A<sup>+</sup>' });
     const widthBtn = h('button', { class: 'icon width', title: 'Reading width (⌘⇧W)', onclick: () => cycleWidth(), html: '&#x2194;' });
     const view = h('div', { class: 'view' }, zoomOut, zoomPct, zoomIn, widthBtn);
-    // JSON-only: pretty-print the source (⌥-click minifies). Hidden unless the open document is JSON (CSS on data-kind).
-    const fmtBtn = h('button', { class: 'fmt', title: 'Format JSON (⌘⇧F) · ⌥-click to minify', onclick: (e) => formatJson(e.altKey) }, 'Format');
+    // JSON / SQL only: pretty-print JSON (⌥-click minifies) or re-indent SQL. Hidden for markdown (CSS on data-kind).
+    const fmtBtn = h('button', { class: 'fmt', title: 'Format JSON (⌘⇧F) · ⌥-click to minify', onclick: (e) => formatDoc(e.altKey) }, 'Format');
     const top = h('header', { class: 'top' }, filesBtn, crumbs, h('span', { class: 'spacer' }), seg, saveBtn, fmtBtn, view, themeSel, openBtn, outlineBtn);
 
     const tree = h('div', { class: 'tree' });
@@ -99,8 +99,16 @@
       if (isUntitled(t)) return global.JV && JV.looksLikeJson(S.text) ? 'json' : global.SQLV && SQLV.looksLikeSql(S.text) ? 'sql' : 'md';
       return IS_JSON(curDisp().name) ? 'json' : IS_SQL(curDisp().name) && global.SQLV ? 'sql' : 'md';
     };
-    function formatJson(minify) {
-      if (docKind() !== 'json' || !global.JV) return flash('Not a JSON document');
+    function formatDoc(minify) {
+      const kind = docKind();
+      if (kind === 'sql' && global.SQLV) {
+        // whitespace-only re-indent; refuse (loudly) if the token stream would change, so Format can never alter a query
+        const next = SQLV.format(S.text);
+        if (!SQLV.sameTokens(S.text, next)) return flash('Cannot format: result would change the query', 4000);
+        if (next === S.text) return flash('Already formatted');
+        setText(next); const t = curTab(); if (t) t.text = next; paint(); flash('Re-indented'); return;
+      }
+      if (kind !== 'json' || !global.JV) return flash('Not a JSON or SQL document');
       try {
         const next = minify ? JV.minify(S.text) : JV.format(S.text);
         if (next === S.text) return flash(minify ? 'Already minified' : 'Already formatted');
@@ -110,6 +118,7 @@
     function paint() {
       const kind = docKind();
       root.dataset.kind = kind;
+      fmtBtn.title = kind === 'sql' ? 'Re-indent SQL (⌘⇧F) -- whitespace only, the query is unchanged' : 'Format JSON (⌘⇧F) · ⌥-click to minify';
       $('.gutter span', editor).textContent = kind;
       const r = kind === 'json' ? JV.renderDoc(S.text, { name: curDisp().name }) : kind === 'sql' ? SQLV.renderDoc(S.text, { name: curDisp().name }) : MD.renderDoc(S.text, { base: docBase(), home: adapter.home });
       head.replaceChildren(...r.headEl.childNodes);
@@ -123,6 +132,14 @@
           h('button', { 'data-act': 'copy', onclick: () => copySec(s.index) }, copyLabel)),
         h('div', { class: 'body' }, ...s.el.childNodes))));
       toc.replaceChildren(...r.toc.filter((t) => t.lvl <= 3).map((t) => h('a', { class: 'l' + t.lvl, href: '#' + t.id, onclick: (e) => { e.preventDefault(); scrollTo(t.id); } }, t.text.replace(/^\d+[.)]\s*/, ''))));
+      if (kind === 'sql') {
+        const lg = head.querySelector('.sqllegend');
+        if (lg) {
+          if (localStorage.getItem('mdr-sql-legend') === 'off') lg.classList.add('off');
+          lg.querySelector('.lgx').addEventListener('click', (e) => { e.stopPropagation(); lg.classList.add('off'); localStorage.setItem('mdr-sql-legend', 'off'); flash('Legend hidden -- click the row of colour dots above the first query to bring it back', 3500); });
+          lg.addEventListener('click', (e) => { if (lg.classList.contains('off')) { lg.classList.remove('off'); localStorage.removeItem('mdr-sql-legend'); } });
+        }
+      }
       if (kind === 'json') {
         const lines = S.text.split('\n').length; const nd = (r.json.docs || []).length;
         meta.replaceChildren(h('div', {}, nd > 1 ? `${nd} documents · ${r.stats.tables} tables` : `${Math.max(0, r.toc.length - 1)} top-level keys · ${r.stats.tables} tables`), h('div', {}, r.json.error ? 'invalid JSON' : `${lines} lines · valid JSON`));
@@ -885,7 +902,7 @@
       else if (k === '\\') { e.preventDefault(); adapter.listDir && togglePanel('files'); }
       else if (k === '/') { e.preventDefault(); togglePanel('outline'); }
       else if (k === 't' && e.shiftKey) { e.preventDefault(); cycleTheme(); }
-      else if (k === 'f' && e.shiftKey) { e.preventDefault(); formatJson(e.altKey); }
+      else if (k === 'f' && e.shiftKey) { e.preventDefault(); formatDoc(e.altKey); }
       else if (k === 'w' && e.shiftKey) { e.preventDefault(); cycleWidth(); }
       else if (k === '=' || k === '+') { e.preventDefault(); stepZoom(1); }
       else if (k === '-' || k === '_') { e.preventDefault(); stepZoom(-1); }

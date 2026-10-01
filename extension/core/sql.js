@@ -335,7 +335,119 @@
     return !prose && /\bfrom\s+[\w".`]+(?:\s+(?:as\s+)?\w+)?\s*(?:\n|$|\b(?:where|join|left|right|inner|full|cross|group|order|limit|having|union|on|using)\b)/i.test(bare);
   }
 
+  // ---------- format: re-indent ----------
+  // Whitespace-only: every non-whitespace token (comments included) is kept verbatim and in order, so Format never
+  // changes what a query does. Layout: one clause per line at the statement's indent (SELECT / FROM / each JOIN / WHERE /
+  // GROUP BY / ORDER BY / LIMIT / UNION ...), one output column per line under SELECT when there are several, AND / OR of a
+  // WHERE on their own lines one level in, subqueries and CTE bodies on their own lines one level in with the closing ')'
+  // back at the parent's indent, function calls and IN-lists inline. A comment that shares a source line with code stays on
+  // that line; one on its own line keeps its own line at the current indent. Blank lines between statements are kept (one).
+  const FMT_CLAUSE = new Set(['select', 'from', 'where', 'group', 'order', 'having', 'limit', 'offset', 'union', 'except', 'intersect', 'minus', 'with', 'join',
+    'insert', 'update', 'delete', 'create', 'values', 'returning', 'qualify', 'window', 'fetch']);
+  function format(text, indentUnit = '    ') {
+    const src = String(text).replace(/\r\n/g, '\n');
+    const toks = lex(src);
+    const code = toks.filter((tk) => tk.t !== 'ws');
+    const isW = (tk, w) => tk && tk.t === 'word' && tk.v.toLowerCase() === w;
+    const lw = (tk) => (tk && tk.t === 'word' ? tk.v.toLowerCase() : '');
+    const isKwTok = (tk) => tk && tk.t === 'word' && (CLAUSE[lw(tk)] || K2.has(lw(tk)) || JOIN_PRE.has(lw(tk)) || CONST.has(lw(tk)));
+    const isP = (tk, v) => tk && tk.t === 'punct' && tk.v === v;
+    let out = ''; let col = 0; let pending = null; // pending: indent level the next code token breaks to
+    const stack = [{ q: true, indent: 0, clause: null, items: 0 }];
+    const top = () => stack[stack.length - 1];
+    const nl = (indent) => { out = (out ? out.replace(/[ \t]+$/, '') + '\n' : '') + indentUnit.repeat(indent); col = indent; };
+    let prev = null, lastCodeLn = -1;
+    // how many top-level items follow a SELECT before the next clause keyword (1 -> keep inline)
+    const selectItems = (i) => { let d = 0, n = 1; for (let j = i + 1; j < code.length; j++) { const t = code[j]; if (t.t === 'cm') continue; if (isP(t, '(')) d++; else if (isP(t, ')')) { if (d === 0) break; d--; } else if (d === 0 && isP(t, ',')) n++; else if (d === 0 && (isP(t, ';') || (t.t === 'word' && FMT_CLAUSE.has(lw(t)) && !(lw(t) === 'with' && j === i + 1)) || (JOIN_PRE.has(lw(t)) && t !== code[i + 1]))) break; } return n; };
+    for (let i = 0; i < code.length; i++) {
+      const tk = code[i], f = top(), next = code[i + 1];
+      const gapLines = prev ? tk.ln - prev.ln2 : 0;
+      // ---- comments
+      if (tk.t === 'cm') {
+        if (prev && tk.ln === prev.ln2) { out += (out.endsWith(' ') || !out ? '' : '  ') + tk.v; }
+        else { if (stack.length === 1 && gapLines >= 2 && out) out = out.replace(/[ \t]+$/, '') + '\n'; nl(pending !== null ? pending : f.indent + (f.q && f.clause && f.items ? 1 : 0)); out += tk.v; }
+        if (/^(--|#)/.test(tk.v)) pending = pending !== null ? pending : (f.q ? f.indent + (f.clause && f.items ? 1 : 0) : f.indent + 1);
+        prev = tk; continue;
+      }
+      // ---- where does this token go?
+      let brk = pending; pending = null;
+      if (f.q) {
+        const l = lw(tk);
+        const clauseHead = tk.t === 'word' && FMT_CLAUSE.has(l) && !(l === 'with' && stack.length > 1 && f.clause === null && prev && isP(prev, '(')) && !(l === 'values' && f.clause !== 'insert' && f.clause !== null)
+          && !(l === 'from' && isW(prev, 'delete'));
+        const joinPre = tk.t === 'word' && JOIN_PRE.has(l) && (isW(next, 'join') || (JOIN_PRE.has(lw(next)) && isW(code[i + 2], 'join')));
+        const secondJoinWord = tk.t === 'word' && (JOIN_PRE.has(l) || l === 'join') && prev && JOIN_PRE.has(lw(prev));
+        const byWord = l === 'by' && prev && ['group', 'order', 'partition', 'distribute', 'cluster', 'sort'].includes(lw(prev));
+        const allWord = l === 'all' && prev && ['union', 'except', 'intersect'].includes(lw(prev));
+        if (clauseHead && !secondJoinWord && (prev || stack.length > 1)) { brk = f.indent; f.clause = l; f.items = 0; }
+        else if (joinPre && !secondJoinWord) { brk = f.indent; f.clause = 'join'; f.items = 0; }
+        else if (clauseHead && !prev) { f.clause = l; f.items = 0; }
+        else if (!byWord && !allWord && !secondJoinWord && f.clause) {
+          if (f.clause === 'select' && f.items === 0 && !['distinct', 'all', 'top'].includes(l) && !(prev && lw(prev) === 'top' && tk.t === 'num')) { f.items = 1; f.many = selectItems(i - 1) > 1; if (f.many) brk = f.indent + 1; }
+          else if ((f.clause === 'where' || f.clause === 'having' || f.clause === 'qualify') && (l === 'and' || l === 'or')) brk = f.indent + 1;
+          else if ((f.clause === 'where' || f.clause === 'having' || f.clause === 'qualify') && f.items === 0) f.items = 1;
+        }
+      }
+      // ---- parens
+      if (isP(tk, '(')) {
+        const sub = isW(next, 'select') || isW(next, 'with') || (next && next.t === 'cm' && (isW(code[i + 2], 'select') || isW(code[i + 2], 'with')));
+        const fnCall = prev && (((prev.t === 'word' && !isKwTok(prev)) || prev.t === 'qid') && !(code[i - 2] && ['into', 'table', 'update', 'view'].includes(lw(code[i - 2])))
+          || isW(prev, 'cast') || isW(prev, 'try_cast'));
+        if (brk !== null) nl(brk); else if (prev && !fnCall && !isP(prev, '(') && !isP(prev, '.') && out && !out.endsWith(' ') && !out.endsWith('\n')) out += ' ';
+        out += '('; col++;
+        stack.push(sub ? { q: true, indent: f.indent + 1, clause: null, items: 0 } : { q: false, indent: f.indent, clause: null, items: 0 });
+        if (sub) pending = f.indent + 1;
+        prev = tk; continue;
+      }
+      if (isP(tk, ')')) {
+        const popped = stack.length > 1 ? stack.pop() : null; const p = top();
+        if (popped && popped.q) nl(p.indent); else out = out.replace(/ +$/, '');
+        out += ')'; col++;
+        prev = tk; continue;
+      }
+      // ---- spacing
+      if (brk !== null) nl(brk);
+      else if (out && !out.endsWith('\n') && !out.endsWith('(')) {
+        const noSpace = isP(tk, ',') || isP(tk, ';') || isP(tk, '.') || (tk.t === 'op' && tk.v === '::') || isP(tk, ')') || isP(tk, ']') || isP(prev, '.') || isP(prev, '[') || (prev && prev.t === 'op' && prev.v === '::')
+          || isP(prev, '(') || (tk.t === 'op' && tk.v === '*' && isP(prev, '.'))
+          // unary minus / plus: `- 2` after an operator, comma, '(' or keyword is a sign, so no space after it
+          || (prev && prev.t === 'op' && (prev.v === '-' || prev.v === '+') && code[i - 2] && (code[i - 2].t === 'op' || isP(code[i - 2], ',') || isP(code[i - 2], '(') || (code[i - 2].t === 'word' && isKwTok(code[i - 2]) && !CONST.has(lw(code[i - 2])))));
+        if (!noSpace) out += ' ';
+      }
+      out += tk.v; col += tk.v.length;
+      // ---- what follows
+      if (f.q && isP(tk, ',')) {
+        if (f.clause === 'select' && f.many) pending = f.indent + 1;
+        else if (f.clause === 'with' && isP(prev, ')')) pending = f.indent;
+      }
+      if (isP(tk, ';')) { f.clause = null; f.items = 0; pending = 0; const gap = next ? next.ln - tk.ln2 : 0; if (next && gap >= 2) out += '\n'; }
+      prev = tk;
+    }
+    out = out.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n');
+    return out.replace(/\n*$/, '') + (src.endsWith('\n') ? '\n' : '');
+  }
+  // Format must never change the token stream; callers use this to refuse a result that would.
+  const sameTokens = (a, b) => { const A = lex(a).filter((t) => t.t !== 'ws').map((t) => t.v), B = lex(b).filter((t) => t.t !== 'ws').map((t) => t.v); return A.length === B.length && A.every((v, i) => v === B[i]); };
+
   // ---------- document ----------
+  const ROLE_WORDS = { define: 'defines a named set', output: 'what comes out', source: 'where rows come from', filter: 'which rows are kept', shape: 'grouping, order, size', combine: 'stacks queries', write: 'changes data', note: 'comment' };
+  const ROLE_ORDER = ['define', 'source', 'filter', 'shape', 'output', 'combine', 'write', 'note'];
+  function legendEl(p) {
+    const words = new Map(); let alias = null, cte = null;
+    p.statements.forEach((st) => {
+      st.a.cls.forEach((c, tk) => {
+        const m = /^tk-k tk-r-(\w+)$/.exec(c); if (m && !['by', 'all'].includes(tk.v.toLowerCase())) { if (!words.has(m[1])) words.set(m[1], new Set()); words.get(m[1]).add(tk.v.toUpperCase()); }
+        if (!alias && /^tk-al tk-def tk-h(\d+)$/.test(c)) alias = { name: tk.v, hue: +c.match(/tk-h(\d+)/)[1], tip: st.a.title.get(tk) };
+        if (!cte && /^tk-cte tk-def tk-h(\d+)$/.test(c)) cte = { name: tk.v, hue: +c.match(/tk-h(\d+)/)[1] };
+      });
+      st.a.lineRole.forEach((r) => { if (r === 'note' && !words.has('note')) words.set('note', new Set(['--'])); });
+    });
+    if (!words.size) return null;
+    const items = ROLE_ORDER.filter((r) => words.has(r)).map((r) => h('span', { class: 'lg lg-' + r, title: ROLE_WORDS[r] }, h('b', {}, r), h('code', {}, [...words.get(r)].sort().join(' · '))));
+    if (alias) items.push(h('span', { class: 'lg lg-alias', title: 'Each table gets its own colour: the alias where it is defined and every alias.column that refers to it' }, h('b', {}, 'alias'), h('code', { class: `tk-al tk-h${alias.hue}`, title: alias.tip }, alias.name), h('span', { class: 'cx' }, ' one colour per table')));
+    if (cte) items.push(h('span', { class: 'lg lg-alias', title: 'A named set from WITH, coloured the same where it is used' }, h('b', {}, 'named set'), h('code', { class: `tk-cte tk-h${cte.hue}` }, cte.name)));
+    return h('div', { class: 'sqllegend' }, h('span', { class: 'lgt' }, 'Colours = the job each part does'), ...items, h('button', { type: 'button', class: 'lgx', title: 'Hide legend' }, '✕'));
+  }
   // Same return shape as MD.renderDoc / JV.renderDoc: { headEl, sectionEls, toc, stats, sql: { statements, tables, ctes, lines } }.
   // One statement renders in the head; several render one section each, titled by the comment above them.
   function renderDoc(text, opts = {}) {
@@ -351,6 +463,10 @@
     headEl.append(h('p', { class: 'jmeta' }, `${plural(p.statements.length, 'statement')} · ${plural(p.lines, 'line')} · ${plural(tables.size, 'table')}${ctes ? ` · ${plural(ctes, 'named set')}` : ''}${comments ? ` · ${plural(comments, 'comment')}` : ''}`));
     const noteEl = (blk, cls) => { const el = h('p', { class: cls || 'slead', 'data-l0': blk.l0, 'data-l1': blk.l1 }, ...blk.lines.map((l, i) => [i ? h('br') : null, l])); return el; };
     if (p.header) headEl.append(noteEl(p.header, 'shdr'));
+    // Role legend above the first query: only the roles this document actually uses, each with the clause words that
+    // carry it here, plus one real alias so the per-alias hues explain themselves. Hidden with the ✕ (remembered).
+    const legend = legendEl(p);
+    if (legend) headEl.append(legend);
     const blockEl = (st, i, titled) => {
       const el = h('div', { class: 'sqlst' });
       const ttl = st.title || `Statement ${i + 1}`; const id = uid(ttl);
@@ -380,5 +496,5 @@
   // Source of the i-th statement (its comment title included), for a copy action.
   function sectionSource(text, i = 0) { const { statements } = parse(text); const st = statements[i] || statements[0]; return st ? text.slice(st.s, st.e) : text; }
 
-  global.SQLV = { parse, analyse, summary, highlight, looksLikeSql, renderDoc, sectionSource };
+  global.SQLV = { parse, analyse, summary, highlight, looksLikeSql, renderDoc, sectionSource, format, sameTokens };
 })(window);

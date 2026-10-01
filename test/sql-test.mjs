@@ -77,6 +77,31 @@ await theme('paper');
 await ev(`document.querySelector('#app .top [data-mode=split]').click()`); await sleep(200);
 report.split = await ev(`(()=>{const ls=[...document.querySelectorAll('#app .doc code.hl .line[data-l0]')]; const n=document.querySelector('#app textarea.src').value.split('\\n').length; return {stamped:ls.length, firstLine:ls[0].dataset.l0, lastLine:ls[ls.length-1].dataset.l1, srcLines:n};})()`);
 await ev(`document.querySelector('#app .top [data-mode=read]').click()`); await sleep(100);
+// Legend above the first query: only roles the document uses, role colours match the keywords, one alias chip, sits before the first statement
+report.legend = await ev(`(()=>{const lg=document.querySelector('#app .doc .head .sqllegend'); if(!lg) return null; const items=[...lg.querySelectorAll('.lg')].map(e=>({role:e.querySelector('b').textContent, words:e.querySelector('code').textContent, color:getComputedStyle(e,'::before').backgroundColor, title:e.title}));
+  const kwCol=(r)=>getComputedStyle(document.querySelector('#app .sec code.hl .tk-k.tk-r-'+r)).color; const first=document.querySelector('#app .sec'); const ar=lg.getBoundingClientRect(), br=first.getBoundingClientRect();
+  return {count:document.querySelectorAll('#app .doc .sqllegend').length, items, match:['define','output','source','filter','shape','combine'].every(r=>items.find(i=>i.role===r)&&items.find(i=>i.role===r).color===kwCol(r)), above:ar.bottom<=br.top, h:ar.height, w:ar.width, alias:lg.querySelector('.lg-alias code')?.className, title:lg.querySelector('.lgt').textContent};})()`);
+await ev(`document.querySelector('#app .doc .sqllegend .lgx').click()`); await sleep(100);
+report.legendOff = await ev(`(()=>{const lg=document.querySelector('#app .doc .sqllegend'); return {off:lg.classList.contains('off'), h:lg.getBoundingClientRect().height, w:lg.getBoundingClientRect().width, stored:localStorage.getItem('mdr-sql-legend'), dots:[...lg.querySelectorAll('.lg')].map(e=>getComputedStyle(e,'::before').borderRadius)};})()`);
+// hidden state survives a re-render; a click brings it back
+await ev(`document.querySelector('#app .top [data-mode=edit]').click()`); await sleep(100); await ev(`document.querySelector('#app .top [data-mode=read]').click()`); await sleep(150);
+report.legendPersist = await ev(`document.querySelector('#app .doc .sqllegend').classList.contains('off')`);
+await ev(`document.querySelector('#app .doc .sqllegend').click()`); await sleep(100);
+report.legendBack = await ev(`({off:document.querySelector('#app .doc .sqllegend').classList.contains('off'), stored:localStorage.getItem('mdr-sql-legend')})`);
+// Format: the toolbar button is shown for SQL; clicking re-indents without changing a single token; idempotent; the tab is dirty
+report.fmtBefore = await ev(`({shown:getComputedStyle(document.querySelector('#app .top button.fmt')).display, title:document.querySelector('#app .top button.fmt').title, lines:document.querySelector('#app textarea.src').value.split('\\n').length})`);
+await ev(`document.querySelector('#app .top button.fmt').click()`); await sleep(300);
+report.fmt = await ev(`(()=>{const t=document.querySelector('#app textarea.src').value; const L=t.split('\\n');
+  return {text:t, lines:L.length, dirty:document.querySelector('#app .tabs .tab.on').classList.contains('dirty')||/\\*$/.test(document.querySelector('#app .tabs .tab.on .name').textContent)||!!document.querySelector('#app .tabs .tab.on .dot'),
+    l:[L[0], L[6], L[7], L[10], L[11], L[12]], and:L.filter(x=>/^\\s+and /.test(x)).length, cteOpen:L.filter(x=>/^\\w+ as \\($/.test(x)).length, cteClose:L.filter(x=>/^\\),?$/.test(x)).length, trailing:L.find(x=>/last_repair_role,  -- 'broken'/.test(x))||'', comments:L.filter(x=>/--/.test(x)).length, secs:document.querySelectorAll('#app .sec').length, kind:document.querySelector('#app').dataset.kind, flash:document.querySelector('#app .flash,#app .toast')?.textContent||''};})()`);
+await ev(`document.querySelector('#app .top button.fmt').click()`); await sleep(200);
+report.fmtAgain = await ev(`document.querySelector('#app textarea.src').value.split('\\n').length`);
+// token invariant + idempotence, checked with the shared core loaded in node (the viewer's SQLV lives in the content-script world)
+globalThis.window = globalThis; globalThis.document = { createElement: () => ({}), createTextNode: () => ({}) };
+await import(path.join(root, 'core/sql.js'));
+{ const toks = (s) => SQLV.parse(s).toks.filter((k) => k.t !== 'ws').map((k) => k.v); const a = toks(sql), b = toks(report.fmt.text);
+  report.fmt.same = a.length === b.length && a.every((v, i) => v === b[i]); report.fmt.ntok = a.length; report.fmt.idem = SQLV.format(report.fmt.text) === report.fmt.text; delete report.fmt.text; }
+await theme('mono'); await shot('sql-format-mono.png');
 // a markdown paste with a leading "Select" sentence is NOT SQL
 await ev(`dispatchEvent(new KeyboardEvent('keydown',{key:'t',metaKey:true,bubbles:true}))`); await sleep(200);
 await ev(`(()=>{const ta=document.querySelector('#app textarea.src'); ta.value='Select the file from the list.\\n\\nThen set it as default.'; ta.dispatchEvent(new Event('input',{bubbles:true}));})()`); await sleep(100);
@@ -114,6 +139,15 @@ report.sqlOk = !!(r.mounted && r.kind === 'sql' && r.doc.tab === 'Untitled 1' &&
   && r.q3.roles[0] === 'define' && r.q3.roles[1] === 'note' && r.q3.roles[2] === 'output' && r.q3.roles[15] === 'combine' && r.q3.desc.includes('Export the result to CSV') && r.q3.aliasTip === 'p = infrabi_stg.o_infr_dly_part'
   && r.studio.kw !== r.studio.al && r.studio.cm !== 'rgb(111, 123, 138)'
   && r.split.stamped === 58 && r.split.firstLine === '6' && r.split.lastLine === '73' && r.split.srcLines === 74
+  // legend: roles in use only, colours match the keywords, above the first statement, hide (remembered across a re-render) / restore
+  && r.legend.count === 1 && r.legend.items.map((i) => i.role).join() === 'define,source,filter,shape,output,combine,note,alias,named set' && r.legend.match && r.legend.above && r.legend.h < 120
+  && r.legend.items.find((i) => i.role === 'shape').words === 'GROUP · ORDER · PARTITION' && r.legend.alias === 'tk-al tk-h0'
+  && r.legendOff.off && r.legendOff.h < 40 && r.legendOff.w < 260 && r.legendOff.stored === 'off' && r.legendOff.dots.every((d) => d === '50%') && r.legendPersist && !r.legendBack.off && r.legendBack.stored === null
+  // Format: button shown for SQL, whitespace-only (same 486 tokens), idempotent, comments kept, one column per line, AND one level in, CTE bodies indented
+  && r.fmtBefore.shown !== 'none' && /Re-indent SQL/.test(r.fmtBefore.title) && r.fmtBefore.lines === 74
+  && r.fmt.same && r.fmt.ntok === 486 && r.fmt.idem && r.fmt.lines === 113 && r.fmtAgain === 113 && r.fmt.dirty && r.fmt.kind === 'sql' && r.fmt.secs === 5 && r.fmt.flash === 'Re-indented'
+  && r.fmt.l.join('\n') === '-- Mobility (Caspian Redshift) switch queries for Switch Accuracy\nselect\n    t.part_type_id,\nfrom infrabi_stg.o_infr_dly_part p\njoin infrabi_stg.o_infr_part_model m on p.part_model_id = m.part_model_id\njoin infrabi_stg.o_infr_part_type t on m.part_type_id = t.part_type_id'
+  && r.fmt.and === 3 && r.fmt.cteOpen === 2 && r.fmt.cteClose === 3 && r.fmt.trailing === "    e.role as last_repair_role,  -- 'broken' = this part was taken out" && r.fmt.comments === 15
   && r.mdKind === 'md'
   && r.single.kind === 'sql' && r.single.secs === 0 && r.single.h2 === 'how many parts per state' && r.single.rows.join(' / ') === 'Reads from | parts as p left-joined with part_state as s / Groups by | 1 / Returns 2 columns | state, n / Sorts by | n desc / Only | 20 rows' && r.single.nums);
 console.log(JSON.stringify(report, null, 1));
