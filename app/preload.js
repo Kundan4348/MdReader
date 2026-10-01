@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('mdreader', {
   openExternal: (url) => ipcRenderer.send('open-external', url),
   closeWindow: () => ipcRenderer.send('close-window'),
   reveal: (p) => ipcRenderer.send('reveal', p),
+  recent: () => ipcRenderer.invoke('get-recent'),
   openPath: (p) => ipcRenderer.send('open-path', p),
   statPath: (p) => ipcRenderer.invoke('stat-path', p),
   tabsChanged: (state) => ipcRenderer.send('tabs', state),

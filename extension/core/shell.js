@@ -58,7 +58,16 @@
     const top = h('header', { class: 'top' }, filesBtn, crumbs, h('span', { class: 'spacer' }), seg, saveBtn, fmtBtn, view, themeSel, openBtn, outlineBtn);
 
     const tree = h('div', { class: 'tree' });
-    const files = h('aside', { class: 'files' }, h('h6', {}, 'Files'), tree);
+    // Files pane header: ↑ re-roots the tree one folder up (so there is always a way back), ⌂ returns to the home
+    // folder, Recent swaps the tree for the recently opened files / last session (closes with the same button).
+    const upBtn = h('button', { class: 'fup', title: 'Up one folder', onclick: () => treeUp() }, '↑');
+    const homeBtn = h('button', { class: 'fhome', title: 'Home folder', onclick: () => rootTreeAt(adapter.home) }, '⌂');
+    const recentBtn = h('button', { class: 'frecent', title: 'Recently opened files', 'aria-pressed': 'false', onclick: () => toggleRecent() }, 'Recent');
+    const rootLbl = h('div', { class: 'froot', title: 'Folder shown in the tree' });
+    const recentEl = h('div', { class: 'recent', hidden: '' });
+    const files = h('aside', { class: 'files' }, h('h6', {}, h('span', {}, 'Files'), h('span', { class: 'fctl' }, upBtn, homeBtn, recentBtn)), rootLbl, tree, recentEl);
+    const closedStack = []; // file paths of closed tabs, newest last (⌘⇧T reopens)
+    if (!adapter.recent) recentBtn.hidden = true; // the extension host keeps no recent list
 
     const head = h('div', { class: 'head' });
     const secs = h('div', { class: 'secs' });
@@ -75,7 +84,7 @@
     const meta = h('div', { class: 'meta' });
     const outline = h('aside', { class: 'outline' }, h('h6', {}, 'Outline'), toc, meta);
     const toast = h('div', { class: 'toast' });
-    const hint = h('div', { class: 'hint', html: 'Edit <kbd>⌘E</kbd> · Save <kbd>⌘S</kbd> · Text size <kbd>⌘+</kbd><kbd>⌘−</kbd> · Width <kbd>⌘⇧W</kbd> · Themes <kbd>⌘⇧T</kbd>' });
+    const hint = h('div', { class: 'hint', html: 'Edit <kbd>⌘E</kbd> · Save <kbd>⌘S</kbd> · Text size <kbd>⌘+</kbd><kbd>⌘−</kbd> · Width <kbd>⌘⇧W</kbd> · Themes <kbd>⌘⇧Y</kbd> · Reopen closed tab <kbd>⌘⇧T</kbd>' });
     root.append(top, files, centre, outline, toast, hint);
     setTimeout(() => hint.classList.add('gone'), 6000);
 
@@ -789,6 +798,7 @@
         if (r === 'cancel') return false;
         if (r === 'save') { try { await writeTab(t); } catch (e) { if (!/cancel/i.test(e && e.message || '')) flash('Save failed: ' + (e && e.message || e), 4000); return false; } }
       }
+      if (!isUntitled(t)) closedStack.push(t.path);
       S.tabs.splice(i, 1);
       if (!S.tabs.length) {
         S.tab = -1; S.path = null; S.text = ''; S.saved = ''; ta.value = ''; setDirty(false);
@@ -846,10 +856,39 @@
       tree.querySelectorAll('.file').forEach((f) => f.classList.toggle('on', f.dataset.path === file));
       const on = tree.querySelector('.file.on'); on && on.scrollIntoView({ block: 'center' });
     }
+    const parentDir = (d) => { const c = (d || '').replace(/\/+$/, ''); const i = c.lastIndexOf('/'); return i <= 0 ? (c ? '/' : null) : c.slice(0, i); };
+    const shortDir = (d) => (adapter.home && (d === adapter.home || d.startsWith(adapter.home + '/')) ? '~' + d.slice(adapter.home.length) : d) || '/';
+    const tailDir = (d, n = 2) => { const sd = shortDir(d); const parts = sd.split('/'); return parts.length > n + 1 ? '…/' + parts.slice(-n).join('/') : sd; }; // '…/test/fixtures'
+    function treeUp() { const up = parentDir(S.tree); if (!up || up === S.tree) return flash('Already at the top'); rootTreeAt(up); }
     async function buildTree(dir) {
       if (S.tree === dir) return;
       S.tree = dir;
+      rootLbl.textContent = tailDir(dir, 3); rootLbl.title = dir;
+      const up = parentDir(dir); upBtn.disabled = !up || up === dir; upBtn.title = up && up !== dir ? 'Up to ' + shortDir(up) : 'Already at the top';
+      homeBtn.hidden = !adapter.home || dir === adapter.home;
       tree.replaceChildren(await folderNode(dir, true));
+    }
+    // Recent view replaces the tree while open. Rows: the last session (if the tab set was lost), then recently opened files.
+    async function toggleRecent(force) {
+      const on = force !== undefined ? force : recentEl.hidden;
+      recentBtn.setAttribute('aria-pressed', String(on)); recentBtn.textContent = on ? 'Close' : 'Recent';
+      tree.hidden = on; rootLbl.hidden = on; upBtn.hidden = on; homeBtn.hidden = on || !adapter.home || S.tree === adapter.home; recentEl.hidden = !on;
+      if (!on) return;
+      recentEl.replaceChildren(h('div', { class: 'empty' }, 'loading…'));
+      const r = adapter.recent ? await adapter.recent() : { files: [], lastSession: [] };
+      const open = new Set(S.tabs.map((t) => t.path));
+      const row = (p, extra) => { const d = adapter.displayPath ? adapter.displayPath(p) : { name: p.split('/').pop(), dir: '' }; return h('div', { class: 'rfile' + (open.has(p) ? ' on' : ''), 'data-path': p, title: p, onclick: () => loadFile(p) }, h('span', { class: 'rname' }, d.name), h('span', { class: 'rdir', title: d.dir }, tailDir(d.dir)), extra || null); };
+      const kids = [];
+      const last = (r.lastSession || []).filter((p) => !open.has(p));
+      if (last.length) kids.push(h('div', { class: 'rhead' }, h('span', {}, `Last session · ${last.length} tab${last.length === 1 ? '' : 's'}`), h('button', { class: 'rall', title: 'Reopen every tab from the last session', onclick: async () => { for (const p of last) await loadFile(p); toggleRecent(false); } }, 'Reopen all')), ...last.map((p) => row(p)));
+      const rest = (r.files || []).filter((p) => !last.includes(p));
+      if (rest.length) kids.push(h('div', { class: 'rhead' }, h('span', {}, 'Recently opened')), ...rest.map((p) => row(p)));
+      if (!kids.length) kids.push(h('div', { class: 'empty' }, 'nothing opened yet'));
+      recentEl.replaceChildren(...kids);
+    }
+    async function reopenClosed() {
+      while (closedStack.length) { const p = closedStack.pop(); if (!S.tabs.some((t) => t.path === p)) { await loadFile(p); return; } }
+      flash('No closed tab to reopen');
     }
     async function folderNode(dir, open) {
       const name = dir.split('/').filter(Boolean).pop() || dir;
@@ -901,8 +940,10 @@
       else if (k === '1') { e.preventDefault(); setMode('read'); } else if (k === '2') { e.preventDefault(); setMode('edit'); } else if (k === '3') { e.preventDefault(); setMode('split'); }
       else if (k === '\\') { e.preventDefault(); adapter.listDir && togglePanel('files'); }
       else if (k === '/') { e.preventDefault(); togglePanel('outline'); }
-      else if (k === 't' && e.shiftKey) { e.preventDefault(); cycleTheme(); }
+      else if (k === 'y' && e.shiftKey) { e.preventDefault(); cycleTheme(); }
       else if (k === 'f' && e.shiftKey) { e.preventDefault(); formatDoc(e.altKey); }
+      else if (k === 't' && e.shiftKey) { e.preventDefault(); reopenClosed(); } // standard "reopen closed tab"
+      else if (k === 'arrowup' && e.altKey) { e.preventDefault(); treeUp(); }
       else if (k === 'w' && e.shiftKey) { e.preventDefault(); cycleWidth(); }
       else if (k === '=' || k === '+') { e.preventDefault(); stepZoom(1); }
       else if (k === '-' || k === '_') { e.preventDefault(); stepZoom(-1); }
@@ -956,7 +997,7 @@
       saveBtn.disabled = true;
     })();
 
-    return { loadFile, newTab, closeTab, nextTab, showTab, setWidth, stepZoom, resetZoom, cycleWidth,
+    return { loadFile, newTab, closeTab, nextTab, showTab, setWidth, stepZoom, resetZoom, cycleWidth, reopenClosed, toggleRecent, treeUp,
       saveAll: async () => { stashActive(); for (const t of S.tabs) if (t.text !== t.saved) await writeTab(t); if (S.tabs[S.tab]) { S.saved = S.tabs[S.tab].saved; S.path = S.tabs[S.tab].path; setDirty(false); } notifyTabs(); },
       setText: (t, path) => { S.path = path || S.path; S.saved = t; setText(t); setDirty(false); const tb = S.tabs[S.tab]; if (tb) { tb.text = tb.saved = t; } paint(); }, setTheme, setMode, save, get state() { return S; } };
   }

@@ -37,6 +37,7 @@ const adapter = {
     };
   },
   reveal: (p) => p && api.reveal(p),
+  recent: api.recent,
   openPath: (p) => p && api.openPath(p),
   statPath: api.statPath,
   home,
@@ -53,6 +54,7 @@ function open(p) { opening = opening.then(() => shell.loadFile(p)).then(() => sh
 api.onOpenFile(open);
 document.getElementById('emptyOpen').onclick = async () => { const p = await api.openDialog(); if (p) open(p); };
 document.getElementById('emptyNew').onclick = () => { shell.newTab(); showEmpty(false); };
+document.getElementById('emptyRecent').onclick = () => { showEmpty(false); shell.toggleRecent(true); };
 const isUntitled = (p) => !p || /^untitled:/.test(p);
 
 api.onCmd(async (cmd) => {
@@ -65,6 +67,8 @@ api.onCmd(async (cmd) => {
   else if (cmd === 'tab:prev') shell.nextTab(-1);
   else if (cmd === 'open') { const p = await api.openDialog(); if (p) open(p); }
   else if (cmd === 'reveal') { if (!isUntitled(S.path)) api.reveal(S.path); }
+  else if (cmd === 'reopen-closed') shell.reopenClosed();
+  else if (cmd === 'show-recent') { showEmpty(false); shell.toggleRecent(true); }
   else if (cmd === 'toggle-edit') shell.setMode(S.mode === 'read' ? 'edit' : 'read');
   else if (cmd.startsWith('mode:')) shell.setMode(cmd.slice(5));
   else if (cmd === 'theme:next') { const i = MdShell.THEMES.findIndex((t) => t.id === S.theme); shell.setTheme(MdShell.THEMES[(i + 1) % MdShell.THEMES.length].id); }

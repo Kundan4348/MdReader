@@ -11,6 +11,6 @@ echo "== json"; MDR_CHROME="$CFT" node test/json-test.mjs http://127.0.0.1:8477 
 echo "== code"; MDR_CHROME="$CFT" node test/code-test.mjs http://127.0.0.1:8477 "$OUT/code" | grep -E '"(mounted|copyOk|codeOk)"|EXC'; C=${PIPESTATUS[0]}
 echo "== sql"; MDR_CHROME="$CFT" node test/sql-test.mjs http://127.0.0.1:8477 "$OUT/sql" | grep -E '"(mounted|kind|mdKind|legendPersist|fmtAgain|sqlOk)"|EXC'; Q=${PIPESTATUS[0]}
 kill $SRV 2>/dev/null
-echo "== app"; node test/app-test.mjs "$OUT/app" | grep -E '"(mounted|defaultTheme|stillMounted|outlineToggleOk|tabsOk|newTabOk|dragOk|pathLinksOk|imageOk|pinchAnchorOk|windows|secondFileUntouched|filesPanelVisible|savedToDisk|dirtyAfterSave|reloadedFromDisk)"|EXC'; A=${PIPESTATUS[0]}
+echo "== app"; node test/app-test.mjs "$OUT/app" | grep -E '"(mounted|defaultTheme|stillMounted|outlineToggleOk|tabsOk|newTabOk|dragOk|filesNavOk|pathLinksOk|imageOk|pinchAnchorOk|windows|secondFileUntouched|filesPanelVisible|savedToDisk|dirtyAfterSave|reloadedFromDisk)"|EXC'; A=${PIPESTATUS[0]}
 echo "== session"; node test/session-test.mjs "$OUT/session" | grep -E '"(sessionOk|restored|restoredPlusArg)"'; S=${PIPESTATUS[0]}
 echo "ext rc=$E  json rc=$J  code rc=$C  sql rc=$Q  app rc=$A  session rc=$S  screenshots: $OUT"; [ $E -eq 0 ] && [ $J -eq 0 ] && [ $C -eq 0 ] && [ $Q -eq 0 ] && [ $A -eq 0 ] && [ $S -eq 0 ]

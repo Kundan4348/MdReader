@@ -9,10 +9,11 @@ const root = path.resolve(import.meta.dirname, '..');
 const sample = path.join(root, 'sample.md');
 const backup = path.join(outdir, 'sample.backup.md'); copyFileSync(sample, backup);
 const electron = path.join(root, 'app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron');
-const port = 9333;
-// A leftover Electron from an interrupted run would still own the debug port and every check below would silently
-// talk to THAT stale instance. Refuse to start in that case and say which PID to stop.
-try { await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(1500) }); console.log(JSON.stringify({ fail: `debug port ${port} already in use by a stale Electron; stop it first (ps -axo pid,command | grep remote-debugging-port=${port})` })); process.exit(1); } catch (e) { if (!(e.name === 'TypeError' || e.name === 'TimeoutError')) throw e; }
+// Debug port: the first free one from 9333 up. A port that answers /json/version belongs to someone else (a leftover
+// Electron from an interrupted run, or another tool's headless Chrome) and every check would silently talk to THAT
+// instance, so it is skipped rather than reused.
+const busy = async (pt) => { try { await fetch(`http://127.0.0.1:${pt}/json/version`, { signal: AbortSignal.timeout(800) }); return true; } catch (e) { if (e.name === 'TypeError' || e.name === 'TimeoutError') return false; throw e; } };
+let port = 9333; while (await busy(port)) port++;
 const udd = path.join(outdir, 'user-data'); rmSync(udd, { recursive: true, force: true }); mkdirSync(udd, { recursive: true }); // fresh profile every run
 const proc = spawn(electron, [`--remote-debugging-port=${port}`, `--user-data-dir=${udd}`, path.join(root, 'app'), sample], { stdio: ['ignore', 'ignore', 'pipe'] });
 const stop = () => { try { proc.kill('SIGKILL'); } catch {} };
@@ -205,6 +206,42 @@ for (const th of ['mono', 'paper', 'studio', 'sections']) {
 }
 await ev(`shell.setTheme('mono')`); await sleep(200);
 report.dragOk = Object.values(report.dragPx).every((d) => d.mid >= 96 && d.edge === 0 && d.strip >= 200);
+// Files pane navigation: ↑ re-roots one folder up (root label follows), ⌂ returns home, Recent replaces the tree and
+// lists the files opened in this run, Close brings the tree back; a closed tab comes back with ⌘⇧T; .sql opens via the file route.
+await ev(`shell.loadFile(${JSON.stringify(path.join(root, 'test/fixtures/second.md'))})`); await sleep(400);
+const treeState = () => ev(`(()=>{const f=document.querySelector('#app .files'); return {root:f.querySelector('.tree > .folder')?.dataset.path, label:f.querySelector('.froot').textContent, up:f.querySelector('.fup').disabled, upTitle:f.querySelector('.fup').title, home:f.querySelector('.fhome').hidden, treeHidden:f.querySelector('.tree').hidden, recentHidden:f.querySelector('.recent').hidden, btn:f.querySelector('.frecent').textContent, inCard:[...f.querySelectorAll('.fctl button')].every(b=>b.getBoundingClientRect().right<=f.getBoundingClientRect().right+0.5)};})()`);
+report.nav0 = await treeState();
+await ev(`document.querySelector('#app .files .fup').click()`); await sleep(500);
+report.nav1 = await treeState();
+await ev(`document.querySelector('#app .files .fup').click()`); await sleep(500);
+report.nav2 = await treeState();
+await ev(`document.querySelector('#app .files .fhome').click()`); await sleep(700);
+report.navHome = await treeState();
+await ev(`document.querySelector('#app .files .frecent').click()`); await sleep(500);
+report.recent = await ev(`(()=>{const f=document.querySelector('#app .files'); return {btn:f.querySelector('.frecent').textContent, pressed:f.querySelector('.frecent').getAttribute('aria-pressed'), treeHidden:f.querySelector('.tree').hidden, rows:[...f.querySelectorAll('.recent .rfile .rname')].map(e=>e.textContent), heads:[...f.querySelectorAll('.recent .rhead span')].map(e=>e.textContent), on:[...f.querySelectorAll('.recent .rfile.on .rname')].map(e=>e.textContent), inCard:[...f.querySelectorAll('.recent .rfile')].every(r=>r.getBoundingClientRect().right<=f.getBoundingClientRect().right+0.5)};})()`);
+await shot('app-recent.png');
+await ev(`document.querySelector('#app .files .frecent').click()`); await sleep(200);
+report.recentClosed = await treeState();
+await shot('app-files-home.png');
+// close second.md, reopen with ⌘⇧T
+const beforeClose = await tabs();
+await ev(`shell.closeTab(shell.state.tabs.findIndex(t=>t.path.endsWith('second.md')))`); await sleep(300);
+const afterClose = await tabs();
+await ev(`dispatchEvent(new KeyboardEvent('keydown',{key:'T',metaKey:true,shiftKey:true,bubbles:true}))`); await sleep(500);
+report.reopen = { beforeClose, afterClose, afterReopen: await tabs() };
+// .sql through the same path route Finder / argv use
+await launch2(path.join(root, 'test/fixtures/switch-queries.sql')); await sleep(900);
+report.sqlOpen = await ev(`({kind:document.querySelector('#app').dataset.kind, tab:document.querySelector('#app .tabs .tab.on .name').textContent, secs:document.querySelectorAll('#app .sec').length, legend:!!document.querySelector('#app .doc .sqllegend'), fmt:getComputedStyle(document.querySelector('#app .top button.fmt')).display})`);
+await ev(`shell.closeTab()`); await sleep(300);
+const fx = path.join(root, 'test/fixtures'), home = await ev(`window.mdreader.home`);
+report.filesNavOk = report.nav0.root === fx && report.nav0.label === '…/MdReader/test/fixtures' && !report.nav0.up && report.nav0.upTitle.endsWith('/test') && report.nav0.inCard
+  && report.nav1.root === path.join(root, 'test') && report.nav2.root === root && report.navHome.root === home && report.navHome.home && report.navHome.label === '~'
+  && !report.nav0.home && report.recent.btn === 'Close' && report.recent.pressed === 'true' && report.recent.treeHidden && !report.nav0.recentHidden === false
+  && report.recent.rows.includes('second.md') && report.recent.rows.includes('sample.md') && report.recent.on.includes('second.md') && report.recent.inCard && report.recent.heads[0] === 'Recently opened'
+  && report.recentClosed.btn === 'Recent' && !report.recentClosed.treeHidden && report.recentClosed.recentHidden
+  && report.reopen.beforeClose.some((t) => t.startsWith('second.md')) && !report.reopen.afterClose.some((t) => t.startsWith('second.md')) && report.reopen.afterReopen.includes('second.md*')
+  && report.sqlOpen.kind === 'sql' && report.sqlOpen.tab === 'switch-queries.sql' && report.sqlOpen.secs === 5 && report.sqlOpen.legend && report.sqlOpen.fmt !== 'none';
+await ev(`shell.loadFile(${JSON.stringify(sample)})`); await sleep(400);
 // edit + save round trip
 await ev(`document.querySelector('#app .top button.edit, #app .top [data-mode=edit]')?.click()`); await sleep(300);
 await ev(`(()=>{const ta=document.querySelector('#app textarea'); ta.value = ta.value.replace('Coffee bar','Coffee bar [APP-EDIT]'); ta.dispatchEvent(new Event('input',{bubbles:true}));})()`);
@@ -216,4 +253,4 @@ copyFileSync(backup, sample); // restore
 await sleep(800);
 report.reloadedFromDisk = await ev(`!document.querySelector('#app textarea').value.includes('[APP-EDIT]')`);
 console.log(JSON.stringify(report, null, 2));
-stop(); process.exit(report.mounted && report.filesPanelVisible && report.savedToDisk && !report.dirtyAfterSave && report.defaultTheme === 'mono' && report.stillMounted && report.outlineToggleOk && report.tabsOk && report.pathLinksOk && report.imageOk && report.pinchAnchorOk && report.secondFileUntouched && report.crumbsOk && report.newTabOk && report.dragOk ? 0 : 1);
+stop(); process.exit(report.mounted && report.filesPanelVisible && report.savedToDisk && !report.dirtyAfterSave && report.defaultTheme === 'mono' && report.stillMounted && report.outlineToggleOk && report.tabsOk && report.pathLinksOk && report.imageOk && report.pinchAnchorOk && report.secondFileUntouched && report.crumbsOk && report.newTabOk && report.dragOk && report.filesNavOk ? 0 : 1);

@@ -22,7 +22,7 @@ function pathFromArg(arg) {
     try { const u = new URL(arg); return decodeURIComponent(u.searchParams.get('path') || u.pathname); } catch { return null; }
   }
   if (arg.startsWith('file://')) { try { return decodeURIComponent(new URL(arg).pathname); } catch { return null; } }
-  if (/\.(md|markdown|mdown|mkd|txt|json|sql)$/i.test(arg) && !arg.startsWith('-')) return path.resolve(arg);
+  if (/\.(md|markdown|mdown|mkd|txt|json|sql|hql|psql)$/i.test(arg) && !arg.startsWith('-')) return path.resolve(arg);
   return null;
 }
 
@@ -64,6 +64,8 @@ function openInWindow(win, filePath) {
   if (!en.loaded) { en.queue.push(filePath); return; } // renderer not up yet: flushed on did-finish-load
   win.webContents.send('open-file', filePath); // renderer opens it as a tab and reports back via 'tabs'
   app.addRecentDocument(filePath);
+  // our own recent list (the Files pane shows it; the macOS one under File > Open Recent is not readable from the app)
+  prefs.recent = [filePath, ...(prefs.recent || []).filter((p) => p !== filePath)].slice(0, 60); savePrefs();
 }
 function watch(en, p) {
   if (en.watchers.has(p)) return;
@@ -71,7 +73,7 @@ function watch(en, p) {
 }
 function unwatch(en, p) { const w = en.watchers.get(p); if (w) { w.close(); en.watchers.delete(p); } }
 
-const isMarkdownPath = (p) => /\.(md|markdown|mdown|mkd|txt|json|sql)$/i.test(p);
+const isMarkdownPath = (p) => /\.(md|markdown|mdown|mkd|txt|json|sql|hql|psql)$/i.test(p);
 // Anything that is not a markdown/text document (a .py, .csv, a folder) is handed to the OS: default app for files,
 // Finder for folders. Falls back to revealing the item when no app claims it.
 async function openOther(p) {
@@ -144,6 +146,7 @@ ipcMain.on('dirty', (e, d) => { const w = BrowserWindow.fromWebContents(e.sender
 ipcMain.on('open-external', (e, url) => { if (/^https?:/.test(url)) shell.openExternal(url); });
 ipcMain.on('close-window', (e) => { const w = BrowserWindow.fromWebContents(e.sender); const en = wins.get(w.id); if (en) en.dirty = false; w.close(); });
 ipcMain.on('reveal', (e, p) => p && shell.showItemInFolder(p));
+ipcMain.handle('get-recent', () => { const ok = (p) => { try { return fs.statSync(p).isFile(); } catch { return false; } }; return { files: (prefs.recent || []).filter(ok), lastSession: (prefs.lastSession && prefs.lastSession.paths || []).filter(ok) }; });
 ipcMain.on('open-path', (e, p) => { if (p) openOther(p); });
 ipcMain.handle('stat-path', async (e, p) => { try { const st = await fsp.stat(p); return { exists: true, dir: st.isDirectory() }; } catch { return { exists: false, dir: false }; } });
 // Renderer reports its tab set after every change; main mirrors it into watchers, title-bar proxy icon and dirty state.
@@ -154,7 +157,11 @@ ipcMain.on('tabs', (e, { paths, active, dirty }) => {
   for (const p of next) watch(en, p);
   en.paths = next; en.active = active || null;
   en.dirty = dirty.some(Boolean); w.setDocumentEdited(en.dirty);
-  prefs.session = { paths, active: active || null }; savePrefs();
+  // The saved session is the union over ALL windows (one window reporting an empty set must not wipe the others'),
+  // and the last non-empty set is kept as lastSession so "Reopen Last Session" can bring it back after a loss.
+  const union = [...new Set([...wins.values()].flatMap((x) => [...x.paths]))];
+  if (!union.length && prefs.session && prefs.session.paths && prefs.session.paths.length) prefs.lastSession = { paths: prefs.session.paths, active: prefs.session.active, at: Date.now() };
+  prefs.session = { paths: union, active: active || prefs.session && prefs.session.active || null }; savePrefs();
   w.setRepresentedFilename(active || '');
 });
 ipcMain.handle('confirm-discard', (e, name) => {
@@ -176,6 +183,9 @@ function buildMenu() {
       { label: 'New Tab', accelerator: 'CmdOrCtrl+T', click: () => send('new-tab') },
       { label: 'Open…', accelerator: 'CmdOrCtrl+O', click: () => send('open') },
       { role: 'recentDocuments', submenu: [{ role: 'clearRecentDocuments' }] },
+      { label: 'Reopen Closed Tab', accelerator: 'CmdOrCtrl+Shift+T', click: () => send('reopen-closed') },
+      { label: 'Reopen Last Session', click: () => { const ps = (prefs.lastSession && prefs.lastSession.paths || []).filter((p) => { try { return fs.statSync(p).isFile(); } catch { return false; } }); if (!ps.length) return dialog.showMessageBox({ message: 'No earlier session to reopen.' }); ps.forEach((p) => openPath(p)); } },
+      { label: 'Recently Opened (Files pane)', click: () => send('show-recent') },
       { type: 'separator' },
       { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => send('save') },
       { label: 'Reveal in Finder', accelerator: 'CmdOrCtrl+Shift+R', click: () => send('reveal') },
@@ -195,7 +205,7 @@ function buildMenu() {
         { label: 'Studio', click: () => send('theme:studio') },
         { label: 'Sections', click: () => send('theme:sections') },
         { label: 'Mono', click: () => send('theme:mono') },
-        { label: 'Next Theme', accelerator: 'CmdOrCtrl+Shift+T', click: () => send('theme:next') },
+        { label: 'Next Theme', accelerator: 'CmdOrCtrl+Shift+Y', click: () => send('theme:next') },
       ] },
       { label: 'Next Tab', accelerator: 'Ctrl+Tab', click: () => send('tab:next') },
       { label: 'Previous Tab', accelerator: 'Ctrl+Shift+Tab', click: () => send('tab:prev') },
