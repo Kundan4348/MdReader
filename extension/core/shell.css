@@ -297,23 +297,25 @@ table.jtable td .jv{font-family:var(--mono,ui-monospace,Menlo,monospace);font-si
 /* SQL documents and ```sql fences (core/sql.js): colour BY ROLE. Each clause keyword and the left edge of each line take
    the colour of the job that part of the query does; every table alias gets its own hue, used where it is defined and
    on each alias.column; comments stay legible. Role / hue variables live on .app so the summary rows share them. */
-.app{--r-define:#7b3fb3;--r-output:#1f5fbf;--r-source:#0f7a5a;--r-filter:#c2410c;--r-shape:#b0287a;--r-combine:#4b5563;--r-write:#b91c1c;--r-note:#7a5a1e;
-  --hbg-0:hsl(210 85% 90%);--hfg-0:hsl(210 65% 30%);--hbg-1:hsl(150 70% 86%);--hfg-1:hsl(150 65% 24%);--hbg-2:hsl(25 95% 88%);--hfg-2:hsl(25 80% 30%);--hbg-3:hsl(280 75% 91%);--hfg-3:hsl(280 55% 36%);
-  --hbg-4:hsl(340 85% 91%);--hfg-4:hsl(340 65% 34%);--hbg-5:hsl(95 65% 85%);--hfg-5:hsl(95 65% 22%);--hbg-6:hsl(185 70% 86%);--hfg-6:hsl(185 70% 24%);--hbg-7:hsl(45 95% 85%);--hfg-7:hsl(45 90% 24%);
-  --hbg-8:hsl(255 80% 91%);--hfg-8:hsl(255 55% 38%);--hbg-9:hsl(0 85% 91%);--hfg-9:hsl(0 60% 36%);--hbg-10:hsl(120 55% 86%);--hfg-10:hsl(120 55% 24%);--hbg-11:hsl(320 70% 91%);--hfg-11:hsl(320 55% 36%)}
-html[data-theme=studio] .app{--r-define:#c99cf0;--r-output:#82aaff;--r-source:#6fd8b2;--r-filter:#ffa06b;--r-shape:#f08ac9;--r-combine:#aab3c0;--r-write:#ff8b8b;--r-note:#d9bf8a;
-  --hbg-0:hsl(210 40% 27%);--hfg-0:hsl(210 90% 82%);--hbg-1:hsl(150 35% 24%);--hfg-1:hsl(150 70% 76%);--hbg-2:hsl(25 45% 27%);--hfg-2:hsl(25 95% 78%);--hbg-3:hsl(280 35% 29%);--hfg-3:hsl(280 80% 84%);
-  --hbg-4:hsl(340 40% 28%);--hfg-4:hsl(340 85% 82%);--hbg-5:hsl(95 35% 24%);--hfg-5:hsl(95 65% 74%);--hbg-6:hsl(185 40% 25%);--hfg-6:hsl(185 75% 76%);--hbg-7:hsl(45 45% 26%);--hfg-7:hsl(45 95% 76%);
-  --hbg-8:hsl(255 35% 30%);--hfg-8:hsl(255 85% 85%);--hbg-9:hsl(0 40% 28%);--hfg-9:hsl(0 85% 82%);--hbg-10:hsl(120 30% 24%);--hfg-10:hsl(120 60% 74%);--hbg-11:hsl(320 35% 28%);--hfg-11:hsl(320 80% 82%)}
+/* Muted palette: every role is a different hue but all sit at a similar, low saturation so the page reads as text
+   with a quiet colour code, not as a highlighter. Alias chips are pale washes with an ink-dark label. */
+.app{--r-define:#6d5f9c;--r-output:#466c9e;--r-source:#3f7a62;--r-filter:#a86a3f;--r-shape:#8e5f82;--r-combine:#6b7280;--r-write:#a25c5c;--r-note:#7f6c4a;
+  --hbg-0:hsl(212 38% 93%);--hfg-0:hsl(212 28% 34%);--hbg-1:hsl(152 30% 91%);--hfg-1:hsl(152 28% 28%);--hbg-2:hsl(28 45% 92%);--hfg-2:hsl(28 35% 34%);--hbg-3:hsl(276 32% 93%);--hfg-3:hsl(276 24% 38%);
+  --hbg-4:hsl(338 35% 93%);--hfg-4:hsl(338 28% 36%);--hbg-5:hsl(92 30% 90%);--hfg-5:hsl(92 30% 27%);--hbg-6:hsl(186 32% 90%);--hfg-6:hsl(186 32% 27%);--hbg-7:hsl(46 45% 90%);--hfg-7:hsl(46 40% 28%);
+  --hbg-8:hsl(252 34% 93%);--hfg-8:hsl(252 24% 40%);--hbg-9:hsl(4 36% 93%);--hfg-9:hsl(4 28% 38%);--hbg-10:hsl(124 26% 91%);--hfg-10:hsl(124 26% 28%);--hbg-11:hsl(318 30% 93%);--hfg-11:hsl(318 24% 38%)}
+html[data-theme=studio] .app{--r-define:#b3a4d9;--r-output:#8fb0d9;--r-source:#8cc4ab;--r-filter:#d9a583;--r-shape:#c99bb8;--r-combine:#a3abb8;--r-write:#d49a9a;--r-note:#c4b394;
+  --hbg-0:hsl(212 22% 26%);--hfg-0:hsl(212 50% 80%);--hbg-1:hsl(152 18% 24%);--hfg-1:hsl(152 36% 74%);--hbg-2:hsl(28 24% 26%);--hfg-2:hsl(28 50% 76%);--hbg-3:hsl(276 18% 28%);--hfg-3:hsl(276 40% 81%);
+  --hbg-4:hsl(338 20% 27%);--hfg-4:hsl(338 42% 79%);--hbg-5:hsl(92 18% 24%);--hfg-5:hsl(92 32% 72%);--hbg-6:hsl(186 22% 25%);--hfg-6:hsl(186 38% 73%);--hbg-7:hsl(46 24% 26%);--hfg-7:hsl(46 48% 74%);
+  --hbg-8:hsl(252 18% 29%);--hfg-8:hsl(252 42% 82%);--hbg-9:hsl(4 20% 27%);--hfg-9:hsl(4 42% 79%);--hbg-10:hsl(124 16% 24%);--hfg-10:hsl(124 30% 72%);--hbg-11:hsl(318 18% 27%);--hfg-11:hsl(318 40% 79%)}
 .tk-k.tk-r-define{color:var(--r-define)}.tk-k.tk-r-output{color:var(--r-output)}.tk-k.tk-r-source{color:var(--r-source)}.tk-k.tk-r-filter{color:var(--r-filter)}
 .tk-k.tk-r-shape{color:var(--r-shape)}.tk-k.tk-r-combine{color:var(--r-combine)}.tk-k.tk-r-write{color:var(--r-write)}
 .tk-k2{font-weight:500;opacity:.8}.tk-k2.tk-r-define{color:var(--r-define)}.tk-k2.tk-r-output{color:var(--r-output)}.tk-k2.tk-r-source{color:var(--r-source)}
 .tk-k2.tk-r-filter{color:var(--r-filter)}.tk-k2.tk-r-shape{color:var(--r-shape)}.tk-k2.tk-r-combine{color:var(--r-combine)}.tk-k2.tk-r-write{color:var(--r-write)}
-.tk-tbl{color:var(--r-source);font-weight:600;text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--r-source) 40%,transparent);text-underline-offset:3px}
-.tk-out{color:var(--r-output);font-weight:600;text-decoration:underline dotted;text-decoration-color:color-mix(in srgb,var(--r-output) 55%,transparent);text-underline-offset:3px}
-.tk-al,.tk-cte{border-radius:4px;padding:0 3px;margin:0 -3px;font-weight:600}
+.tk-tbl{color:var(--r-source);font-weight:600;text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--r-source) 28%,transparent);text-underline-offset:3px}
+.tk-out{color:var(--r-output);font-weight:500;text-decoration:underline dotted;text-decoration-color:color-mix(in srgb,var(--r-output) 40%,transparent);text-underline-offset:3px}
+.tk-al,.tk-cte{border-radius:4px;padding:0 3px;margin:0 -3px;font-weight:500}
 .tk-cte{text-decoration:underline;text-decoration-color:color-mix(in srgb,currentColor 45%,transparent);text-underline-offset:3px}
-.tk-al.tk-def,.tk-cte.tk-def{box-shadow:0 0 0 1.5px color-mix(in srgb,currentColor 55%,transparent)}
+.tk-al.tk-def,.tk-cte.tk-def{box-shadow:0 0 0 1px color-mix(in srgb,currentColor 40%,transparent)}
 .tk-h0{background:var(--hbg-0);color:var(--hfg-0)}.tk-h1{background:var(--hbg-1);color:var(--hfg-1)}.tk-h2{background:var(--hbg-2);color:var(--hfg-2)}.tk-h3{background:var(--hbg-3);color:var(--hfg-3)}
 .tk-h4{background:var(--hbg-4);color:var(--hfg-4)}.tk-h5{background:var(--hbg-5);color:var(--hfg-5)}.tk-h6{background:var(--hbg-6);color:var(--hfg-6)}.tk-h7{background:var(--hbg-7);color:var(--hfg-7)}
 .tk-h8{background:var(--hbg-8);color:var(--hfg-8)}.tk-h9{background:var(--hbg-9);color:var(--hfg-9)}.tk-h10{background:var(--hbg-10);color:var(--hfg-10)}.tk-h11{background:var(--hbg-11);color:var(--hfg-11)}
@@ -326,7 +328,7 @@ html[data-theme=studio] .app{--r-define:#c99cf0;--r-output:#82aaff;--r-source:#6
 .codeblock[data-lang=sql]>pre.code{padding-left:calc(var(--gutter,3ch) + 44px) !important}
 .codeblock[data-lang=sql]:not(.numbered)>pre.code{padding-left:26px !important}
 .codeblock[data-lang=sql].numbered code.hl .line::before{left:calc(-1 * (var(--gutter,3ch) + 44px));width:calc(var(--gutter,3ch) + 26px)}
-.codeblock[data-lang=sql] code.hl .line[data-role]::after{content:"";position:absolute;left:-12px;top:.12em;height:1.3em;width:4px;border-radius:2px;background:var(--rb,transparent)}
+.codeblock[data-lang=sql] code.hl .line[data-role]::after{content:"";position:absolute;left:-12px;top:.12em;height:1.3em;width:3px;border-radius:2px;background:var(--rb,transparent);opacity:.75}
 .codeblock[data-lang=sql] code.hl .line[data-role=define]{--rb:var(--r-define)}.codeblock[data-lang=sql] code.hl .line[data-role=output]{--rb:var(--r-output)}
 .codeblock[data-lang=sql] code.hl .line[data-role=source]{--rb:var(--r-source)}.codeblock[data-lang=sql] code.hl .line[data-role=filter]{--rb:var(--r-filter)}
 .codeblock[data-lang=sql] code.hl .line[data-role=shape]{--rb:var(--r-shape)}.codeblock[data-lang=sql] code.hl .line[data-role=combine]{--rb:var(--r-combine)}
@@ -338,7 +340,7 @@ html[data-theme=studio] .app{--r-define:#c99cf0;--r-output:#82aaff;--r-source:#6
 .shdr{font-size:.95em}
 .slead{font-size:.93em}
 .sqlsum{display:grid;grid-template-columns:max-content 1fr;gap:.3em 1em;margin:.1em 0 1em;font-size:.92em;line-height:1.75;align-items:baseline}
-.sqlsum .sl{font-family:var(--sans,system-ui);font-size:.7em;font-weight:800;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap;line-height:1.75;position:relative;top:-.05em}
+.sqlsum .sl{font-weight:600;white-space:nowrap;line-height:1.75}
 .sqlsum .sr-define .sl{color:var(--r-define)}.sqlsum .sr-output .sl{color:var(--r-output)}.sqlsum .sr-source .sl{color:var(--r-source)}.sqlsum .sr-filter .sl{color:var(--r-filter)}
 .sqlsum .sr-shape .sl{color:var(--r-shape)}.sqlsum .sr-combine .sl{color:var(--r-combine)}.sqlsum .sr-write .sl{color:var(--r-write)}
 .sqlsum .sr{display:contents}
@@ -346,7 +348,9 @@ html[data-theme=studio] .app{--r-define:#c99cf0;--r-output:#82aaff;--r-source:#6
 .sqlsum code{font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:.88em;padding:1px 5px;border-radius:5px;background:color-mix(in srgb,currentColor 7%,transparent);white-space:nowrap}
 .sqlsum code.tk-al,.sqlsum code.tk-cte{margin:0}
 .sqlsum code.tk-tbl{text-decoration:none}
-.sqlsum code.tk-out{text-decoration:none;color:var(--r-output);background:color-mix(in srgb,var(--r-output) 10%,transparent)}
+.sqlsum code.tk-out{text-decoration:none;color:var(--r-output);background:color-mix(in srgb,var(--r-output) 8%,transparent)}
+.sqlsum .agg{opacity:.55;font-size:.9em;margin-left:.2em}
+.sqlsum .so{opacity:.65}
 .sqlsum .cx{opacity:.6}
 .sqlb .codebar .lc{opacity:.55}
 /* role legend above the first query */
@@ -354,7 +358,7 @@ html[data-theme=studio] .app{--r-define:#c99cf0;--r-output:#82aaff;--r-source:#6
 .sqllegend .lgt{font-family:var(--sans,system-ui);font-weight:600;opacity:.6;margin-right:.2em}
 .sqllegend .lg{display:inline-flex;align-items:center;gap:.4em;white-space:nowrap}
 .sqllegend .lg::before{content:"";width:4px;height:1.15em;border-radius:2px;background:var(--lgc,currentColor);flex:none}
-.sqllegend .lg b{font-family:var(--sans,system-ui);font-size:.82em;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--lgc,currentColor)}
+.sqllegend .lg b{font-family:var(--sans,system-ui);font-weight:600;color:var(--lgc,currentColor)}
 .sqllegend .lg code{font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:.92em;opacity:.8}
 .sqllegend .lg code.tk-al,.sqllegend .lg code.tk-cte{opacity:1;padding:0 5px;margin:0}
 .sqllegend .lg .cx{opacity:.6}

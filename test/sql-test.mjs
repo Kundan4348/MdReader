@@ -120,9 +120,9 @@ report.sqlOk = !!(r.mounted && r.kind === 'sql' && r.doc.tab === 'Untitled 1' &&
   && r.doc.header.length === 4 && r.doc.header[0].startsWith('Mobility (Caspian Redshift)') && /5 statements · 74 lines · 7 tables · 3 named sets/.test(r.doc.meta)
   && r.doc.copyBtn === 'Copy SQL' && !r.doc.editBtn && /5 statements · 7 tables · 3 named sets/.test(r.doc.outlineMeta)
   // Q0a
-  && r.q0a.rows.length === 5 && row(r.q0a.rows, 'Reads from').includes('infrabi_stg.o_infr_dly_part as p joined with infrabi_stg.o_infr_part_model as m joined with infrabi_stg.o_infr_part_type as t')
-  && row(r.q0a.rows, 'Keeps rows where') === 'Keeps rows where | p.snapshot_day = current_date - 2' && row(r.q0a.rows, 'Groups by') === 'Groups by | 1, 2'
-  && row(r.q0a.rows, 'Returns 3 columns') === 'Returns 3 columns | part_type_id, type_name, parts' && row(r.q0a.rows, 'Sorts by') === 'Sorts by | parts desc'
+  && r.q0a.rows.length === 5 && row(r.q0a.rows, 'Looks at') === 'Looks at | infrabi_stg.o_infr_dly_part (p), infrabi_stg.o_infr_part_model (m) and infrabi_stg.o_infr_part_type (t), matched row by row'
+  && row(r.q0a.rows, 'Only rows where') === 'Only rows where | p.snapshot_day = current_date - 2' && row(r.q0a.rows, 'One row per') === 'One row per | part_type_id and type_name combination'
+  && row(r.q0a.rows, 'Gives back') === 'Gives back | part_type_id, type_name, parts(count) — 3 columns' && row(r.q0a.rows, 'Sorted by') === 'Sorted by | parts, highest first'
   && r.q0a.defs.join() === 'p:tk-h0,m:tk-h1,t:tk-h2' && r.q0a.refs.length === 7 && r.q0a.refs.every((x) => ({ p: 'tk-h0', m: 'tk-h1', t: 'tk-h2' })[x.split(':')[0]] === x.split(':')[1])
   && r.q0a.bgDistinct === 3 && r.q0a.roles.join() === 'output,source,source,source,filter,shape,shape' && r.q0a.barColors === 4
   && r.q0a.kw.length >= 7 && new Set(r.q0a.kw.map((k) => k.split('=')[1])).size === 4 && r.q0a.tbl.length === 6 && r.q0a.out.join() === 'parts'
@@ -132,9 +132,9 @@ report.sqlOk = !!(r.mounted && r.kind === 'sql' && r.doc.tab === 'Untitled 1' &&
   && r.q2.comments.join() === '-- tighten to the exact names from Q0a' && r.q2.colors.length === 1 && r.q2.colors[0] !== r.q2.body && r.q2.colors[0] !== 'rgb(138, 143, 150)' && +r.q2.marker < 0.6
   && r.q2.keeps === "p.snapshot_day = current_date - 2 and upper(t.type_name) like '%SWITCH%'"
   // Q3
-  && row(r.q3.rows, 'Defines').startsWith('Defines | sw, ev, last_ev') && row(r.q3.rows, 'Reads from') === 'Reads from | sw left-joined with last_ev as e'
-  && row(r.q3.rows, 'Returns 6 columns') === 'Returns 6 columns | all columns of sw, repair_count, last_repair_id, last_repair_role, last_repair_asset_id, last_repair_at'
-  && !row(r.q3.rows, 'Keeps') && r.q3.ctes.join() === 'sw:tk-h0,ev:tk-h6,last_ev:tk-h7' && r.q3.cteRefs.join() === 'ev:tk-h6,sw:tk-h0,sw:tk-h0,sw:tk-h0,last_ev:tk-h7,sw:tk-h0'
+  && row(r.q3.rows, 'First builds') === 'First builds | sw, ev and last_ev — named sets the final query uses below' && row(r.q3.rows, 'Looks at') === 'Looks at | sw plus any matching last_ev (e)'
+  && row(r.q3.rows, 'Gives back') === 'Gives back | all columns of sw, repair_count, last_repair_id, last_repair_role, last_repair_asset_id, last_repair_at — 6 columns'
+  && !row(r.q3.rows, 'Only rows') && r.q3.ctes.join() === 'sw:tk-h0,ev:tk-h6,last_ev:tk-h7' && r.q3.cteRefs.join() === 'ev:tk-h6,sw:tk-h0,sw:tk-h0,sw:tk-h0,last_ev:tk-h7,sw:tk-h0'
   && r.q3.hueCount === 9 && r.q3.eRefs.length === 1 && r.q3.tips[0].startsWith('reads infrabi_stg.o_infr_dly_part (p)') && r.q3.tips[1].includes('union all of 2 queries') && r.q3.tips[2] === 'reads ev · 1 condition · 7 columns'
   && r.q3.roles[0] === 'define' && r.q3.roles[1] === 'note' && r.q3.roles[2] === 'output' && r.q3.roles[15] === 'combine' && r.q3.desc.includes('Export the result to CSV') && r.q3.aliasTip === 'p = infrabi_stg.o_infr_dly_part'
   && r.studio.kw !== r.studio.al && r.studio.cm !== 'rgb(111, 123, 138)'
@@ -149,7 +149,7 @@ report.sqlOk = !!(r.mounted && r.kind === 'sql' && r.doc.tab === 'Untitled 1' &&
   && r.fmt.l.join('\n') === '-- Mobility (Caspian Redshift) switch queries for Switch Accuracy\nselect\n    t.part_type_id,\nfrom infrabi_stg.o_infr_dly_part p\njoin infrabi_stg.o_infr_part_model m on p.part_model_id = m.part_model_id\njoin infrabi_stg.o_infr_part_type t on m.part_type_id = t.part_type_id'
   && r.fmt.and === 3 && r.fmt.cteOpen === 2 && r.fmt.cteClose === 3 && r.fmt.trailing === "    e.role as last_repair_role,  -- 'broken' = this part was taken out" && r.fmt.comments === 15
   && r.mdKind === 'md'
-  && r.single.kind === 'sql' && r.single.secs === 0 && r.single.h2 === 'how many parts per state' && r.single.rows.join(' / ') === 'Reads from | parts as p left-joined with part_state as s / Groups by | 1 / Returns 2 columns | state, n / Sorts by | n desc / Only | 20 rows' && r.single.nums);
+  && r.single.kind === 'sql' && r.single.secs === 0 && r.single.h2 === 'how many parts per state' && r.single.rows.join(' / ') === 'Looks at | parts (p) plus any matching part_state (s) / One row per | state / Gives back | state, n(count) — 2 columns / Sorted by | n, highest first / Only the first | 20 rows' && r.single.nums);
 console.log(JSON.stringify(report, null, 1));
 killChrome();
 process.exit(report.sqlOk ? 0 : 1);

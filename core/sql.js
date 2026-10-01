@@ -13,7 +13,7 @@
     for (const [k, v] of Object.entries(attrs)) {
       if (k === 'class') el.className = v; else if (k === 'html') el.innerHTML = v; else if (v !== null && v !== undefined) el.setAttribute(k, v);
     }
-    for (const k of kids.flat()) if (k !== null && k !== undefined) el.append(k.nodeType ? k : document.createTextNode(k));
+    for (const k of kids.flat(Infinity)) if (k !== null && k !== undefined) el.append(k.nodeType ? k : document.createTextNode(k));
     return el;
   };
   const plural = (n, w) => `${n.toLocaleString()} ${w}${n === 1 ? '' : 's'}`;
@@ -250,45 +250,62 @@
     if (cur.length) items.push(cur); return items;
   }
   const lw = (tk) => (tk && tk.t === 'word' ? tk.v.toLowerCase() : '');
+  // What an output column is made of, in one word: count / total / largest / smallest / average, or '' for a plain column.
+  const AGG = { count: 'count', sum: 'total', max: 'largest', min: 'smallest', avg: 'average', approx_distinct: 'distinct count', count_if: 'count', array_agg: 'list', listagg: 'list', string_agg: 'list' };
+  const aggOf = (it) => { for (let i = 0; i < it.length - 1; i++) { const a = AGG[lw(it[i])]; if (a && it[i + 1].t === 'punct' && it[i + 1].v === '(') return a + (a === 'count' && it.some((tk) => lw(tk) === 'distinct') ? ' of distinct values' : ''); } return ''; };
   function summary(q, text) {
     const segs = (c) => q.segs.filter((s) => s.clause === c).flatMap((s) => s.toks);
     const returns = splitTop(segs('select').filter((tk) => !(lw(tk) === 'distinct' || lw(tk) === 'all')), (tk) => tk.t === 'punct' && tk.v === ',').map((it) => {
+      const agg = aggOf(it);
       const k = it.findLastIndex((tk) => lw(tk) === 'as');
-      if (k >= 0 && it[k + 1]) return it[k + 1].v;
+      if (k >= 0 && it[k + 1]) return { name: it[k + 1].v, agg };
       const last = it[it.length - 1];
-      if (last.t === 'op' && last.v === '*') return it.length >= 3 && it[it.length - 2].v === '.' ? `all columns of ${it[it.length - 3].v}` : 'all columns';
-      if ((last.t === 'word' || last.t === 'qid') && !(it.length >= 2 && it[it.length - 2].t === 'punct' && it[it.length - 2].v === ')')) return last.v;
-      const t = itemText(it, text); return t.length > 48 ? t.slice(0, 45) + '…' : t;
+      if (last.t === 'op' && last.v === '*') return { name: it.length >= 3 && it[it.length - 2].v === '.' ? `all columns of ${it[it.length - 3].v}` : 'all columns', agg: '' };
+      if ((last.t === 'word' || last.t === 'qid') && !(it.length >= 2 && it[it.length - 2].t === 'punct' && it[it.length - 2].v === ')')) return { name: last.v, agg };
+      const t = itemText(it, text); return { name: t.length > 48 ? t.slice(0, 45) + '…' : t, agg };
     });
     const conds = (c) => { const toks = segs(c); const items = splitTop(toks, (tk) => lw(tk) === 'and' || lw(tk) === 'or'); const ops = toks.filter((tk) => lw(tk) === 'and' || lw(tk) === 'or').map((tk) => lw(tk)); return { items: items.map((it) => itemText(it, text)), ops }; };
-    const list = (c) => splitTop(segs(c).filter((tk, i) => !(i === 0 && lw(tk) === 'by')), (tk) => tk.t === 'punct' && tk.v === ',').map((it) => itemText(it, text)).filter(Boolean);
+    // `group by 1, 2` / `order by 3 desc` name output columns by position: say the column, not the number.
+    const byName = (t) => t.replace(/^(\d+)(\s|$)/, (m, d, sp) => (returns[d - 1] ? returns[d - 1].name + sp : m));
+    const list = (c) => splitTop(segs(c).filter((tk, i) => !(i === 0 && lw(tk) === 'by')), (tk) => tk.t === 'punct' && tk.v === ',').map((it) => byName(itemText(it, text))).filter(Boolean);
     const limit = itemText(segs('limit').concat(segs('offset')), text);
-    return { reads: q.sources, keeps: conds('where'), having: conds('having'), returns, groups: list('group'), sorts: list('order'), limit,
+    return { reads: q.sources, keeps: conds('where'), having: conds('having'), returns, groups: list('group'), sorts: list('order'), limit, distinct: segs('select').some((tk) => lw(tk) === 'distinct'),
       combine: q.combine ? { n: q.selects, kind: q.combineKind } : null, write: q.write, selects: q.selects };
   }
   const SHORT = (s, n = 70) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
   const ctesTip = (s) => (s ? [s.reads.length ? 'reads ' + s.reads.map((r) => r.table + (r.alias ? ` (${r.alias})` : '')).join(', ') : '', s.keeps.items.length ? plural(s.keeps.items.length, 'condition') : '', s.returns.length ? plural(s.returns.length, 'column') : '', s.combine ? `${s.combine.kind} of ${s.combine.n} queries` : ''].filter(Boolean).join(' · ') : '');
-  // The summary rows for one statement: [role, label, nodes...]
+  // The plain-words rows for one statement: [role, label, nodes...]. Written the way you would tell a colleague what
+  // the query does -- "Looks at ... Only rows where ... One row per ... Gives back ... Sorted by ..." -- with the SQL
+  // pieces kept verbatim as chips so each sentence can be checked against the code below it.
+  const JOIN_WORDS = { left: 'plus any matching', right: 'plus any matching', outer: 'plus any matching', full: 'plus all of', cross: 'paired with every row of' };
+  const joinWord = (r) => (r.join ? JOIN_WORDS[r.join.trim().split(/\s+/)[0]] : null) || null;
   function shapeEl(a, text) {
     const m = a.main; const rows = [];
     const chip = (cls, txt, tip) => h('code', { class: cls, title: tip || null }, txt);
     const cx = (t) => h('span', { class: 'cx' }, t);
-    const many = (arr, lim, mk, sep) => { const out = []; arr.slice(0, lim).forEach((x, i) => { if (i) out.push(sep(i)); out.push(mk(x, i)); }); if (arr.length > lim) out.push(cx(` +${arr.length - lim} more`)); return out; };
-    if (a.ctes.length) rows.push(['define', 'Defines', many(a.ctes, 12, (c) => chip(`tk-cte tk-h${c.hue}`, c.name, ctesTip(c.q)), () => cx(', ')), cx(a.ctes.length > 1 ? `  — ${a.ctes.length} named sets, used below` : '  — a named set, used below')]);
-    if (m.write && m.write.target) rows.push(['write', { insert: 'Writes into', create: 'Creates', update: 'Updates', delete: 'Deletes from', drop: 'Drops', alter: 'Alters', merge: 'Merges into', truncate: 'Empties', msck: 'Repairs', copy: 'Loads into', unload: 'Unloads from' }[m.write.kind] || 'Writes to', chip('tk-tbl', m.write.target)]);
-    if (m.reads.length) rows.push(['source', 'Reads from', m.reads.flatMap((r, i) => {
-      const join = i === 0 ? null : r.join && r.join !== 'join' && r.join !== 'inner' ? cx(` ${r.join}-joined with `) : r.join ? cx(' joined with ') : cx(', ');
+    const many = (arr, lim, mk, sep) => { const out = []; arr.slice(0, lim).forEach((x, i) => { if (i) out.push(sep(i)); out.push(mk(x, i)); }); if (arr.length > lim) out.push(cx(` and ${arr.length - lim} more`)); return out; };
+    const andList = (n, i) => cx(i === n - 1 ? ' and ' : ', ');
+    if (a.ctes.length) rows.push(['define', 'First builds', many(a.ctes, 12, (c) => chip(`tk-cte tk-h${c.hue}`, c.name, ctesTip(c.q)), (i) => andList(Math.min(a.ctes.length, 12), i)), cx(a.ctes.length > 1 ? ' — named sets the final query uses below' : ' — a named set the final query uses below')]);
+    if (m.write && m.write.target) rows.push(['write', { insert: 'Adds rows to', create: 'Creates', update: 'Changes rows in', delete: 'Removes rows from', drop: 'Deletes the table', alter: 'Changes the shape of', merge: 'Merges into', truncate: 'Empties', msck: 'Repairs', copy: 'Loads data into', unload: 'Exports from' }[m.write.kind] || 'Writes to', chip('tk-tbl', m.write.target)]);
+    if (m.reads.length) rows.push(['source', 'Looks at', m.reads.flatMap((r, i) => {
+      const jw = joinWord(r);
+      const join = i === 0 ? null : jw ? cx(` ${jw} `) : r.join ? cx(i === m.reads.length - 1 ? ' and ' : ', ') : cx(', ');
       const hn = r.alias ? a.aliasHue.get(r.alias.toLowerCase()) : null; const c = r.cte ? a.ctes.find((x) => x.name.toLowerCase() === r.table.toLowerCase()) : null;
-      return [join, chip(c ? `tk-cte tk-h${c.hue}` : 'tk-tbl', r.table, c ? ctesTip(c.q) : null), r.alias ? cx(' as ') : null, r.alias ? chip(`tk-al tk-h${hn}`, r.alias, `${r.alias} = ${r.table}`) : null];
-    })]);
+      return [join, chip(c ? `tk-cte tk-h${c.hue}` : 'tk-tbl', r.table, c ? ctesTip(c.q) : null), r.alias ? [cx(' ('), chip(`tk-al tk-h${hn}`, r.alias, `${r.alias} = ${r.table}`), cx(')')] : null];
+    }), m.reads.length > 1 && m.reads.some((r) => r.join && !joinWord(r)) ? cx(', matched row by row') : null]);
     const condRow = (label, c) => rows.push(['filter', label, many(c.items, 5, (t) => chip('', SHORT(t)), (i) => cx(` ${c.ops[i - 1] || 'and'} `))]);
-    if (m.keeps.items.length) condRow('Keeps rows where', m.keeps);
-    if (m.groups.length) rows.push(['shape', 'Groups by', many(m.groups, 8, (t) => chip('', SHORT(t, 40)), () => cx(', '))]);
-    if (m.having.items.length) condRow('Keeps groups where', m.having);
-    if (m.returns.length) rows.push(['output', `Returns ${plural(m.returns.length, 'column')}`, many(m.returns, 10, (t) => chip('tk-out', t), () => cx(', '))]);
-    if (m.sorts.length) rows.push(['shape', 'Sorts by', many(m.sorts, 6, (t) => chip('', SHORT(t, 40)), () => cx(', '))]);
-    if (m.limit) rows.push(['shape', 'Only', chip('', m.limit.replace(/^limit\s+/i, '') + ' rows')]);
-    if (m.combine) rows.push(['combine', 'Combines', cx(`${m.combine.kind} of ${plural(m.combine.n, 'query').replace('querys', 'queries')}`)]);
+    if (m.keeps.items.length) condRow('Only rows where', m.keeps);
+    if (m.groups.length) rows.push(['shape', 'One row per', many(m.groups, 8, (t) => chip('', SHORT(t, 40)), (i) => andList(Math.min(m.groups.length, 8), i)), cx(m.groups.length > 1 ? ' combination' : '')]);
+    if (m.having.items.length) condRow('Only groups where', m.having);
+    if (m.returns.length) {
+      const allAgg = !m.groups.length && m.returns.every((r) => r.agg);
+      rows.push(['output', 'Gives back',
+        many(m.returns, 10, (r) => [chip('tk-out', r.name), r.agg ? h('span', { class: 'agg' }, `(${r.agg})`) : null], () => cx(', ')),
+        cx(allAgg ? (m.returns.length === 1 ? ' — a single number' : ' — one row of totals') : m.distinct ? ` — ${plural(m.returns.length, 'column')}, no duplicate rows` : m.returns.length > 1 ? ` — ${m.returns.length} columns` : '')]);
+    }
+    if (m.sorts.length) rows.push(['shape', 'Sorted by', many(m.sorts, 6, (t) => { const d = /\s+desc$/i.test(t); const col = t.replace(/\s+(asc|desc)(\s+nulls\s+(first|last))?$/i, ''); return [chip('', SHORT(col, 40)), h('span', { class: 'so' }, d ? ', highest first' : ', lowest first')]; }, (i) => andList(Math.min(m.sorts.length, 6), i))]);
+    if (m.limit) rows.push(['shape', 'Only the first', chip('', m.limit.replace(/^limit\s+/i, '')), cx(' rows')]);
+    if (m.combine) rows.push(['combine', 'Stacks', cx(`${plural(m.combine.n, 'query').replace('querys', 'queries')} into one list` + (m.combine.kind === 'union all' ? ' (duplicates kept)' : m.combine.kind === 'union' ? ' (duplicates removed)' : ` (${m.combine.kind})`))]);
     if (!rows.length) return null;
     return h('div', { class: 'sqlsum' }, ...rows.map(([role, label, ...nodes]) => h('div', { class: 'sr sr-' + role }, h('span', { class: 'sl' }, label), h('span', { class: 'sv' }, ...nodes))));
   }
@@ -430,7 +447,7 @@
   const sameTokens = (a, b) => { const A = lex(a).filter((t) => t.t !== 'ws').map((t) => t.v), B = lex(b).filter((t) => t.t !== 'ws').map((t) => t.v); return A.length === B.length && A.every((v, i) => v === B[i]); };
 
   // ---------- document ----------
-  const ROLE_WORDS = { define: 'defines a named set', output: 'what comes out', source: 'where rows come from', filter: 'which rows are kept', shape: 'grouping, order, size', combine: 'stacks queries', write: 'changes data', note: 'comment' };
+  const ROLE_WORDS = { define: 'builds a named set to use later', output: 'the columns that come out', source: 'the tables the rows come from', filter: 'which rows are kept', shape: 'grouping, sort order, row limit', combine: 'stacks several queries into one list', write: 'changes data', note: 'a comment' };
   const ROLE_ORDER = ['define', 'source', 'filter', 'shape', 'output', 'combine', 'write', 'note'];
   function legendEl(p) {
     const words = new Map(); let alias = null, cte = null;
@@ -446,7 +463,7 @@
     const items = ROLE_ORDER.filter((r) => words.has(r)).map((r) => h('span', { class: 'lg lg-' + r, title: ROLE_WORDS[r] }, h('b', {}, r), h('code', {}, [...words.get(r)].sort().join(' · '))));
     if (alias) items.push(h('span', { class: 'lg lg-alias', title: 'Each table gets its own colour: the alias where it is defined and every alias.column that refers to it' }, h('b', {}, 'alias'), h('code', { class: `tk-al tk-h${alias.hue}`, title: alias.tip }, alias.name), h('span', { class: 'cx' }, ' one colour per table')));
     if (cte) items.push(h('span', { class: 'lg lg-alias', title: 'A named set from WITH, coloured the same where it is used' }, h('b', {}, 'named set'), h('code', { class: `tk-cte tk-h${cte.hue}` }, cte.name)));
-    return h('div', { class: 'sqllegend' }, h('span', { class: 'lgt' }, 'Colours = the job each part does'), ...items, h('button', { type: 'button', class: 'lgx', title: 'Hide legend' }, '✕'));
+    return h('div', { class: 'sqllegend' }, h('span', { class: 'lgt' }, 'Colour shows what each part does'), ...items, h('button', { type: 'button', class: 'lgx', title: 'Hide legend' }, '✕'));
   }
   // Same return shape as MD.renderDoc / JV.renderDoc: { headEl, sectionEls, toc, stats, sql: { statements, tables, ctes, lines } }.
   // One statement renders in the head; several render one section each, titled by the comment above them.
