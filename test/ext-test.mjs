@@ -211,6 +211,35 @@ await evalJs(`(()=>{const b=[...document.querySelectorAll('#app .top button')].f
 report.fill = fl;
 report.fillOk = ['paper', 'studio', 'sections', 'mono'].every((t) => fl[t].edit.edGap <= 1 && !fl[t].edit.paneScrolls && fl[t].split.edGap <= 1 && Math.abs(fl[t].split.docW - fl[t].split.colW) <= 2 && !fl[t].split.overflowX)
   && fl.magSplit.paged && Math.abs(fl.magSplit.docW - fl.magSplit.colW) <= 2 && !fl.magSplit.overflowX;
+// Per-section Edit -> Done / Cancel must leave the section where it was on screen, even with pictures above it
+// (a re-render brings them back at zero height until they load again, which used to slide the page away).
+await evalJs(`(()=>{document.querySelector('#app .top [data-mode=edit]').click(); const ta=document.querySelector('#app textarea.src'); const N=String.fromCharCode(10), F=String.fromCharCode(96).repeat(3); const dg=[F+'mermaid','flowchart TD','  A[Start] --> B{Check}','  B -->|yes| C[Go]','  B -->|no| D[Stop]','  C --> E[End]','  D --> E',F].join(N); let k=0; ta.value=ta.value.replace(/^(## .*)$/gm,(m)=>m+N+N+'![tall](test/fixtures/img/tall.svg)'+(k++%4===0?N+N+dg:'')); ta.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+await sleep(300);
+await evalJs(`document.querySelector('#app .top [data-mode=read]').click()`); await sleep(300);
+const secQ = (n) => `(()=>{const c=document.querySelector('#app .content'),s=document.querySelector('#app .sec[data-i="${n}"]');return s?Math.round(s.getBoundingClientRect().top-c.getBoundingClientRect().top):null})()`;
+const se = {};
+for (const t of ['paper', 'studio', 'sections', 'mono']) {
+  await evalJs(`(()=>{const s=document.querySelector('#app select.theme'); s.value='${t}'; s.dispatchEvent(new Event('change',{bubbles:true}));})()`); await sleep(1200);
+  const n = await evalJs(`Math.floor(document.querySelectorAll('#app .sec').length*0.7)`);
+  // scroll down gradually so the lazy pictures above the target load, the way a reader gets there
+  await evalJs(`(async()=>{const c=document.querySelector('#app .content'),s=document.querySelector('#app .sec[data-i="${n}"]');for(let k=0;k<60;k++){const d=s.getBoundingClientRect().top-c.getBoundingClientRect().top-120;if(Math.abs(d)<2)break;c.scrollTop+=Math.sign(d)*Math.min(Math.abs(d),500);await new Promise(r=>setTimeout(r,60));}})()`);
+  await sleep(500);
+  const before = await evalJs(secQ(n));
+  const imgs = await evalJs(`[...document.querySelectorAll('#app .doc img')].filter(i=>i.naturalWidth>0).length`);
+  const dg = await evalJs(`document.querySelectorAll('#app .doc .diagram svg').length`);
+  await evalJs(`document.querySelector('#app .sec[data-i="${n}"] [data-act=edit]').click()`); await sleep(250);
+  const editing = await evalJs(secQ(n));
+  await evalJs(`(()=>{const t=document.querySelector('#app .sec[data-i="${n}"] .sec-src'); t.value=t.value+'\\\\nAdded line.'; document.querySelector('#app .sec[data-i="${n}"] [data-act=edit]').click();})()`);
+  await sleep(1300);
+  const afterDone = await evalJs(secQ(n));
+  const kept = await evalJs(`document.querySelector('#app .sec[data-i="${n}"]').textContent.includes('Added line.')`);
+  await evalJs(`document.querySelector('#app .sec[data-i="${n}"] [data-act=edit]').click()`); await sleep(250);
+  await evalJs(`document.querySelector('#app .sec[data-i="${n}"] [data-act=copy]').click()`); await sleep(1300);
+  const afterCancel = await evalJs(secQ(n));
+  se[t] = { n, imgs, dg, before, editing, afterDone, afterCancel, kept };
+}
+report.secEdit = se;
+report.secEditOk = Object.values(se).every((x) => x.imgs > 3 && x.dg > 3 && x.kept && Math.abs(x.editing - x.before) <= 2 && Math.abs(x.afterDone - x.before) <= 2 && Math.abs(x.afterCancel - x.before) <= 2);
 await shot('ext-split.png');
 report.split = sp;
 const near = (line, [l0, l1]) => line >= l0 - 1 && line <= l1; // the pane's top line sits inside (or one line before) the block at the top of the other pane
@@ -221,4 +250,4 @@ report.splitOk = !sp.layout.paneScrolls && sp.layout.taScrolls && sp.layout.mirr
   && sp.listR.marks.join() === 'a' && sp.listR.lines === 1 && /^- second note/.test(sp.listR.srcLine) && /after $/.test(sp.listR.before || '')
   && sp.listL.mirrors.length === 1 && sp.listL.mirrors[0] === 'LI:third' && sp.listL.hlText === 'note' && sp.listL.inThird && sp.listL.afterTruly;
 console.log(JSON.stringify(report, null, 2));
-clearTimeout(hardStop); killChrome(); process.exit(report.mounted && report.tables > 0 && report.pinchOk && report.buttonsOk && report.widthOk && report.filterOk && report.splitOk && report.lnumOk && report.fillOk ? 0 : 1);
+clearTimeout(hardStop); killChrome(); process.exit(report.mounted && report.tables > 0 && report.pinchOk && report.buttonsOk && report.widthOk && report.filterOk && report.splitOk && report.lnumOk && report.fillOk && report.secEditOk ? 0 : 1);

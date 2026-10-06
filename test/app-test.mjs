@@ -39,6 +39,30 @@ let ok = false; for (let i = 0; i < 40; i++) { await sleep(250); if (await ev(`d
 report.mounted = ok;
 report.h1 = await ev(`document.querySelector('#app h1')?.textContent`);
 report.defaultTheme = await ev('document.documentElement.dataset.theme');
+// Per-section Edit -> Done / Cancel keeps the section where it was on screen. In the desktop app the re-render used
+// to drop the reading position ~2000px back towards the top of the document.
+{
+  const secQ = (n) => `(()=>{const c=document.querySelector('#app .content'),s=document.querySelector('#app .sec[data-i="${n}"]');return s?Math.round(s.getBoundingClientRect().top-c.getBoundingClientRect().top):null})()`;
+  const se = {};
+  for (const t of ['sections', 'paper', 'mono']) {
+    await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value='${t}'; s.dispatchEvent(new Event('change',{bubbles:true}));})()`); await sleep(500);
+    const n = await ev(`document.querySelectorAll('#app .sec').length-3`);
+    await ev(`(()=>{const c=document.querySelector('#app .content'),s=document.querySelector('#app .sec[data-i="${n}"]');c.scrollTop+=s.getBoundingClientRect().top-c.getBoundingClientRect().top-100;})()`); await sleep(400);
+    const before = await ev(secQ(n));
+    await ev(`document.querySelector('#app .sec[data-i="${n}"] [data-act=edit]').click()`); await sleep(300);
+    const editing = await ev(secQ(n));
+    await ev(`document.querySelector('#app .sec[data-i="${n}"] [data-act=edit]').click()`); await sleep(900); // Done, text unchanged
+    const afterDone = await ev(secQ(n));
+    await ev(`document.querySelector('#app .sec[data-i="${n}"] [data-act=edit]').click()`); await sleep(300);
+    await ev(`document.querySelector('#app .sec[data-i="${n}"] [data-act=copy]').click()`); await sleep(900); // Cancel
+    const afterCancel = await ev(secQ(n));
+    se[t] = { n, before, editing, afterDone, afterCancel };
+  }
+  await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value='mono'; s.dispatchEvent(new Event('change',{bubbles:true})); document.querySelector('#app .content').scrollTop=0;})()`); await sleep(300);
+  report.secEdit = se;
+  report.secEditDirty = await ev(`document.querySelector('#app').classList.contains('dirty')`);
+  report.secEditOk = !report.secEditDirty && Object.values(se).every((x) => x.before === 100 && [x.editing, x.afterDone, x.afterCancel].every((v) => Math.abs(v - x.before) <= 2));
+}
 // Navigation guard: a relative link to a non-markdown file must not replace the window contents.
 await ev(`(()=>{const a=document.createElement('a'); a.href='core/themes/sections.css'; a.textContent='x'; document.querySelector('#app .doc').appendChild(a); a.click(); a.remove();})()`);
 await sleep(600);
@@ -264,4 +288,4 @@ copyFileSync(backup, sample); // restore
 await sleep(800);
 report.reloadedFromDisk = await ev(`!document.querySelector('#app textarea').value.includes('[APP-EDIT]')`);
 console.log(JSON.stringify(report, null, 2));
-stop(); process.exit(report.mounted && report.filesPanelVisible && report.savedToDisk && !report.dirtyAfterSave && report.defaultTheme === 'mono' && report.stillMounted && report.outlineToggleOk && report.tabsOk && report.pathLinksOk && report.imageOk && report.pinchAnchorOk && report.secondFileUntouched && report.crumbsOk && report.newTabOk && report.dragOk && report.filesNavOk && report.diagramsOk ? 0 : 1);
+stop(); process.exit(report.mounted && report.filesPanelVisible && report.savedToDisk && !report.dirtyAfterSave && report.defaultTheme === 'mono' && report.stillMounted && report.outlineToggleOk && report.tabsOk && report.pathLinksOk && report.imageOk && report.pinchAnchorOk && report.secondFileUntouched && report.crumbsOk && report.newTabOk && report.dragOk && report.filesNavOk && report.diagramsOk && report.secEditOk ? 0 : 1);

@@ -689,31 +689,53 @@
     // ---------- per-section editing ----------
     function editSection(i) {
       if (docKind() !== 'md') return; // JSON / SQL have no markdown sections to splice; use Edit mode
-      if (S.editingSec !== null && S.editingSec !== i) finishSection(S.editingSec, true);
+      if (S.editingSec !== null && S.editingSec !== i) finishSection(S.editingSec, true, true);
       const { sections } = MD.split(S.text);
       const sec = secs.querySelector(`.sec[data-i="${i}"]`);
       if (!sec || !sections[i]) return;
       S.editingSec = i;
       sec.classList.add('editing');
-      const t = h('textarea', { class: 'sec-src', spellcheck: 'false', onkeydown: (e) => { if (e.key === 'Escape') finishSection(i, false); if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') finishSection(i, true); } });
+      const t = h('textarea', { class: 'sec-src', spellcheck: 'false', onkeydown: (e) => { if (e.key === 'Escape') finishSection(i, false, true); if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') finishSection(i, true, true); } });
       t.value = sections[i].src;
       sec.append(t);
       t.style.height = Math.max(220, Math.min(innerHeight * 0.7, t.scrollHeight + 20)) + 'px';
-      const b = sec.querySelector('[data-act=edit]'); b.textContent = 'Done'; b.onclick = () => finishSection(i, true);
-      const c = sec.querySelector('[data-act=copy]'); c.textContent = 'Cancel'; c.onclick = () => finishSection(i, false);
-      t.focus();
+      const b = sec.querySelector('[data-act=edit]'); b.textContent = 'Done'; b.onclick = () => finishSection(i, true, true);
+      const c = sec.querySelector('[data-act=copy]'); c.textContent = 'Cancel'; c.onclick = () => finishSection(i, false, true);
+      t.focus({ preventScroll: true }); // focusing must not jump the page; the textarea sits right under the heading
     }
-    function finishSection(i, apply) {
+    // Done / Cancel re-render the whole document, and pictures and diagrams above the section come back with zero
+    // height until they load again, so the page would slide away from the section being edited. Pin the section's
+    // top to where it was on screen, and keep it pinned while late content settles -- until the user scrolls.
+    function keepSectionInPlace(i, change) {
+      const top = () => { const el = secs.querySelector(`.sec[data-i="${i}"]`); return el ? el.getBoundingClientRect().top - content.getBoundingClientRect().top : null; };
+      const want = top();
+      change();
+      if (want === null) return;
+      const fix = () => { const now = top(); if (now !== null && Math.abs(now - want) > 0.5) content.scrollTop += now - want; };
+      fix(); fix(); // a second pass absorbs any scale between layout and scroll (magnified page)
+      let done = false;
+      const ro = global.ResizeObserver ? new ResizeObserver(() => { if (!done) fix(); }) : null;
+      if (ro) ro.observe(doc);
+      const onImg = (e) => { if (!done && e.target.tagName === 'IMG') fix(); };
+      doc.addEventListener('load', onImg, true);
+      const stop = () => { if (done) return; done = true; if (ro) ro.disconnect(); doc.removeEventListener('load', onImg, true); ['wheel', 'touchstart', 'mousedown', 'keydown'].forEach((ev) => content.removeEventListener(ev, stop, true)); };
+      ['wheel', 'touchstart', 'mousedown', 'keydown'].forEach((ev) => content.addEventListener(ev, stop, true));
+      setTimeout(stop, 2500);
+    }
+    function finishSection(i, apply, pin) {
       const sec = secs.querySelector(`.sec[data-i="${i}"]`);
       const t = sec && sec.querySelector('.sec-src');
       if (t && apply) {
         const { sections, lines } = MD.split(S.text);
         const s = sections[i];
-        const next = [...lines.slice(0, s.start), ...t.value.replace(/\n$/, '').split('\n'), ...lines.slice(s.end)].join('\n');
-        setText(next);
+        // Done without a change must not touch the text (re-joining the lines could mark the tab as edited)
+        if (s && t.value !== s.src) {
+          const next = [...lines.slice(0, s.start), ...t.value.replace(/\n$/, '').split('\n'), ...lines.slice(s.end)].join('\n');
+          if (next !== S.text) setText(next);
+        }
       }
       S.editingSec = null;
-      paint();
+      if (pin) keepSectionInPlace(i, paint); else paint();
     }
     function copySection(i) {
       const { sections } = MD.split(S.text);
