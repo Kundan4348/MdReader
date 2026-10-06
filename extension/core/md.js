@@ -99,6 +99,14 @@
     const src = code.textContent.replace(/\n$/, '');
     const langCls = [...code.classList].find((c) => c.startsWith('language-'));
     const asked = langCls ? langCls.slice(9) : '';
+    // A ```mermaid fence (or an untagged fence that starts with a diagram word) is drawn, not shown as code: core/diagram.js
+    // builds the card; the source-line stamp moves onto it so the split view locks to the picture.
+    if (global.DG && (/^(mermaid|mmd)$/i.test(asked) || (!asked && DG.looksLike(src)))) {
+      const card = DG.card(src);
+      if (pre.dataset.l0) { card.dataset.l0 = pre.dataset.l0; card.dataset.l1 = pre.dataset.l1; }
+      pre.replaceWith(card);
+      return;
+    }
     let lang = asked, html = null, lines = src.split('\n').length;
     if (global.HL) { const r = HL.highlight(src, asked); html = r.html; lang = r.lang || asked; lines = r.lines; }
     if (html !== null) code.innerHTML = html;

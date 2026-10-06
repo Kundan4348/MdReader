@@ -12,8 +12,8 @@
       let h = key ? hFor(key) : null;
       let newKey = null;
       if (!h) {
-        const json = hint && hint.ext === 'json', sql = hint && hint.ext === 'sql';
-        h = await window.showSaveFilePicker({ suggestedName: json ? 'untitled.json' : sql ? 'untitled.sql' : 'untitled.md', types: [json ? { description: 'JSON', accept: { 'application/json': ['.json'] } } : sql ? { description: 'SQL', accept: { 'application/sql': ['.sql'] } } : { description: 'Markdown', accept: { 'text/markdown': ['.md'] } }] });
+        const json = hint && hint.ext === 'json', sql = hint && hint.ext === 'sql', mmd = hint && hint.ext === 'mmd';
+        h = await window.showSaveFilePicker({ suggestedName: json ? 'untitled.json' : sql ? 'untitled.sql' : mmd ? 'untitled.mmd' : 'untitled.md', types: [json ? { description: 'JSON', accept: { 'application/json': ['.json'] } } : sql ? { description: 'SQL', accept: { 'application/sql': ['.sql'] } } : mmd ? { description: 'Mermaid diagram', accept: { 'text/plain': ['.mmd'] } } : { description: 'Markdown', accept: { 'text/markdown': ['.md'] } }] });
         newKey = 'h:' + h.name + ':' + Date.now();
         open.set(newKey, h); await MdExt.handles.set(newKey, h);
         current = { key: newKey, handle: h, name: h.name };
@@ -45,7 +45,7 @@
   }
   async function pick() {
     try {
-      const [h] = await window.showOpenFilePicker({ types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md', '.markdown', '.mdown', '.mkd', '.txt'], 'application/json': ['.json'], 'application/sql': ['.sql'] } }] });
+      const [h] = await window.showOpenFilePicker({ types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md', '.markdown', '.mdown', '.mkd', '.txt'], 'application/json': ['.json'], 'application/sql': ['.sql'], 'text/plain': ['.mmd', '.mermaid'] } }] });
       const key = 'h:' + h.name + ':' + Date.now();
       // de-dupe against recents pointing at the same file
       for (const r of await MdExt.handles.all()) if (r.handle && typeof r.handle.isSameEntry === 'function' && (await r.handle.isSameEntry(h))) { await MdExt.handles.del(r.key); }

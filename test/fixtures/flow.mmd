@@ -1,0 +1,7 @@
+%% A small flow, as its own file
+flowchart LR
+    In[Request] --> Chk{Valid?}
+    Chk -->|yes| Do[Process]
+    Chk -->|no| Rej[Reject]
+    Do --> Out([Reply])
+    Rej --> Out

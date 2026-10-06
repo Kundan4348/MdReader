@@ -233,6 +233,17 @@ report.reopen = { beforeClose, afterClose, afterReopen: await tabs() };
 await launch2(path.join(root, 'test/fixtures/switch-queries.sql')); await sleep(900);
 report.sqlOpen = await ev(`({kind:document.querySelector('#app').dataset.kind, tab:document.querySelector('#app .tabs .tab.on .name').textContent, secs:document.querySelectorAll('#app .sec').length, legend:!!document.querySelector('#app .doc .sqllegend'), fmt:getComputedStyle(document.querySelector('#app .top button.fmt')).display})`);
 await ev(`shell.closeTab()`); await sleep(300);
+// mermaid: the app loads core/mermaid.min.js on first use (under its CSP) and draws every fence; a .mmd file is its own kind
+await launch2(path.join(root, 'test/fixtures/diagrams.md')); await sleep(900);
+for (let i = 0; i < 60; i++) { const st = await ev(`[...document.querySelectorAll('#app .diagram')].map(d => d.dataset.state || 'pending')`); if (st.length === 8 && st.every((x) => x !== 'pending')) break; await sleep(250); }
+report.diagramsApp = await ev(`({ states: [...document.querySelectorAll('#app .diagram')].map(d => d.dataset.state), lib: typeof mermaid, svgs: document.querySelectorAll('#app .diagram .dgv svg').length, w: document.querySelector('#app .diagram .dgv svg')?.getBoundingClientRect().width|0 })`);
+await ev(`shell.closeTab()`); await sleep(300);
+await launch2(path.join(root, 'test/fixtures/flow.mmd')); await sleep(900);
+for (let i = 0; i < 40; i++) { if (await ev(`document.querySelector('#app .diagram')?.dataset.state`)) break; await sleep(250); }
+report.mmdApp = await ev(`({ kind: document.querySelector('#app').dataset.kind, tab: document.querySelector('#app .tabs .tab.on .name').textContent, state: document.querySelector('#app .diagram')?.dataset.state, fmt: getComputedStyle(document.querySelector('#app .top button.fmt')).display })`);
+await ev(`shell.closeTab()`); await sleep(300);
+report.diagramsOk = report.diagramsApp.lib === 'object' && report.diagramsApp.states.join() === 'drawn,drawn,drawn,drawn,drawn,drawn,drawn,error' && report.diagramsApp.svgs === 7 && report.diagramsApp.w > 200
+  && report.mmdApp.kind === 'mmd' && report.mmdApp.tab === 'flow.mmd' && report.mmdApp.state === 'drawn' && report.mmdApp.fmt === 'none';
 const fx = path.join(root, 'test/fixtures'), home = await ev(`window.mdreader.home`);
 report.filesNavOk = report.nav0.root === fx && report.nav0.label === '…/MdReader/test/fixtures' && !report.nav0.up && report.nav0.upTitle.endsWith('/test') && report.nav0.inCard
   && report.nav1.root === path.join(root, 'test') && report.nav2.root === root && report.navHome.root === home && report.navHome.home && report.navHome.label === '~'
@@ -253,4 +264,4 @@ copyFileSync(backup, sample); // restore
 await sleep(800);
 report.reloadedFromDisk = await ev(`!document.querySelector('#app textarea').value.includes('[APP-EDIT]')`);
 console.log(JSON.stringify(report, null, 2));
-stop(); process.exit(report.mounted && report.filesPanelVisible && report.savedToDisk && !report.dirtyAfterSave && report.defaultTheme === 'mono' && report.stillMounted && report.outlineToggleOk && report.tabsOk && report.pathLinksOk && report.imageOk && report.pinchAnchorOk && report.secondFileUntouched && report.crumbsOk && report.newTabOk && report.dragOk && report.filesNavOk ? 0 : 1);
+stop(); process.exit(report.mounted && report.filesPanelVisible && report.savedToDisk && !report.dirtyAfterSave && report.defaultTheme === 'mono' && report.stillMounted && report.outlineToggleOk && report.tabsOk && report.pathLinksOk && report.imageOk && report.pinchAnchorOk && report.secondFileUntouched && report.crumbsOk && report.newTabOk && report.dragOk && report.filesNavOk && report.diagramsOk ? 0 : 1);

@@ -32,8 +32,8 @@
       // p null = an untitled tab (⌘T): always ask where to save, never write it over the page's own file.
       if (p && isFile) return MdExt.saveViaPicker('url:' + href, disp.name, t, flash);
       if (!window.showSaveFilePicker) throw new Error('Saving is not available on this page');
-      const json = hint && hint.ext === 'json', sql = hint && hint.ext === 'sql';
-      const h = await window.showSaveFilePicker({ suggestedName: p ? disp.name : (json ? 'untitled.json' : sql ? 'untitled.sql' : 'untitled.md'), types: [json ? { description: 'JSON', accept: { 'application/json': ['.json'] } } : sql ? { description: 'SQL', accept: { 'application/sql': ['.sql'] } } : { description: 'Markdown', accept: { 'text/markdown': ['.md'] } }] });
+      const json = hint && hint.ext === 'json', sql = hint && hint.ext === 'sql', mmd = hint && hint.ext === 'mmd';
+      const h = await window.showSaveFilePicker({ suggestedName: p ? disp.name : (json ? 'untitled.json' : sql ? 'untitled.sql' : mmd ? 'untitled.mmd' : 'untitled.md'), types: [json ? { description: 'JSON', accept: { 'application/json': ['.json'] } } : sql ? { description: 'SQL', accept: { 'application/sql': ['.sql'] } } : mmd ? { description: 'Mermaid diagram', accept: { 'text/plain': ['.mmd'] } } : { description: 'Markdown', accept: { 'text/markdown': ['.md'] } }] });
       await MdExt.writeHandle(h, t);
     },
     getPref: MdExt.prefs.get,

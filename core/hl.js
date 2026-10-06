@@ -140,6 +140,19 @@
     [rx('^[A-Za-z-]+(?=:)', 'm'), 'a'], [NUM, 'n'],
   ]);
 
+  // Mermaid source (shown under a drawn diagram via "Source"): the diagram word and structure words as keywords,
+  // arrows as operators, quoted text and |edge labels| as strings, %% comments. Node labels in brackets stay plain.
+  def('mermaid mmd', [
+    [rx('%%[^\\n]*'), 'c'], [rx('^\\s*---\\s*$', 'm'), 'h'], [DQ, 's'], [rx('\\|[^|\\n]*\\|'), 's'],
+    [rx('^\\s*(?:flowchart|graph|sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|erDiagram|gantt|pie|journey|gitGraph|mindmap|timeline|quadrantChart|xychart-beta|block-beta|sankey-beta|requirementDiagram|C4\\w+|architecture-beta|kanban|packet-beta|radar|treemap)\\b', 'm'), 'h'],
+    [rx('(?:<?-{2,}>?|<?-\\.+->?|<?={2,}>?|-{2,}[xo]\\b|[xo]-{2,}>?|<<-->>|<<->>|-->>|->>|--x|-x|--\\)|-\\)|<\\|--|--\\|>|\\*--|--\\*|o--|--o|\\.\\.\\|>|<\\|\\.\\.|\\.\\.>|<\\.\\.|\\|\\|--|--\\|\\||}o--|--o{|}\\|--|--\\|{|o\\|--|--\\|o|\\.\\.)'), 'o'],
+    [kw(`subgraph end direction style classDef class click linkStyle participant actor loop alt else opt par and critical
+      break option note over left right of activate deactivate autonumber rect box title section dateFormat axisFormat
+      state as commit branch checkout merge cherry-pick accTitle accDescr todayMarker excludes x-axis y-axis line bar
+      columns block space root`), 'k'],
+    [kw('TD TB LR RL BT'), 't'], [NUM, 'n'], [rx('[\\[\\]{}()]'), 'p'], [rx(':'), 'p'],
+  ]);
+
   function tokenize(code, rules) {
     const out = [];
     let i = 0;

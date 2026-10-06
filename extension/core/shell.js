@@ -103,10 +103,12 @@
     // comment above it, with a plain-words summary and role-coloured code.
     const IS_JSON = (p) => /\.json$/i.test((p || '').split(/[?#]/)[0]);
     const IS_SQL = (p) => /\.(sql|hql|psql)$/i.test((p || '').split(/[?#]/)[0]);
+    // A .mmd / .mermaid file (or an untitled paste that starts with a diagram word) is one drawn diagram: core/diagram.js.
+    const IS_MMD = (p) => /\.(mmd|mermaid)$/i.test((p || '').split(/[?#]/)[0]);
     const docKind = () => {
       const t = curTab(); if (!t) return 'md';
-      if (isUntitled(t)) return global.JV && JV.looksLikeJson(S.text) ? 'json' : global.SQLV && SQLV.looksLikeSql(S.text) ? 'sql' : 'md';
-      return IS_JSON(curDisp().name) ? 'json' : IS_SQL(curDisp().name) && global.SQLV ? 'sql' : 'md';
+      if (isUntitled(t)) return global.JV && JV.looksLikeJson(S.text) ? 'json' : global.DG && DG.looksLike(S.text) ? 'mmd' : global.SQLV && SQLV.looksLikeSql(S.text) ? 'sql' : 'md';
+      return IS_JSON(curDisp().name) ? 'json' : IS_SQL(curDisp().name) && global.SQLV ? 'sql' : IS_MMD(curDisp().name) && global.DG ? 'mmd' : 'md';
     };
     function formatDoc(minify) {
       const kind = docKind();
@@ -129,7 +131,7 @@
       root.dataset.kind = kind;
       fmtBtn.title = kind === 'sql' ? 'Re-indent SQL (⌘⇧F) -- whitespace only, the query is unchanged' : 'Format JSON (⌘⇧F) · ⌥-click to minify';
       $('.gutter span', editor).textContent = kind;
-      const r = kind === 'json' ? JV.renderDoc(S.text, { name: curDisp().name }) : kind === 'sql' ? SQLV.renderDoc(S.text, { name: curDisp().name }) : MD.renderDoc(S.text, { base: docBase(), home: adapter.home });
+      const r = kind === 'json' ? JV.renderDoc(S.text, { name: curDisp().name }) : kind === 'sql' ? SQLV.renderDoc(S.text, { name: curDisp().name }) : kind === 'mmd' ? DG.renderDoc(S.text, { name: curDisp().name }) : MD.renderDoc(S.text, { base: docBase(), home: adapter.home });
       head.replaceChildren(...r.headEl.childNodes);
       // chips (sections theme shows them; others hide via CSS)
       head.append(h('nav', { class: 'chips' }, ...r.sectionEls.map((s) => h('a', { href: '#' + s.id, onclick: (e) => { e.preventDefault(); scrollTo(s.id); }, html: (s.el.querySelector('h2 .t') || {}).innerHTML || MD.esc(s.title) }))));
@@ -154,6 +156,10 @@
         meta.replaceChildren(h('div', {}, nd > 1 ? `${nd} documents · ${r.stats.tables} tables` : `${Math.max(0, r.toc.length - 1)} top-level keys · ${r.stats.tables} tables`), h('div', {}, r.json.error ? 'invalid JSON' : `${lines} lines · valid JSON`));
         $('.wc', editor).textContent = lines + ' lines';
         head.querySelectorAll('button.jx').forEach((b) => b.addEventListener('click', () => { const on = b.dataset.act === 'expand'; doc.querySelectorAll('details.jn:not(.jraw)').forEach((d) => { d.open = on; }); }));
+      } else if (kind === 'mmd') {
+        const a = r.diagram;
+        meta.replaceChildren(h('div', {}, `${a.label} · ${a.line}`), h('div', {}, `${a.lines} lines · mermaid`));
+        $('.wc', editor).textContent = a.lines + ' lines';
       } else if (kind === 'sql') {
         const q = r.sql;
         meta.replaceChildren(h('div', {}, `${q.statements} statement${q.statements === 1 ? '' : 's'} · ${q.tables} table${q.tables === 1 ? '' : 's'}${q.ctes ? ` · ${q.ctes} named set${q.ctes === 1 ? '' : 's'}` : ''}`), h('div', {}, `${q.lines} lines · SQL`));
@@ -279,7 +285,7 @@
       });
     }
     // ---------- absolute paths written in the text ----------
-    const IS_MD = (p) => /\.(md|markdown|mdown|mkd|json|sql)$/i.test(p);
+    const IS_MD = (p) => /\.(md|markdown|mdown|mkd|json|sql|mmd|mermaid)$/i.test(p);
     const expandPath = (p) => (p.startsWith('~/') && adapter.home ? adapter.home + p.slice(1) : p);
     // Paths that do not exist on disk are shown as plain text, not links (app only: the extension has no fs access).
     async function checkPathLinks() {
@@ -779,7 +785,7 @@
     // content calls for -- .json when the pasted text is JSON) and returns the path, which the tab then adopts (it
     // becomes an ordinary file tab). Throws if the user cancels.
     async function writeTab(t) {
-      const ext = isUntitled(t) && global.JV && JV.looksLikeJson(t.text) ? 'json' : isUntitled(t) && global.SQLV && SQLV.looksLikeSql(t.text) ? 'sql' : 'md';
+      const ext = isUntitled(t) && global.JV && JV.looksLikeJson(t.text) ? 'json' : isUntitled(t) && global.DG && DG.looksLike(t.text) ? 'mmd' : isUntitled(t) && global.SQLV && SQLV.looksLikeSql(t.text) ? 'sql' : 'md';
       const p = await adapter.writeFile(isUntitled(t) ? null : t.path, t.text, { ext });
       t.saved = t.text;
       if (isUntitled(t) && typeof p === 'string' && p) {
@@ -971,7 +977,7 @@
       else {
         // Relative link: open sibling .md files in the reader; anything else is ignored rather than navigating away.
         e.preventDefault();
-        if (/\.(md|markdown|mdown|mkd|json|sql)(#.*)?$/i.test(href) && S.path && adapter.readFile) {
+        if (/\.(md|markdown|mdown|mkd|json|sql|mmd|mermaid)(#.*)?$/i.test(href) && S.path && adapter.readFile) {
           const base = S.path.slice(0, S.path.lastIndexOf('/') + 1);
           const target = href.split('#')[0].split('/').reduce((acc, seg) => { if (seg === '..') acc.pop(); else if (seg && seg !== '.') acc.push(seg); return acc; }, base.split('/').filter(Boolean));
           loadFile('/' + target.join('/')).catch(() => flash('Could not open ' + href));
