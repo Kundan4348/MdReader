@@ -445,3 +445,19 @@ html[data-theme=sections]{--dg-node:#ffffff;--dg-alt:#f3f6fa;--dg-soft:#e8effc;-
 .app[data-kind=mmd] .doc .diagram{margin-top:.6em}
 .app[data-kind=mmd] .top button.fmt{display:none}
 html[data-theme=studio] .diagram .dgerr b{color:#ff8b8b}
+/* Find bar (⌘F): one quiet row at the top right of the reading pane, in the theme's own colours. */
+.centre{position:relative}
+.findbar{position:absolute;right:22px;z-index:25;display:flex;align-items:center;gap:4px;padding:5px 6px 5px 10px;border-radius:9px;
+  background:var(--panel,var(--card,var(--paper,#fff)));color:var(--ink,var(--text,#222));border:1px solid var(--line-2,var(--line,var(--rule,#d6d6d6)));
+  box-shadow:0 6px 22px rgba(0,0,0,.12);font:13px/1.2 var(--sans,system-ui,sans-serif)}
+.findbar[hidden]{display:none}
+.findbar .fq{width:220px;border:0;outline:0;background:transparent;color:inherit;font:inherit;padding:4px 2px}
+.findbar .fcount{min-width:64px;text-align:right;font-size:12px;color:var(--ink-3,var(--text-3,#888));font-variant-numeric:tabular-nums;white-space:nowrap;padding-right:4px}
+.findbar.none .fcount{color:var(--accent-2,#b0552f)}
+.findbar button{border:0;background:transparent;color:inherit;font:inherit;font-size:13px;width:26px;height:24px;border-radius:6px;cursor:pointer;opacity:.75;padding:0}
+.findbar button:hover{opacity:1;background:color-mix(in srgb,currentColor 9%,transparent)}
+.findbar .fcase{font-size:12px;font-weight:600;width:30px}
+.findbar .fcase[aria-pressed=true]{opacity:1;background:color-mix(in srgb,var(--accent,#3b82f6) 18%,transparent);color:var(--accent,#3b82f6)}
+::highlight(mdr-find){background:color-mix(in srgb,#f5c542 38%,transparent)}
+::highlight(mdr-find-cur){background:color-mix(in srgb,#f59e0b 72%,transparent)}
+html[data-theme=studio] ::highlight(mdr-find){background:color-mix(in srgb,#f5c542 30%,transparent)}

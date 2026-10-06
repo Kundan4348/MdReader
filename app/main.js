@@ -193,7 +193,15 @@ function buildMenu() {
       { label: 'Close Tab', accelerator: 'CmdOrCtrl+W', click: () => send('close-tab') },
       { label: 'Close Window', accelerator: 'CmdOrCtrl+Alt+W', role: 'close' },
     ] },
-    { role: 'editMenu' },
+    { label: 'Edit', submenu: [
+      { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
+      { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'pasteAndMatchStyle' }, { role: 'delete' }, { role: 'selectAll' },
+      { type: 'separator' },
+      { label: 'Find…', accelerator: 'CmdOrCtrl+F', click: () => send('find') },
+      { label: 'Find Next', accelerator: 'CmdOrCtrl+G', click: () => send('find:next') },
+      { label: 'Find Previous', accelerator: 'CmdOrCtrl+Shift+G', click: () => send('find:prev') },
+      ...(isMac ? [{ type: 'separator' }, { role: 'startSpeaking' }, { role: 'stopSpeaking' }] : []),
+    ] },
     { label: 'View', submenu: [
       { label: 'Read', accelerator: 'CmdOrCtrl+1', click: () => send('mode:read') },
       { label: 'Edit', accelerator: 'CmdOrCtrl+2', click: () => send('mode:edit') },

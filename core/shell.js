@@ -84,7 +84,7 @@
     const meta = h('div', { class: 'meta' });
     const outline = h('aside', { class: 'outline' }, h('h6', {}, 'Outline'), toc, meta);
     const toast = h('div', { class: 'toast' });
-    const hint = h('div', { class: 'hint', html: 'Edit <kbd>⌘E</kbd> · Save <kbd>⌘S</kbd> · Text size <kbd>⌘+</kbd><kbd>⌘−</kbd> · Width <kbd>⌘⇧W</kbd> · Themes <kbd>⌘⇧Y</kbd> · Reopen closed tab <kbd>⌘⇧T</kbd>' });
+    const hint = h('div', { class: 'hint', html: 'Find <kbd>⌘F</kbd> · Edit <kbd>⌘E</kbd> · Save <kbd>⌘S</kbd> · Text size <kbd>⌘+</kbd><kbd>⌘−</kbd> · Width <kbd>⌘⇧W</kbd> · Themes <kbd>⌘⇧Y</kbd> · Reopen closed tab <kbd>⌘⇧T</kbd>' });
     root.append(top, files, centre, outline, toast, hint);
     setTimeout(() => hint.classList.add('gone'), 6000);
 
@@ -175,6 +175,7 @@
       wireTables();
       wireCode();
       if (global.CSS && CSS.highlights) CSS.highlights.delete('mdr-mirror'); // ranges pointed at the old nodes
+      refreshFind();
     }
     function copyJsonSection(i) { navigator.clipboard.writeText(JV.sectionSource(S.text, i)).then(() => flash('JSON copied')); }
     function copySqlSection(i) { navigator.clipboard.writeText(SQLV.sectionSource(S.text, i)).then(() => flash('SQL copied')); }
@@ -383,6 +384,7 @@
       sync.marked = [];
       hl.replaceChildren(...sync.lines);
       hl.scrollTop = ta.scrollTop;
+      refreshFind();
     }
     const buildMirrorSoon = debounce(buildMirror, 60);
     // The editor pane fills exactly the visible height of the content pane in Edit and Split, so the textarea is the
@@ -963,6 +965,8 @@
       if (e.altKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) { e.preventDefault(); return nextTab(e.key === 'ArrowRight' ? 1 : -1); }
       if (k === 'w' && !e.shiftKey && S.tabs.length) { e.preventDefault(); return closeTab(); }
       if (k === 't' && !e.shiftKey) { e.preventDefault(); return newTab(); }
+      if (k === 'f' && !e.shiftKey && !e.altKey) { e.preventDefault(); return openFind(); }
+      if (k === 'g') { e.preventDefault(); return stepFind(e.shiftKey ? -1 : 1); }
       if (k === 's') { e.preventDefault(); save(); }
       else if (k === 'e' && !e.shiftKey) { e.preventDefault(); setMode(S.mode === 'read' ? 'edit' : 'read'); }
       else if (k === '1') { e.preventDefault(); setMode('read'); } else if (k === '2') { e.preventDefault(); setMode('edit'); } else if (k === '3') { e.preventDefault(); setMode('split'); }
@@ -1025,7 +1029,134 @@
       saveBtn.disabled = true;
     })();
 
+    // ---------- find (⌘F) ----------
+    // One bar for every document kind (markdown, JSON, SQL, mermaid) and every mode. Read searches the rendered
+    // page; Edit searches the source (highlights drawn on the line mirror under the textarea); Split highlights both
+    // and steps through the pane you last worked in. Matches are painted with the CSS Custom Highlight API, so the
+    // document's DOM is never touched; a match inside a folded JSON node opens that node when you step to it.
+    const findIn = h('input', { class: 'fq', type: 'text', placeholder: 'Find', spellcheck: 'false', 'aria-label': 'Find in document' });
+    const findCount = h('span', { class: 'fcount' });
+    const findCase = h('button', { class: 'fcase', title: 'Match case', 'aria-pressed': 'false' }, 'Aa');
+    const findPrev = h('button', { class: 'fprev', title: 'Previous match (⇧⌘G)', html: '&#x2191;' });
+    const findNext = h('button', { class: 'fnext', title: 'Next match (⌘G · Enter)', html: '&#x2193;' });
+    const findClose = h('button', { class: 'fclose', title: 'Close (Esc)', html: '&#x2715;' });
+    const findBar = h('div', { class: 'findbar', hidden: '', role: 'search' }, findIn, findCount, findCase, findPrev, findNext, findClose);
+    centre.append(findBar);
+    const F = { open: false, q: '', cs: false, pane: 'doc', hits: { doc: [], src: [] }, cur: -1 };
+    const hasHL = !!(global.CSS && CSS.highlights && global.Highlight);
+    const SKIP = 'button, select, input, textarea, .tools, .codebar, .dgbar, .srchl, script, style';
+    const BLOCKISH = /^(P|LI|TD|TH|H[1-6]|PRE|DIV|SUMMARY|DT|DD|BLOCKQUOTE|FIGCAPTION|TR|SECTION|ARTICLE|DETAILS|TABLE|UL|OL)$/;
+    const blockOf = (n) => { let e = n.parentElement; while (e && !BLOCKISH.test(e.tagName)) e = e.parentElement; return e; };
+    // Rendered text: one string per document with a map back to text nodes; a separator between blocks keeps a
+    // match from running from the end of one paragraph into the next, while **bold** words inside a sentence match.
+    function docHits(q, cs) {
+      const nodes = [], starts = []; let text = '', lastBlock = null;
+      const w = document.createTreeWalker(doc, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (!n.nodeValue || n.parentElement.closest(SKIP) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
+      for (let n; (n = w.nextNode());) {
+        const b = blockOf(n); if (b !== lastBlock) { text += '\u0000'; lastBlock = b; }
+        starts.push(text.length); nodes.push(n); text += n.nodeValue;
+      }
+      const hay = cs ? text : text.toLowerCase(), needle = cs ? q : q.toLowerCase(), out = [];
+      const at = (pos) => { let lo = 0, hi = starts.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (starts[m] <= pos) lo = m; else hi = m - 1; } return lo; };
+      for (let i = hay.indexOf(needle); i >= 0 && out.length < 5000; i = hay.indexOf(needle, i + needle.length)) {
+        const a = at(i), b = at(i + needle.length - 1), r = document.createRange();
+        r.setStart(nodes[a], i - starts[a]); r.setEnd(nodes[b], i + needle.length - starts[b]); out.push(r);
+      }
+      // a row hidden by a table filter is not a match you can see; a folded JSON node is (it opens on the way)
+      return out.filter((r) => { const el = r.startContainer.parentElement; return (el.checkVisibility ? el.checkVisibility() || el.closest('details:not([open])') : true); });
+    }
+    function srcHits(q, cs) {
+      if (S.mode === 'read' || !sync.lines || !sync.lines.length) return [];
+      const needle = cs ? q : q.toLowerCase(), out = [];
+      sync.lines.forEach((d, ln) => {
+        const t = d.firstChild; if (!t || t.nodeType !== 3) return;
+        const v = cs ? t.nodeValue : t.nodeValue.toLowerCase();
+        for (let i = v.indexOf(needle); i >= 0 && out.length < 5000; i = v.indexOf(needle, i + needle.length)) { const r = document.createRange(); r.setStart(t, i); r.setEnd(t, i + needle.length); r.ln = ln; r.col = i; out.push(r); }
+      });
+      return out;
+    }
+    const navPane = () => (S.mode === 'read' ? 'doc' : S.mode === 'edit' ? 'src' : F.pane);
+    function paintFind() {
+      if (!hasHL) return;
+      const list = navPane() === 'src' ? F.hits.src : F.hits.doc, cur = list[F.cur];
+      CSS.highlights.set('mdr-find', new Highlight(...F.hits.doc, ...F.hits.src.filter((r) => r !== cur)));
+      const hc = new Highlight(...(cur ? [cur] : [])); hc.priority = 2; CSS.highlights.set('mdr-find-cur', hc);
+    }
+    function runFind(keep) {
+      F.q = findIn.value; F.cs = findCase.getAttribute('aria-pressed') === 'true';
+      const prev = keep ? curFindY() : null;
+      F.hits = F.q ? { doc: S.mode === 'edit' ? [] : docHits(F.q, F.cs), src: srcHits(F.q, F.cs) } : { doc: [], src: [] };
+      const list = navPane() === 'src' ? F.hits.src : F.hits.doc;
+      // keep the place: after a re-render or an edit, continue from the match at (or after) the previous one
+      F.cur = !list.length ? -1 : prev === null ? firstVisible(list) : Math.max(0, list.findIndex((r) => hitY(r) >= prev - 1));
+      if (F.cur < 0 && list.length) F.cur = 0;
+      findCount.textContent = !F.q ? '' : list.length ? `${F.cur + 1} of ${list.length}${list.length >= 5000 ? '+' : ''}` : 'No matches';
+      findBar.classList.toggle('none', !!F.q && !list.length);
+      paintFind();
+    }
+    const hitY = (r) => (r.ln !== undefined ? r.ln * 1e6 + r.col : r.getBoundingClientRect().top - content.getBoundingClientRect().top + content.scrollTop);
+    const curFindY = () => { const list = navPane() === 'src' ? F.hits.src : F.hits.doc; const r = list[F.cur]; return r && r.startContainer.isConnected ? hitY(r) : null; };
+    function firstVisible(list) { // the first match at or below the top of what you are looking at
+      if (navPane() === 'src') { const ln = Math.floor(lineAtY(ta.scrollTop)); const i = list.findIndex((r) => r.ln >= ln); return i < 0 ? 0 : i; }
+      const top = content.getBoundingClientRect().top; const i = list.findIndex((r) => r.getBoundingClientRect().bottom >= top + 4); return i < 0 ? 0 : i;
+    }
+    function showHit() {
+      const list = navPane() === 'src' ? F.hits.src : F.hits.doc, r = list[F.cur]; if (!r) return;
+      if (r.ln !== undefined) {
+        const y = lineY(r.ln) - hlPad();
+        if (y < ta.scrollTop + 20 || y > ta.scrollTop + ta.clientHeight - 40) { ta.scrollTop = Math.max(0, y - ta.clientHeight / 3); onSrcScroll(); }
+      } else {
+        for (let d = r.startContainer.parentElement.closest('details:not([open])'); d; d = d.parentElement.closest('details:not([open])')) d.open = true;
+        const cr = content.getBoundingClientRect(), rr = r.getBoundingClientRect();
+        if (rr.top < cr.top + 40 || rr.bottom > cr.bottom - 40) content.scrollTop += rr.top - cr.top - content.clientHeight / 3;
+      }
+      findCount.textContent = `${F.cur + 1} of ${list.length}${list.length >= 5000 ? '+' : ''}`;
+      paintFind();
+    }
+    function stepFind(dir) {
+      if (!F.open) return openFind();
+      if (findIn.value !== F.q) runFind();
+      const list = navPane() === 'src' ? F.hits.src : F.hits.doc; if (!list.length) return;
+      F.cur = (F.cur + dir + list.length) % list.length; showHit();
+    }
+    function openFind() {
+      const sel = S.mode !== 'read' && document.activeElement === ta ? ta.value.slice(ta.selectionStart, ta.selectionEnd) : String(getSelection() || '');
+      if (sel && !sel.includes('\n') && sel.length < 200) findIn.value = sel.trim() || findIn.value;
+      if (S.mode === 'split') F.pane = document.activeElement === ta ? 'src' : F.pane;
+      F.open = true; findBar.hidden = false; placeFind();
+      findIn.focus(); findIn.select(); runFind(); showHit();
+    }
+    function closeFind() {
+      if (!F.open) return;
+      F.open = false; findBar.hidden = true;
+      const list = navPane() === 'src' ? F.hits.src : F.hits.doc, r = list[F.cur];
+      if (hasHL) { CSS.highlights.delete('mdr-find'); CSS.highlights.delete('mdr-find-cur'); }
+      if (r && r.ln !== undefined) { const p = sync.starts[r.ln] + r.col; ta.focus({ preventScroll: true }); ta.setSelectionRange(p, p + F.q.length); } // leave the caret on the match, like an editor
+      else if (S.mode !== 'read') ta.focus({ preventScroll: true });
+      F.hits = { doc: [], src: [] }; F.cur = -1;
+    }
+    function placeFind() { findBar.style.top = (content.offsetTop + 10) + 'px'; }
+    // paint() and the mirror call this on every re-render; it is hoisted, and does nothing until the bar exists
+    refreshFind.ready = true;
+    function refreshFind() { if (!refreshFind.ready || !F.open) return; clearTimeout(refreshFind.t); refreshFind.t = setTimeout(() => F.open && runFind(true), 120); }
+    findIn.addEventListener('input', () => { runFind(); showHit(); });
+    findIn.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); stepFind(e.shiftKey ? -1 : 1); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeFind(); }
+      else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'g') { e.preventDefault(); e.stopPropagation(); stepFind(e.shiftKey ? -1 : 1); }
+      else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f' && !e.shiftKey) { e.preventDefault(); e.stopPropagation(); findIn.select(); }
+    });
+    findCase.onclick = () => { findCase.setAttribute('aria-pressed', String(findCase.getAttribute('aria-pressed') !== 'true')); runFind(); showHit(); findIn.focus(); };
+    findPrev.onclick = () => { stepFind(-1); findIn.focus(); };
+    findNext.onclick = () => { stepFind(1); findIn.focus(); };
+    findClose.onclick = () => closeFind();
+    // In Split the arrows walk the pane you last worked in
+    ta.addEventListener('pointerdown', () => { if (F.pane !== 'src') { F.pane = 'src'; if (F.open) runFind(); } });
+    doc.addEventListener('pointerdown', () => { if (F.pane !== 'doc') { F.pane = 'doc'; if (F.open) runFind(); } });
+    addEventListener('resize', () => F.open && placeFind());
+
     return { loadFile, newTab, closeTab, nextTab, showTab, setWidth, stepZoom, resetZoom, cycleWidth, reopenClosed, toggleRecent, treeUp,
+      find: openFind, findNext: () => stepFind(1), findPrev: () => stepFind(-1),
       saveAll: async () => { stashActive(); for (const t of S.tabs) if (t.text !== t.saved) await writeTab(t); if (S.tabs[S.tab]) { S.saved = S.tabs[S.tab].saved; S.path = S.tabs[S.tab].path; setDirty(false); } notifyTabs(); },
       setText: (t, path) => { S.path = path || S.path; S.saved = t; setText(t); setDirty(false); const tb = S.tabs[S.tab]; if (tb) { tb.text = tb.saved = t; } paint(); }, setTheme, setMode, save, get state() { return S; } };
   }

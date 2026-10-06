@@ -68,6 +68,9 @@ api.onCmd(async (cmd) => {
   else if (cmd === 'open') { const p = await api.openDialog(); if (p) open(p); }
   else if (cmd === 'reveal') { if (!isUntitled(S.path)) api.reveal(S.path); }
   else if (cmd === 'reopen-closed') shell.reopenClosed();
+  else if (cmd === 'find') shell.find();
+  else if (cmd === 'find:next') shell.findNext();
+  else if (cmd === 'find:prev') shell.findPrev();
   else if (cmd === 'show-recent') { showEmpty(false); shell.toggleRecent(true); }
   else if (cmd === 'toggle-edit') shell.setMode(S.mode === 'read' ? 'edit' : 'read');
   else if (cmd.startsWith('mode:')) shell.setMode(cmd.slice(5));
