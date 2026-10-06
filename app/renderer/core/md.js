@@ -84,7 +84,9 @@
     root.querySelectorAll('pre > code').forEach((code) => decorateCode(code.parentElement, code));
     root.querySelectorAll('input[type=checkbox]').forEach((cb) => { cb.disabled = true; cb.closest('li')?.classList.add('task'); });
     root.querySelectorAll('a[href^="http"]').forEach((a) => { a.target = '_blank'; a.rel = 'noopener'; });
+    root.querySelectorAll('img[src]').forEach((img) => img.setAttribute('data-src-written', img.getAttribute('src')));
     rebaseImages(root, opts && opts.base, opts && opts.home);
+    markMissingImages(root);
     linkifyPaths(root);
   }
 
@@ -140,6 +142,31 @@
         img.src = new URL(enc, baseUrl).href;
         img.loading = 'lazy';
       } catch { /* leave as written */ }
+    });
+  }
+
+  // A picture whose file is not there would otherwise show as a tiny broken icon (or nothing), with no hint why.
+  // Replace it with a quiet box that names the file and the folder it was looked for in.
+  function markMissingImages(root) {
+    root.querySelectorAll('img[src]').forEach((img) => {
+      const miss = () => {
+        if (img.dataset.missing || !img.parentNode) return;
+        img.dataset.missing = '1';
+        const written = img.getAttribute('data-src-written') || img.getAttribute('src') || '';
+        let where = '';
+        try { const u = new URL(img.src); if (u.protocol === 'file:') where = decodeURIComponent(u.pathname); else where = u.href; } catch { where = img.src; }
+        const box = document.createElement('span');
+        box.className = 'imgmissing';
+        box.title = where;
+        const t = document.createElement('b'); t.textContent = 'Picture not found';
+        const f = document.createElement('code'); f.textContent = written.split('/').pop() || written;
+        const w = document.createElement('span'); w.className = 'imgwhere';
+        w.textContent = where ? 'looked for ' + where : '';
+        box.append(t, ' · ', f, img.alt ? ' — ' + img.alt : '', document.createElement('br'), w);
+        img.replaceWith(box);
+      };
+      if (img.complete && img.naturalWidth === 0 && img.src) miss();
+      img.addEventListener('error', miss, { once: true });
     });
   }
 
