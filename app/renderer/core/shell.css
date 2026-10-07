@@ -396,8 +396,13 @@ html[data-theme=lumen]{--dg-node:#f4f5fd;--dg-alt:#f3f6fa;--dg-soft:#ecedfb;--dg
 .diagram .dgbar button.done{opacity:1;color:var(--tk-s,var(--dg-accent))}
 .diagram .dgbar button[aria-pressed=true]{opacity:1;background:color-mix(in srgb,currentColor 9%,transparent)}
 .diagram .dgbar button.big{font-size:13px;padding:1px 8px}
-.diagram .dgv{display:flex;justify-content:center;padding:22px 18px 18px;overflow-x:auto;min-height:72px;cursor:zoom-in}
-.diagram .dgv svg{max-width:100%;height:auto;display:block;font-family:var(--dg-font,inherit)}
+.diagram .dgv{display:flex;justify-content:safe center;padding:22px 18px 18px;overflow-x:auto;min-height:72px;cursor:zoom-in}
+.diagram .dgv svg{max-width:100%;height:auto;display:block;flex:none;font-family:var(--dg-font,inherit)}
+.diagram.wide .dgv{justify-content:flex-start}
+.diagram .icon-shape .label rect,.diagram .icon-shape rect.label-bkg{fill:transparent!important}
+.diagram .icon-shape .nodeLabel,.diagram .icon-shape .label div{background:transparent!important}
+.diagram .dglegend .lg svg.g.aws{opacity:1;stroke:none;border-radius:3px}
+.diagram .dglegend.off .lg svg.g.aws{width:14px;height:14px}
 .diagram .dgwait{opacity:.45;font-size:.85em;align-self:center;font-family:var(--sans,system-ui)}
 .diagram .dgsum{margin:0;padding:0 16px 12px;font-size:.88em;opacity:.72;line-height:1.5}
 .diagram .dgsum+.dglegend,.diagram .dgv+.dglegend{border-top:1px solid var(--tk-rule)}
@@ -421,11 +426,11 @@ html[data-theme=lumen]{--dg-node:#f4f5fd;--dg-alt:#f3f6fa;--dg-soft:#ecedfb;--dg
 .diagram .dglegend.off .lg svg.g{width:16px;opacity:.45}
 .diagram .dglegend.off::after{content:"how to read";font-size:.9em;opacity:.4;margin-left:.2em}
 /* hover trace: the hovered step / participant and what it connects to stay; everything else fades */
-.diagram svg.dg-trace .node:not(.dg-on),.diagram svg.dg-trace .flowchart-link:not(.dg-on),.diagram svg.dg-trace .edgeLabel:not(.dg-on),.diagram svg.dg-trace .edgePath:not(.dg-on){opacity:.22;transition:opacity .12s}
-.diagram svg.dg-trace .node.dg-on,.diagram svg.dg-trace .flowchart-link.dg-on{opacity:1}
+.diagram svg.dg-trace .node:not(.dg-on),.diagram svg.dg-trace .icon-shape:not(.dg-on),.diagram svg.dg-trace .flowchart-link:not(.dg-on),.diagram svg.dg-trace .edgeLabel:not(.dg-on),.diagram svg.dg-trace .edgePath:not(.dg-on){opacity:.22;transition:opacity .12s}
+.diagram svg.dg-trace .node.dg-on,.diagram svg.dg-trace .icon-shape.dg-on,.diagram svg.dg-trace .flowchart-link.dg-on{opacity:1}
 .diagram svg.dg-trace.dg-seq .messageLine0:not(.dg-on),.diagram svg.dg-trace.dg-seq .messageLine1:not(.dg-on),.diagram svg.dg-trace.dg-seq .messageText:not(.dg-on),.diagram svg.dg-trace.dg-seq rect.actor:not(.dg-on),.diagram svg.dg-trace.dg-seq text.actor:not(.dg-on),.diagram svg.dg-trace.dg-seq .sequenceNumber:not(.dg-on){opacity:.2;transition:opacity .12s}
 .diagram svg .node,.diagram svg rect.actor,.diagram svg text.actor{cursor:default}
-.dgzoom svg.dg-trace .node:not(.dg-on),.dgzoom svg.dg-trace .flowchart-link:not(.dg-on),.dgzoom svg.dg-trace .edgeLabel:not(.dg-on){opacity:.22}
+.dgzoom svg.dg-trace .node:not(.dg-on),.dgzoom svg.dg-trace .icon-shape:not(.dg-on),.dgzoom svg.dg-trace .flowchart-link:not(.dg-on),.dgzoom svg.dg-trace .edgeLabel:not(.dg-on){opacity:.22}
 .dgzoom svg.dg-trace.dg-seq .messageLine0:not(.dg-on),.dgzoom svg.dg-trace.dg-seq .messageLine1:not(.dg-on),.dgzoom svg.dg-trace.dg-seq .messageText:not(.dg-on),.dgzoom svg.dg-trace.dg-seq rect.actor:not(.dg-on),.dgzoom svg.dg-trace.dg-seq text.actor:not(.dg-on){opacity:.2}
 /* a diagram that cannot be drawn: a quiet note with the line, the source stays open underneath */
 .diagram .dgerr{display:flex;flex-direction:column;gap:6px;align-self:center;max-width:62ch;font-family:var(--sans,system-ui);font-size:.9em;line-height:1.5;padding:4px 0}

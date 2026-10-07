@@ -126,7 +126,7 @@
     if (kinds.has('line')) legend.push({ glyph: 'line', name: 'Related' });
     if (kinds.has('cross')) legend.push({ glyph: 'cross', name: 'Stops / rejects' });
     if (edges.some((e) => e.label)) legend.push({ glyph: 'label', name: 'Arrow text = the condition or event' });
-    return { line: parts.join(' · '), line2: line2.length ? line2.join(' · ').replace(/^./, (c) => c.toUpperCase()) : '', legend, hover: all.length > 1 && edges.length ? 'Hover a step to trace its arrows' : '', nodes: all.length, edges: edges.length, decisions: decisions.length };
+    return { line: parts.join(' · '), line2: line2.length ? line2.join(' · ').replace(/^./, (c) => c.toUpperCase()) : '', legend, hover: all.length > 1 && edges.length ? 'Hover a step to trace its arrows' : '', nodeList: all, nodes: all.length, edges: edges.length, decisions: decisions.length };
   }
   const MSG_RE = /^([\w][\w .-]*?)\s*(<<-->>|<<->>|-->>|->>|-->|->|--x|-x|--\)|-\))\s*([+-]?)\s*([\w][\w .-]*?)\s*:\s*(.*)$/;
   function readSequence(b) {
@@ -246,11 +246,79 @@
     'rel-implement': G('<path d="M1.5 7h12" stroke-dasharray="2.5 2.5"/><path d="M13.5 2.5 19.5 7l-6 4.5Z" fill="none"/>'), 'rel-depend': G('<path d="M1.5 7h16" stroke-dasharray="2.5 2.5"/><path d="M14 3.5 18.5 7 14 10.5" fill="none"/>'), 'rel-use': G('<path d="M1.5 7h16"/><path d="M14 3.5 18.5 7 14 10.5" fill="none"/>'), 'rel-link': G('<path d="M1.5 7h19"/>'),
     er: G('<path d="M1.5 7h19"/><path d="M4 3.5v7"/><circle cx="17" cy="7" r="2.5"/>'), bar: G('<rect x="1.5" y="4" width="15" height="6" rx="1" fill="currentColor" opacity=".55"/>'), today: G('<path d="M11 1.5v11" stroke-dasharray="2 2"/>'),
   };
+  const MIN_SCALE = 0.85, SHRINK_LIMIT = 0.6; // fitting below 60% makes text unreadable: show at 85% and scroll instead
+  // ---------- AWS service icons ----------
+  // A flowchart node whose label names an AWS service (Lambda, Kinesis, SNS, SQS, DynamoDB, S3, ...) is drawn as that
+  // service's icon with the label underneath, the way AWS architecture diagrams look. The icons are drawn here in the
+  // style of the AWS set (a rounded tile in the service category's colour, a white line glyph) -- nothing is fetched.
+  // A cylinder (database) node that names no service gets the generic database icon.
+  const AWS_CAT = { compute: '#ED7100', storage: '#7AA116', database: '#C925D1', integration: '#E7157B', analytics: '#8C4FFF', network: '#8C4FFF', mgmt: '#E7157B' };
+  const W = 'fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"';
+  const AWS = {
+    lambda: ['Lambda function', 'compute', `<path ${W} d="M8.2 5.5h3.1l5.2 13h-2.6l-1.5-3.8-2.9 3.8H6.8l4.3-5.6-1.6-4.2H8.2Z"/>`],
+    ecs: ['Container (ECS)', 'compute', `<path ${W} d="M12 5.5 18 9v6l-6 3.5L6 15V9Z M12 12.4 18 9 M12 12.4 6 9 M12 12.4v6.1"/>`],
+    ec2: ['EC2 instance', 'compute', `<rect ${W} x="7.5" y="7.5" width="9" height="9" rx="1"/><path ${W} d="M10 5v2.5M14 5v2.5M10 16.5V19M14 16.5V19M5 10h2.5M5 14h2.5M16.5 10H19M16.5 14H19"/>`],
+    kinesis: ['Kinesis stream', 'analytics', `<path ${W} d="M5.5 8.5c2.2-1.6 4.3 1.6 6.5 0s4.3 1.6 6.5 0M5.5 12c2.2-1.6 4.3 1.6 6.5 0s4.3 1.6 6.5 0M5.5 15.5c2.2-1.6 4.3 1.6 6.5 0s4.3 1.6 6.5 0"/>`],
+    firehose: ['Data Firehose', 'analytics', `<path ${W} d="M5.5 9h9M5.5 12h11M5.5 15h9M15 7l3.5 5-3.5 5"/>`],
+    redshift: ['Redshift', 'analytics', `<path ${W} d="M6 17.5V10M10 17.5V7M14 17.5v-6M18 17.5V8.5M5 17.5h14"/>`],
+    athena: ['Athena', 'analytics', `<circle ${W} cx="11" cy="11" r="4.6"/><path ${W} d="m14.4 14.4 4 4"/>`],
+    glue: ['Glue job', 'analytics', `<path ${W} d="M6 8.5h5v3H6ZM13 12.5h5v3h-5ZM11 10h2.2v4H13"/>`],
+    sns: ['SNS topic', 'integration', `<circle cx="12" cy="12" r="1.7" fill="#fff"/><path ${W} d="M8.6 8.6a4.8 4.8 0 0 0 0 6.8M15.4 8.6a4.8 4.8 0 0 1 0 6.8M6.3 6.3a8 8 0 0 0 0 11.4M17.7 6.3a8 8 0 0 1 0 11.4"/>`],
+    sqs: ['SQS queue', 'integration', `<rect ${W} x="5.5" y="8" width="13" height="8" rx="1"/><path ${W} d="M8.5 8v8M11.5 8v8M14.5 8v8"/>`],
+    eventbridge: ['EventBridge', 'integration', `<circle ${W} cx="7" cy="12" r="1.8"/><circle ${W} cx="17" cy="7.5" r="1.8"/><circle ${W} cx="17" cy="16.5" r="1.8"/><path ${W} d="M8.7 11.2 15.3 8.3M8.7 12.8l6.6 2.9"/>`],
+    stepfunctions: ['Step Functions', 'integration', `<rect ${W} x="9" y="5" width="6" height="3.6" rx=".8"/><rect ${W} x="5" y="15.4" width="6" height="3.6" rx=".8"/><rect ${W} x="13" y="15.4" width="6" height="3.6" rx=".8"/><path ${W} d="M12 8.6v3.4M8 15.4V12h8v3.4"/>`],
+    apigateway: ['API Gateway', 'network', `<path ${W} d="M9.5 7.5 5.5 12l4 4.5M14.5 7.5l4 4.5-4 4.5M12.8 6.5l-1.6 11"/>`],
+    dynamodb: ['DynamoDB table', 'database', `<ellipse ${W} cx="12" cy="7.5" rx="5.5" ry="2"/><path ${W} d="M6.5 7.5v9c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2v-9M6.5 12c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2"/><path d="m14.3 10.6 1.9-.6-.9 1.7" fill="#fff"/>`],
+    rds: ['RDS database', 'database', `<ellipse ${W} cx="12" cy="7.5" rx="5.5" ry="2"/><path ${W} d="M6.5 7.5v9c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2v-9M6.5 12c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2"/>`],
+    database: ['Database / store', 'database', `<ellipse ${W} cx="12" cy="7.5" rx="5.5" ry="2"/><path ${W} d="M6.5 7.5v9c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2v-9M6.5 12c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2"/>`],
+    s3: ['S3 bucket', 'storage', `<path ${W} d="M5.5 8c0-1.2 2.9-2.2 6.5-2.2s6.5 1 6.5 2.2l-1.6 9.4c0 .9-2.2 1.6-4.9 1.6s-4.9-.7-4.9-1.6Z M5.5 8c0 1.2 2.9 2.2 6.5 2.2s6.5-1 6.5-2.2"/>`],
+    cloudwatch: ['CloudWatch', 'mgmt', `<path ${W} d="M5.5 16.5a6.5 6.5 0 0 1 13 0M12 16.5l3-4.5M5.5 16.5h13"/>`],
+    appconfig: ['AppConfig', 'mgmt', `<path ${W} d="M7 8h10M7 12h10M7 16h10"/><circle cx="10" cy="8" r="1.5" fill="#fff"/><circle cx="15" cy="12" r="1.5" fill="#fff"/><circle cx="9" cy="16" r="1.5" fill="#fff"/>`],
+  };
+  const AWS_MATCH = [
+    [/\bstep ?functions?\b|\bsfn\b|state machine/i, 'stepfunctions'], [/\blambdas?\b/i, 'lambda'], [/\bfirehose\b/i, 'firehose'],
+    [/\bkinesis\b|\bkds\b/i, 'kinesis'], [/\bsns\b|\btopic\b/i, 'sns'], [/\bsqs\b|queue\b|\bdlq\b/i, 'sqs'], [/\bevent ?bridge\b|\bevent bus\b/i, 'eventbridge'],
+    [/\bapi ?gateway\b|\bapigw\b/i, 'apigateway'], [/\bdynamo(db)?\b|\bddb\b/i, 'dynamodb'], [/\bs3\b|\bbucket\b/i, 's3'], [/\bcloudwatch\b/i, 'cloudwatch'],
+    [/\bappconfig\b/i, 'appconfig'], [/\bredshift\b/i, 'redshift'], [/\bathena\b/i, 'athena'], [/\bglue\b/i, 'glue'], [/\b(rds|aurora|postgres(ql)?|mysql)\b/i, 'rds'],
+    [/\b(ecs|fargate|eks)\b/i, 'ecs'], [/\bec2\b/i, 'ec2'],
+  ];
+  const awsTile = (key, size = 24) => `<rect width="24" height="24" rx="4.5" fill="${AWS_CAT[AWS[key][1]]}" stroke="none"/>${AWS[key][2]}`;
+  const awsSvg = (key, px) => `<svg class="g aws" viewBox="0 0 24 24" width="${px}" height="${px}" aria-hidden="true">${awsTile(key)}</svg>`;
+  function awsKey(n) {
+    const t = String(n.label || '').replace(/<br\s*\/?>/gi, ' ');
+    for (const [re, k] of AWS_MATCH) if (re.test(t)) return k;
+    return n.shape === 'database' ? 'database' : null;
+  }
+  // Flowchart source + the parsed node list -> source with one "id@{ icon: ... }" line per AWS node (mermaid keeps the
+  // label from the node's first definition), and the services used, for the legend.
+  function withAws(src, a) {
+    if (!(a.kind === 'flowchart' || a.kind === 'graph') || !Array.isArray(a.nodeList) || localStorage.getItem('mdr-dg-aws') === 'off') return { src, used: [], iconed: new Set() };
+    const extra = [], used = [], iconed = new Set();
+    const keys = new Map(a.nodeList.map((n) => [n.id, awsKey(n)]));
+    // a cylinder alone is just "a database"; only an AWS diagram (one that names a real service) gets the AWS look
+    if (![...keys.values()].some((k) => k && k !== 'database')) return { src, used: [], iconed: new Set() };
+    for (const n of a.nodeList) {
+      const k = keys.get(n.id); if (!k || !/^[\w-]+$/.test(n.id)) continue;
+      const label = String(n.label || n.id).replace(/"/g, '#quot;');
+      extra.push(`  ${n.id}@{ icon: "aws:${k}", pos: "b", h: 44, label: "${label}" }`);
+      iconed.add(n.id);
+      if (!used.includes(k)) used.push(k);
+    }
+    return extra.length ? { src: src + '\n' + extra.join('\n'), used, iconed } : { src, used, iconed };
+  }
+  let awsRegistered = false;
+  function registerAws(m) {
+    if (awsRegistered || typeof m.registerIconPacks !== 'function') return;
+    const icons = {}; for (const k of Object.keys(AWS)) icons[k] = { body: awsTile(k) };
+    m.registerIconPacks([{ name: 'aws', icons: { prefix: 'aws', width: 24, height: 24, icons } }]);
+    awsRegistered = true;
+  }
+
   function legendEl(a) {
     if (!a.legend.length && !a.hover) return null;
     const el = h('div', { class: 'dglegend', title: 'How to read this diagram' });
     el.append(h('span', { class: 'lgt' }, 'How to read'));
-    a.legend.forEach((it) => el.append(h('span', { class: 'lg', html: (GLYPH[it.glyph] || '') + `<span>${esc(it.name)}</span>` })));
+    a.legend.forEach((it) => el.append(h('span', { class: 'lg' + (it.aws ? ' lg-aws' : ''), html: (it.html || GLYPH[it.glyph] || '') + `<span>${esc(it.name)}</span>` })));
     if (a.hover) el.append(h('span', { class: 'lg hint' }, a.hover));
     el.append(h('button', { type: 'button', class: 'lgx', title: 'Hide the legend (click the dots to bring it back)' }, '✕'));
     return el;
@@ -260,7 +328,14 @@
   // Every theme sets --dg-* colours on <html> (core/shell.css); mermaid wants hex, so they are read from the computed
   // style and poured into its "base" theme. Re-done whenever data-theme changes (observer below).
   const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-  const fontOf = () => { const b = getComputedStyle(document.body); return (cssVar('--dg-font') || b.fontFamily || 'system-ui').replace(/^var\(.*\)$/, b.fontFamily); };
+  // --dg-font is usually itself a var() (Lumen: var(--sans)); resolve it through a probe element so mermaid measures
+  // labels in the same font the CSS draws them in -- measuring in the body serif clipped labels drawn in Inter.
+  const fontOf = () => {
+    const b = getComputedStyle(document.body);
+    const p = document.createElement('span'); p.style.cssText = 'position:absolute;visibility:hidden;font-family:var(--dg-font)'; document.body.append(p);
+    const f = getComputedStyle(p).fontFamily; p.remove();
+    return f || b.fontFamily || 'system-ui';
+  };
   function palette() {
     const v = (n, d) => cssVar(n) || d;
     const node = v('--dg-node', '#f1eadf'), border = v('--dg-border', '#cdbfae'), text = v('--dg-text', '#2b2622'), line = v('--dg-line', '#8d837a'), accent = v('--dg-accent', '#b0552f');
@@ -312,6 +387,7 @@
     const m = await ensureLib();
     const theme = document.documentElement.dataset.theme || '';
     if (themedFor !== theme) { m.initialize(CFG()); themedFor = theme; }
+    registerAws(m);
     return m;
   }
   let seq = 0;
@@ -320,6 +396,9 @@
     const m = await engine();
     const key = (document.documentElement.dataset.theme || '') + '\n' + text;
     if (cache.has(key)) return cache.get(key);
+    // labels are measured once, at layout: if the web font is still loading they are sized for the fallback face and
+    // the real one is then clipped at the end ('Manufacturec'). Wait for it first (no-op once loaded).
+    try { if (document.fonts) await Promise.race([document.fonts.load('14px ' + fontOf()), new Promise((r) => setTimeout(r, 1500))]); } catch { /* best effort */ }
     const id = 'dg-' + (++seq) + '-' + Date.now().toString(36);
     const { svg } = await m.render(id, text);
     if (cache.size > 60) cache.delete(cache.keys().next().value);
@@ -333,6 +412,13 @@
   function card(text, opts = {}) {
     const src = String(text).replace(/\r\n/g, '\n').replace(/\n$/, '');
     const a = analyse(src);
+    const aws = withAws(src, a);
+    if (aws.used.length) {
+      // shapes now drawn only as icons drop out of the legend; the services used come first, in their own colours
+      const left = new Set(a.nodeList.filter((n) => !aws.iconed.has(n.id)).map((n) => SHAPES[n.shape] && SHAPES[n.shape][0]));
+      const shapeNames = new Set(Object.values(SHAPES).map((x) => x[0]));
+      a.legend = [...aws.used.map((k) => ({ aws: true, html: awsSvg(k, 16), name: AWS[k][0] })), ...a.legend.filter((it) => !shapeNames.has(it.name) || left.has(it.name))];
+    }
     const el = h('div', { class: 'diagram', 'data-kind': a.kind || 'unknown', 'data-label': a.label });
     const bar = h('div', { class: 'dgbar' },
       h('span', { class: 'kind', title: a.help || '' }, a.label),
@@ -362,7 +448,7 @@
     bar.querySelector('.copy').addEventListener('click', (e) => copyText(src, e.currentTarget, el));
     bar.querySelector('.big').addEventListener('click', () => openLarge(el, a));
     view.addEventListener('dblclick', () => openLarge(el, a));
-    el._dg = { src, a, view };
+    el._dg = { src, a, view, draw: aws.src };
     render(el);
     return el;
   }
@@ -376,11 +462,19 @@
   async function render(el) {
     const { src, a, view } = el._dg;
     let svg;
-    try { svg = await draw(src); } catch (e) { return showError(el, e); }
+    try { svg = await draw(el._dg.draw || src); } catch (e) { return showError(el, e); }
     if (!el._dg || el._dg.src !== src) return; // card was re-pointed meanwhile
     view.innerHTML = svg; view.removeAttribute('aria-busy'); el.classList.remove('broken');
     const s = view.querySelector('svg');
-    if (s) { s.removeAttribute('height'); s.style.maxWidth = s.style.maxWidth || '100%'; wireHover(s, a.kind); el.dataset.state = 'drawn'; }
+    if (s) {
+      s.removeAttribute('height'); s.style.maxWidth = s.style.maxWidth || '100%';
+      // A wide diagram squeezed into the column becomes unreadable (a 16-step left-to-right flow ended up with ~6px
+      // text). When fitting would shrink it below SHRINK_LIMIT, it is shown at MIN_SCALE instead and the card scrolls sideways.
+      const vb = (s.getAttribute('viewBox') || '').split(/\s+/).map(Number), natural = vb[2] || 0;
+      const room = view.clientWidth - 36;
+      if (natural && room > 0 && room / natural < SHRINK_LIMIT) { s.style.width = Math.round(natural * MIN_SCALE) + 'px'; s.style.maxWidth = 'none'; el.classList.add('wide'); } else { s.style.width = ''; el.classList.remove('wide'); }
+      wireHover(s, a.kind); el.dataset.state = 'drawn';
+    }
   }
   // mermaid's messages read like "Parse error on line 3:\n...A -> B\n-----^\nExpecting 'SEMI', got 'TXT'". Show the line
   // number, the offending line with the caret, and a plain-words gloss; the source stays visible underneath.
@@ -418,7 +512,7 @@
   }
   const nodeId = (el) => { const m = (el.id || '').match(/flowchart-(.+)-\d+$/); return m ? m[1] : (el.dataset && el.dataset.id) || null; };
   function hoverFlow(svg) {
-    const nodes = [...svg.querySelectorAll('g.node')].filter(nodeId);
+    const nodes = [...svg.querySelectorAll('g.node, g.icon-shape')].filter(nodeId); // AWS icon nodes are drawn as g.icon-shape
     const edges = [...svg.querySelectorAll('path.flowchart-link, path.transition')];
     if (nodes.length < 2 || !edges.length) return;
     const ids = new Set(nodes.map(nodeId));

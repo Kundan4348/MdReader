@@ -94,7 +94,23 @@ report.largeOk = report.large.open && report.large.fits && report.large.zoomed &
 report.legendOk = report.legend.off && report.legend.stored === 'off' && report.legend.compact && report.legend.back;
 report.themesOk = ['paper', 'studio', 'sections', 'lumen'].every((t) => { const o = report.themes[t]; return o.drawn === 'drawn' && o.fill === o.wantFill && o.font === o.wantFont; }) && new Set(Object.values(report.themes).map((o) => o.fill)).size === 4;
 report.mmdOk = report.mmd.kind === 'mmd' && report.mmd.cards === 1 && report.mmd.state === 'drawn' && /^Flow, left to right · 5 steps, 1 decision · 5 arrows$/.test(report.mmd.sum) && report.mmd.fmtShown === 'none';
-report.diagramOk = report.mounted && report.cards.length === 8 && report.rest.codeblocks === 0 && report.rest.lastP === 'Closing paragraph after the diagrams.' && report.flowOk && report.seqOk && report.othersOk && report.hoverOk && report.sourceOk && report.brokenOk && report.largeOk && report.legendOk && report.themesOk && report.mmdOk;
+// AWS icons: nodes naming a service are drawn as its icon (label below), the legend lists the services, labels are not
+// clipped (each label's text fits its box), a wide flow keeps a readable size and scrolls, hover still traces icon nodes.
+await mount(base + '/test/fixtures/aws.md');
+await waitDrawn(); await sleep(400);
+report.aws = await ev(`(async()=>{const d=document.querySelector('#app .diagram'),s=d.querySelector('.dgv svg');
+  const icons=[...s.querySelectorAll('g.icon-shape')];const ids=icons.map(g=>(g.id.match(/flowchart-(.+)-\\d+$/)||[])[1]).sort();
+  const clipped=[...s.querySelectorAll('foreignObject')].filter(f=>{const dv=f.querySelector('div,span');return dv&&dv.scrollWidth>Math.ceil(+f.getAttribute('width'))+1}).map(f=>f.textContent);
+  const sc=s.getBoundingClientRect().width/+(s.getAttribute('viewBox').split(' ')[2]);
+  const n=icons.find(g=>/flowchart-K-/.test(g.id));n.dispatchEvent(new MouseEvent('mouseenter'));await new Promise(r=>setTimeout(r,100));
+  const on=[...s.querySelectorAll('.dg-on')].length;n.dispatchEvent(new MouseEvent('mouseleave'));s.dispatchEvent(new MouseEvent('mouseleave'));
+  const plain=document.querySelectorAll('#app .diagram')[1].querySelector('.dgv svg');
+  return {ids,legend:[...d.querySelectorAll('.dglegend .lg')].map(l=>l.textContent).slice(0,6),clipped,wide:d.classList.contains('wide'),scale:+sc.toFixed(2),traced:on,plainIcons:plain.querySelectorAll('g.icon-shape').length,tile:getComputedStyle(d.querySelector('.dglegend svg.aws rect')).fill}})()`);
+await ev(`document.querySelector('#app .diagram').scrollIntoView()`); await sleep(200); await shot('aws-card.png');
+report.awsOk = report.aws.ids.join() === ['A2', 'AFS', 'DB', 'K', 'LK', 'OFA', 'P1', 'P2', 'PUB', 'S1', 'SM', 'T'].sort().join()
+  && report.aws.legend.slice(0, 5).join() === 'SNS topic,Lambda function,Database / store,Kinesis stream,SQS queue'
+  && !report.aws.clipped.length && report.aws.wide && report.aws.scale >= 0.84 && report.aws.traced >= 3 && report.aws.plainIcons === 0 && report.aws.tile === 'rgb(231, 21, 123)';
+report.diagramOk = report.mounted && report.cards.length === 8 && report.rest.codeblocks === 0 && report.rest.lastP === 'Closing paragraph after the diagrams.' && report.flowOk && report.seqOk && report.othersOk && report.hoverOk && report.sourceOk && report.brokenOk && report.largeOk && report.legendOk && report.themesOk && report.mmdOk && report.awsOk;
 console.log(JSON.stringify(report, null, 1));
 clearTimeout(hardStop); killChrome();
 process.exit(report.diagramOk ? 0 : 1);

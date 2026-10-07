@@ -10,7 +10,7 @@ echo "== extension"; MDR_CHROME="$CFT" node test/ext-test.mjs http://127.0.0.1:8
 echo "== json"; MDR_CHROME="$CFT" node test/json-test.mjs http://127.0.0.1:8477 "$OUT/json" | grep -E '"(mounted|kind|brokenMounted|multiOk|splitJsonOk|jsonOk)"|EXC'; J=${PIPESTATUS[0]}
 echo "== find"; MDR_CHROME="$CFT" node test/find-test.mjs http://127.0.0.1:8477 "$OUT/find" | grep -E '"(mdOk|jsonOk|sqlOk|findOk)"|EXC'; FD=${PIPESTATUS[0]}
 echo "== code"; MDR_CHROME="$CFT" node test/code-test.mjs http://127.0.0.1:8477 "$OUT/code" | grep -E '"(mounted|copyOk|codeOk)"|EXC'; C=${PIPESTATUS[0]}
-echo "== diagram"; MDR_CHROME="$CFT" node test/diagram-test.mjs http://127.0.0.1:8477 "$OUT/diagram" | grep -E '"(mounted|flowOk|seqOk|othersOk|hoverOk|sourceOk|brokenOk|largeOk|legendOk|themesOk|mmdOk|diagramOk)"|EXC'; D=${PIPESTATUS[0]}
+echo "== diagram"; MDR_CHROME="$CFT" node test/diagram-test.mjs http://127.0.0.1:8477 "$OUT/diagram" | grep -E '"(mounted|flowOk|seqOk|othersOk|hoverOk|sourceOk|brokenOk|largeOk|legendOk|themesOk|mmdOk|awsOk|diagramOk)"|EXC'; D=${PIPESTATUS[0]}
 echo "== sql"; MDR_CHROME="$CFT" node test/sql-test.mjs http://127.0.0.1:8477 "$OUT/sql" | grep -E '"(mounted|kind|mdKind|legendPersist|fmtAgain|sqlOk)"|EXC'; Q=${PIPESTATUS[0]}
 kill $SRV 2>/dev/null
 echo "== app"; node test/app-test.mjs "$OUT/app" | grep -E '"(mounted|defaultTheme|stillMounted|outlineToggleOk|tabsOk|newTabOk|dragOk|filesNavOk|diagramsOk|secEditOk|pathLinksOk|imageOk|pinchAnchorOk|windows|secondFileUntouched|filesPanelVisible|savedToDisk|dirtyAfterSave|reloadedFromDisk)"|EXC'; A=${PIPESTATUS[0]}
