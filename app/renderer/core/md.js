@@ -156,7 +156,7 @@
         let where = '';
         try { const u = new URL(img.src); if (u.protocol === 'file:') where = decodeURIComponent(u.pathname); else where = u.href; } catch { where = img.src; }
         const box = document.createElement('span');
-        box.className = 'imgmissing';
+        box.className = 'imgmissing'; box.dataset.src = written; box.dataset.alt = img.alt || ''; // Write mode turns it back into ![alt](src)
         box.title = where;
         const t = document.createElement('b'); t.textContent = 'Picture not found';
         const f = document.createElement('code'); f.textContent = written.split('/').pop() || written;

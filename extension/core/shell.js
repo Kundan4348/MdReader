@@ -36,13 +36,14 @@
     const curTab = () => S.tabs[S.tab];
     const curDisp = () => (curTab() ? dispOf(curTab()) : { crumbs: [], name: 'MdReader', dir: null });
     const DEFAULT_THEME = 'mono';
+    const srcShown = () => S.mode === 'edit' || S.mode === 'split'; // the source pane is on screen (not Read / Write)
 
     // ---------- DOM ----------
     root.innerHTML = '';
     root.className = 'app';
     const crumbs = h('div', { class: 'crumbs' });
     const seg = h('div', { class: 'seg' },
-      ...['read', 'edit', 'split'].map((m) => h('button', { 'data-mode': m, onclick: () => setMode(m) }, m[0].toUpperCase() + m.slice(1))));
+      ...['read', 'write', 'edit', 'split'].map((m) => h('button', { 'data-mode': m, onclick: () => setMode(m), title: { read: 'Read (⌘1)', write: 'Write: edit the page as you read it (⌘4)', edit: 'Edit the source (⌘2)', split: 'Source and page side by side (⌘3)' }[m] }, m[0].toUpperCase() + m.slice(1))));
     const saveBtn = h('button', { class: 'save', onclick: save, title: 'Save (⌘S)' }, 'Save');
     const themeSel = h('select', { class: 'theme', title: 'Theme', onchange: (e) => setTheme(e.target.value) },
       ...THEMES.map((t) => h('option', { value: t.id }, t.name)));
@@ -86,8 +87,261 @@
     const outline = h('aside', { class: 'outline' }, h('h6', {}, 'Outline'), toc, meta);
     const toast = h('div', { class: 'toast' });
     const hint = h('div', { class: 'hint', html: 'Find <kbd>⌘F</kbd> · Edit <kbd>⌘E</kbd> · Save <kbd>⌘S</kbd> · Text size <kbd>⌘+</kbd><kbd>⌘−</kbd> · Width <kbd>⌘⇧W</kbd> · Themes <kbd>⌘⇧Y</kbd> · Reopen closed tab <kbd>⌘⇧T</kbd>' });
-    root.append(top, files, centre, outline, toast, hint);
+    const wbar = h('div', { class: 'wbar', role: 'toolbar', 'aria-label': 'Formatting' });
+    root.append(top, files, centre, outline, toast, hint, wbar);
     setTimeout(() => hint.classList.add('gone'), 6000);
+
+    // ---------- Write mode ----------
+    // Read's page, editable in place (core/write.js turns a block back into markdown). Every top-level block keeps the
+    // source lines it came from (md.js stamps). Typing marks that block; ~0.4 s later, or when you leave it, only that
+    // block is serialized and spliced into the text, and the blocks after it have their line stamps shifted. A block
+    // you did not touch is never rewritten, so the file keeps its own layout everywhere else.
+    const W = (() => {
+      const dirty = new Set();
+      let timer = 0, built = false, busy = 0; // busy: our own DOM surgery is moving focus around, focusout must not tidy
+      const ok = () => S.mode === 'write' && docKind() === 'md' && !!global.WR;
+      const hostOf = (b) => { const k = WR.kindOf(b); return k === 'table' ? b.querySelector('table') : k === 'code' ? b.querySelector('pre > code') : b; };
+      const blockOf = (n) => { const el = n && (n.nodeType === 1 ? n : n.parentElement); return el && doc.contains(el) ? el.closest('.wblock') : null; };
+      const isTask = (b) => WR.kindOf(b) === 'list' && !!b.querySelector(':scope > li > input[type=checkbox], :scope > li > p > input[type=checkbox]');
+      function makeEditable(b) {
+        const k = WR.kindOf(b); if (!k) return false;
+        b.classList.add('wblock'); b.classList.remove('w-locked');
+        const host = hostOf(b);
+        host.contentEditable = k === 'code' ? 'plaintext-only' : 'true';
+        host.spellcheck = k !== 'code';
+        b.querySelectorAll('button, .tf-bar, tr.filters, .imgmissing, h1 > .n, h2 > .n, .codebar').forEach((x) => { x.contentEditable = 'false'; });
+        b.querySelectorAll('input[type=checkbox]').forEach((cb) => { cb.disabled = false; cb.contentEditable = 'false'; });
+        return true;
+      }
+      function enable() {
+        root.classList.toggle('writing', ok());
+        if (!ok()) return;
+        for (const b of doc.querySelectorAll('.head > [data-l0], .sec > .body > [data-l0]')) {
+          if (!makeEditable(b)) { b.classList.add('w-locked'); if (!b.title) b.title = 'Edited as source: use Edit section (top right of the section) or Edit mode'; }
+        }
+        if (!doc.querySelector('.wblock')) { // nothing to type into (empty document): one empty paragraph at the end
+          const p = h('p', {}, h('br')); p.dataset.l0 = p.dataset.l1 = String(S.text ? S.text.split('\n').length : 0);
+          (secs.lastElementChild ? secs.lastElementChild.querySelector('.body') : head).append(p); makeEditable(p);
+        }
+        buildBar();
+      }
+      function reset() { dirty.clear(); clearTimeout(timer); }
+      function mark(b) { dirty.add(b); clearTimeout(timer); timer = setTimeout(commitAll, 400); }
+      function commitAll() { clearTimeout(timer); for (const b of [...dirty]) commit(b); }
+      function commit(b) {
+        dirty.delete(b);
+        if (!b.isConnected || b.dataset.l0 === undefined || !global.WR) return;
+        const l0 = +b.dataset.l0, l1 = +b.dataset.l1;
+        const lines = S.text.split('\n');
+        const old = lines.slice(l0, l1);
+        let trail = 0; while (trail < old.length && !old[old.length - 1 - trail].trim()) trail++;
+        const md = WR.block(b, old.slice(0, old.length - trail).join('\n'));
+        if (md === null) return;
+        let rep, at = l0, len;
+        if (!md.trim()) { rep = []; len = 0; } // emptied: its lines go (blank lines after it included)
+        else if (l0 === l1) { // a new block: keep exactly one blank line on each side of it
+          const body = md.split('\n'), pre = l0 > 0 && (lines[l0 - 1] || '').trim() ? [''] : [], post = l0 < lines.length && (lines[l0] || '').trim() ? [''] : [];
+          rep = [...pre, ...body, ...post]; at = l0 + pre.length; len = body.length + post.length;
+        } else { rep = [...md.split('\n'), ...old.slice(old.length - trail)]; len = rep.length; }
+        if (rep.length === old.length && rep.every((x, i) => x === old[i])) return;
+        lines.splice(l0, l1 - l0, ...rep);
+        const delta = rep.length - (l1 - l0);
+        if (delta) for (const x of doc.querySelectorAll('[data-l0]')) {
+          if (x !== b && !b.contains(x) && (b.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING)) { x.dataset.l0 = +x.dataset.l0 + delta; x.dataset.l1 = +x.dataset.l1 + delta; }
+        }
+        b.dataset.l0 = at; b.dataset.l1 = at + len;
+        b.querySelectorAll('[data-l0]').forEach((x) => { delete x.dataset.l0; delete x.dataset.l1; });
+        setText(lines.join('\n'));
+        const t = curTab(); if (t) t.text = S.text;
+        notifyTabs();
+      }
+      function caretTo(b, atEnd) {
+        const host = hostOf(b); host.focus({ preventScroll: true });
+        const r = document.createRange(); r.selectNodeContents(host); r.collapse(!atEnd);
+        const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+        const br = host.getBoundingClientRect(), cr = content.getBoundingClientRect();
+        if (br.bottom > cr.bottom - 60 || br.top < cr.top) content.scrollTop += br.top - cr.top - content.clientHeight / 3;
+      }
+      // a new paragraph right after block b (Enter at the end of a heading / paragraph, Enter on an empty last bullet)
+      function newParaAfter(b, frag) {
+        const p = h('p'); if (frag) p.append(frag);
+        p.querySelectorAll('.n').forEach((x) => x.remove());
+        if (!p.textContent.trim() && !p.querySelector('img')) p.replaceChildren(h('br'));
+        b.after(p); makeEditable(p);
+        dirty.add(b); commit(b); // shifts nothing that is not stamped yet
+        p.dataset.l0 = p.dataset.l1 = b.dataset.l1;
+        if (p.textContent.trim()) { dirty.add(p); commit(p); }
+        return p;
+      }
+      function splitAtCaret(b) { busy++; try { splitNow(b); } finally { busy--; } }
+      function splitNow(b) {
+        const host = hostOf(b), sel = getSelection(); if (!sel.rangeCount) return;
+        const r = sel.getRangeAt(0); r.deleteContents();
+        const tail = document.createRange(); tail.setStart(r.startContainer, r.startOffset); tail.setEnd(host, host.childNodes.length);
+        const frag = tail.extractContents();
+        if (!host.textContent.trim() && WR.kindOf(b) === 'p' && !host.querySelector('img')) host.replaceChildren(h('br'));
+        caretTo(newParaAfter(b, frag), false);
+      }
+      function atStart(host) {
+        const s = getSelection(); if (!s.rangeCount || !s.isCollapsed) return false;
+        const r = document.createRange(); r.setStart(host, 0); r.setEnd(s.anchorNode, s.anchorOffset);
+        return !r.toString().length;
+      }
+      function removeBlock(b, focusPrev) {
+        const all = [...doc.querySelectorAll('.wblock')], prev = all[all.indexOf(b) - 1];
+        busy++;
+        try { hostOf(b).replaceChildren(); dirty.add(b); commit(b); if (all.length > 1) b.remove(); else hostOf(b).replaceChildren(h('br')); } finally { busy--; }
+        if (focusPrev && prev) caretTo(prev, true);
+      }
+      // the inline content of a block, one fragment per item (a list gives one per bullet, nested ones flattened)
+      function itemsOf(b) {
+        const k = WR.kindOf(b), frag = (nodes) => { const f = document.createDocumentFragment(); f.append(...nodes); return f; };
+        if (k === 'list') {
+          const out = [];
+          const walk = (list) => [...list.children].filter((c) => c.tagName === 'LI').forEach((li) => {
+            const own = [], subs = [];
+            for (const c of [...li.childNodes]) {
+              if (c.nodeType === 1 && (c.tagName === 'UL' || c.tagName === 'OL')) subs.push(c);
+              else if (c.nodeType === 1 && c.tagName === 'INPUT') continue;
+              else if (c.nodeType === 1 && c.tagName === 'P') own.push(...c.childNodes);
+              else own.push(c);
+            }
+            out.push(frag(own)); subs.forEach(walk);
+          });
+          walk(b); return out;
+        }
+        if (k === 'quote') { const ps = [...b.children].filter((c) => /^(P|H\d|DIV)$/.test(c.tagName)); return ps.length ? ps.map((c) => frag([...c.childNodes])) : [frag([...b.childNodes])]; }
+        const own = [];
+        for (const c of [...b.childNodes]) { if (c.nodeType === 1 && c.classList.contains('n')) continue; if (c.nodeType === 1 && c.classList.contains('t')) own.push(...c.childNodes); else own.push(c); }
+        return [frag(own)];
+      }
+      // turn block b into another kind: 'P', 'H1'..'H6', 'UL', 'OL', 'TASK', 'BLOCKQUOTE'
+      function convert(b, to, checked) {
+        const k = WR.kindOf(b); if (!k || k === 'table' || k === 'code') return null;
+        busy++; try { return convertNow(b, to, checked); } finally { busy--; }
+      }
+      function convertNow(b, to, checked) {
+        const items = itemsOf(b);
+        let els;
+        if (to === 'UL' || to === 'OL' || to === 'TASK') {
+          const list = h(to === 'OL' ? 'ol' : 'ul');
+          items.forEach((f) => { const li = h('li'); if (to === 'TASK') { const cb = h('input', { type: 'checkbox' }); cb.checked = !!checked; li.classList.add('task'); li.append(cb, ' '); } li.append(f); list.append(li); });
+          els = [list];
+        } else if (to === 'BLOCKQUOTE') { const q = h('blockquote'); items.forEach((f) => { const p = h('p'); p.append(f); q.append(p); }); els = [q]; }
+        else els = items.map((f) => { const x = h(to.toLowerCase()); x.append(f); return x; });
+        for (const x of els) { const leaf = x.querySelector('li:last-child, p:last-child') || x; if (!leaf.textContent.trim() && !leaf.querySelector('img')) leaf.append(h('br')); }
+        els[0].dataset.l0 = b.dataset.l0; els[0].dataset.l1 = b.dataset.l1;
+        dirty.delete(b); b.replaceWith(...els);
+        els.forEach(makeEditable);
+        dirty.add(els[0]); commit(els[0]);
+        for (let i = 1; i < els.length; i++) { els[i].dataset.l0 = els[i].dataset.l1 = els[i - 1].dataset.l1; dirty.add(els[i]); commit(els[i]); }
+        return els[0];
+      }
+      function inlineCode(b) {
+        const s = getSelection(); if (!s.rangeCount) return;
+        const at = s.anchorNode && (s.anchorNode.nodeType === 1 ? s.anchorNode : s.anchorNode.parentElement);
+        const c = at && at.closest('code');
+        if (c && hostOf(b).contains(c)) { c.replaceWith(document.createTextNode(c.textContent)); mark(b); return; }
+        if (s.isCollapsed) return flash('Select the words to mark as code');
+        const r = s.getRangeAt(0), t = r.toString(); r.deleteContents();
+        const el = h('code', {}, t); r.insertNode(el);
+        s.removeAllRanges(); const r2 = document.createRange(); r2.selectNodeContents(el); s.addRange(r2);
+        mark(b);
+      }
+      const linkIn = h('input', { class: 'wlink', type: 'text', spellcheck: 'false', placeholder: 'Paste a link, Enter to apply (empty removes it)', hidden: '' });
+      function linkAsk() {
+        const s = getSelection(); const b = s.rangeCount && blockOf(s.anchorNode); if (!b) return flash('Select the words to link first');
+        const at = s.anchorNode.nodeType === 1 ? s.anchorNode : s.anchorNode.parentElement, a = at.closest('a');
+        const r = s.getRangeAt(0).cloneRange();
+        if (r.collapsed && !a) return flash('Select the words to link first');
+        const back = () => { linkIn.hidden = true; hostOf(b).focus({ preventScroll: true }); const s2 = getSelection(); s2.removeAllRanges(); s2.addRange(r); };
+        linkIn.hidden = false; linkIn.value = a ? a.getAttribute('href') || '' : ''; linkIn.focus(); linkIn.select();
+        linkIn.onkeydown = (e) => {
+          if (e.key === 'Escape') { e.preventDefault(); back(); }
+          else if (e.key === 'Enter') {
+            e.preventDefault(); const url = linkIn.value.trim(); back();
+            if (a) { if (url) a.setAttribute('href', url); else a.replaceWith(...a.childNodes); mark(b); }
+            else if (url) document.execCommand('createLink', false, url);
+          }
+        };
+        linkIn.onblur = () => { linkIn.hidden = true; };
+      }
+      const ACTS = [['P', '¶', 'Plain paragraph'], ['H2', 'H2', 'Heading'], ['H3', 'H3', 'Sub-heading'], null,
+        ['bold', '<b>B</b>', 'Bold (⌘B)'], ['italic', '<i>I</i>', 'Italic (⌘I)'], ['strike', '<s>S</s>', 'Strikethrough'], ['code', '&lt;/&gt;', 'Inline code'], ['link', 'Link', 'Link (⌘K)'], null,
+        ['UL', '• List', 'Bulleted list (or type "- ")'], ['OL', '1. List', 'Numbered list (or type "1. ")'], ['TASK', '☐ Tasks', 'Checklist (or type "[ ] ")'], ['BLOCKQUOTE', '❝ Quote', 'Quote (or type "> ")']];
+      function buildBar() {
+        if (built) return; built = true;
+        wbar.append(h('span', { class: 'wtag' }, 'Writing'), ...ACTS.map((a) => (a ? h('button', { type: 'button', 'data-act': a[0], title: a[2], html: a[1],
+          onmousedown: (e) => e.preventDefault(), onclick: () => act(a[0]) }) : h('span', { class: 'wsep' }))), linkIn,
+          h('span', { class: 'whelp', title: 'Changes go into the file text as you type; ⌘S saves. Diagrams and raw HTML are edited with Edit section.' }, '⌘S saves'));
+      }
+      function act(name) {
+        const s = getSelection(); const b = s.rangeCount ? blockOf(s.anchorNode) : null;
+        if (!b) return flash('Click into the text first');
+        const k = WR.kindOf(b);
+        if (name === 'bold' || name === 'italic' || name === 'strike') { if (k !== 'code') document.execCommand(name === 'strike' ? 'strikeThrough' : name); return; }
+        if (name === 'code') return k === 'code' ? null : inlineCode(b);
+        if (name === 'link') return k === 'code' ? null : linkAsk();
+        if (k === 'table' || k === 'code') return flash('Tables and code blocks keep their shape -- edit inside them');
+        const cur = isTask(b) ? 'TASK' : b.tagName;
+        const to = name === cur ? 'P' : name;
+        if (to === cur) return;
+        const x = convert(b, to); if (x) caretTo(x, true);
+        barState();
+      }
+      function barState() {
+        if (!ok()) return;
+        const s = getSelection(); const b = s.rangeCount ? blockOf(s.anchorNode) : null;
+        const cur = b ? (isTask(b) ? 'TASK' : b.tagName) : '';
+        wbar.querySelectorAll('button[data-act]').forEach((x) => {
+          const a = x.dataset.act;
+          x.classList.toggle('on', !!b && (a === cur || (['bold', 'italic', 'strike'].includes(a) && document.queryCommandState(a === 'strike' ? 'strikeThrough' : a))));
+          x.disabled = !b;
+        });
+      }
+      document.addEventListener('selectionchange', () => { if (S.mode === 'write') barState(); });
+      doc.addEventListener('input', (e) => {
+        if (!ok()) return; const b = blockOf(e.target); if (!b) return;
+        // "## ", "- ", "1. ", "> ", "[ ] " typed at the very start of a paragraph turn it into that kind of block
+        if (WR.kindOf(b) === 'p' && e.inputType === 'insertText' && e.data === ' ') {
+          const f = b.firstChild, s = getSelection();
+          const sc = f && f.nodeType === 3 && WR.shortcut(f.nodeValue.replace(/\u00a0/g, ' '));
+          if (sc && s.anchorNode === f && s.anchorOffset === sc.cut) { f.nodeValue = f.nodeValue.slice(sc.cut); const x = convert(b, sc.tag, sc.checked); if (x) caretTo(x, false); return; }
+        }
+        mark(b);
+      });
+      doc.addEventListener('focusout', (e) => {
+        if (!ok() || busy) return; const b = blockOf(e.target); if (!b || blockOf(e.relatedTarget) === b) return;
+        if (dirty.has(b)) commit(b);
+        if (b.isConnected && b.dataset.l0 === b.dataset.l1 && !hostOf(b).textContent.trim() && !b.querySelector('img') && doc.querySelectorAll('.wblock').length > 1) b.remove(); // an empty new line you left
+      });
+      doc.addEventListener('paste', (e) => {
+        if (!ok() || !blockOf(e.target) || !S.text.trim()) return; // an empty document: the shell's paste handler fills it as markdown
+        const t = e.clipboardData && e.clipboardData.getData('text/plain'); if (t == null) return;
+        e.preventDefault(); document.execCommand('insertText', false, t); // plain text only: no foreign styling
+      });
+      doc.addEventListener('keydown', (e) => {
+        if (!ok()) return; const b = blockOf(e.target); if (!b) return;
+        const k = WR.kindOf(b), host = hostOf(b), mod = e.metaKey || e.ctrlKey;
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); host.blur(); return; }
+        if (mod && e.key.toLowerCase() === 'k' && k !== 'code') { e.preventDefault(); return linkAsk(); }
+        if (k === 'code') { if (e.key === 'Tab') { e.preventDefault(); document.execCommand('insertText', false, '  '); } return; }
+        if (e.key === 'Enter' && !mod && e.shiftKey && k === 'p') { e.preventDefault(); document.execCommand('insertLineBreak'); return; }
+        if (e.key === 'Enter' && !mod && (k === 'p' || k === 'h')) { e.preventDefault(); splitAtCaret(b); return; }
+        if (e.key === 'Enter' && !mod && !e.shiftKey && k === 'list') {
+          const s = getSelection(), at = s.anchorNode && (s.anchorNode.nodeType === 1 ? s.anchorNode : s.anchorNode.parentElement), li = at && at.closest('li');
+          if (li && li.parentElement === b && li === b.lastElementChild && !li.textContent.trim()) { e.preventDefault(); li.remove(); caretTo(newParaAfter(b), false); } // Enter on an empty last bullet ends the list
+          return;
+        }
+        if (e.key === 'Enter' && k === 'table') { e.preventDefault(); return; } // a table cell is one line
+        if (e.key === 'Backspace' && (k === 'p' || k === 'h') && atStart(host)) {
+          if (!host.textContent.trim() && !host.querySelector('img')) { e.preventDefault(); removeBlock(b, true); }
+          else if (k === 'h') { e.preventDefault(); const x = convert(b, 'P'); if (x) caretTo(x, false); }
+        }
+      });
+      doc.addEventListener('change', (e) => { if (ok() && e.target.type === 'checkbox') { const b = blockOf(e.target); if (b) { dirty.add(b); commit(b); } } });
+      return { enable, reset, commitAll };
+    })();
 
     // ---------- rendering ----------
     // URL the current document lives at, for resolving relative image paths. The app hands over absolute file-system
@@ -128,6 +382,7 @@
       } catch (e) { flash('Cannot format: ' + (e && e.message || e), 4000); }
     }
     function paint() {
+      W.reset(); // the blocks are about to be rebuilt; callers commit pending Write edits first
       const kind = docKind();
       root.dataset.kind = kind;
       fmtBtn.title = kind === 'sql' ? 'Re-indent SQL (⌘⇧F) -- whitespace only, the query is unchanged' : 'Format JSON (⌘⇧F) · ⌥-click to minify';
@@ -177,6 +432,7 @@
       wireCode();
       if (global.CSS && CSS.highlights) CSS.highlights.delete('mdr-mirror'); // ranges pointed at the old nodes
       refreshFind();
+      W.enable();
     }
     function copyJsonSection(i) { navigator.clipboard.writeText(JV.sectionSource(S.text, i)).then(() => flash('JSON copied')); }
     function copySqlSection(i) { navigator.clipboard.writeText(SQLV.sectionSource(S.text, i)).then(() => flash('SQL copied')); }
@@ -318,7 +574,7 @@
     function setText(text, fromEditor) {
       S.text = text;
       if (!fromEditor) ta.value = text;
-      if (S.mode !== 'read') buildMirrorSoon();
+      if (srcShown()) buildMirrorSoon();
       setDirty(S.text !== S.saved);
       $('.wc', editor).textContent = text.split(/\s+/).filter(Boolean).length + ' words';
     }
@@ -379,7 +635,7 @@
     // The mirror is also the line-number gutter: every .ln row carries its number in a ::before drawn to the left of
     // the text, so numbers stay aligned with wrapped lines. Built in Edit as well as Split for that reason.
     function buildMirror() {
-      if (S.mode === 'read') return;
+      if (!srcShown()) return;
       const digits = Math.max(2, String(ta.value.split('\n').length).length);
       editor.style.setProperty('--lnw', 'calc(' + digits + 'ch + 22px)'); // gutter width: textarea padding-left grows with it
       const cs = getComputedStyle(ta);
@@ -398,7 +654,7 @@
     // The editor pane fills exactly the visible height of the content pane in Edit and Split, so the textarea is the
     // only thing that scrolls (the pane itself never does) and the source runs to the bottom of the window.
     function fitEditor() {
-      if (S.mode === 'read') { editor.style.height = ''; return; }
+      if (!srcShown()) { editor.style.height = ''; return; }
       const z = parseFloat(getComputedStyle(editor).zoom) || 1;
       editor.style.height = (content.clientHeight / z) + 'px';
     }
@@ -591,24 +847,28 @@
     document.addEventListener('selectionchange', onSelChange);
     for (const el of [ta, content]) for (const ev of ['scrollend', 'wheel', 'pointerdown', 'keydown', 'touchstart']) el.addEventListener(ev, releaseScroll, { passive: true });
     ['select', 'keyup', 'mouseup'].forEach((ev) => ta.addEventListener(ev, onSrcSelect));
-    if (global.ResizeObserver) new ResizeObserver(() => { refreeze(); fitEditor(); if (S.mode !== 'read') buildMirrorSoon(); }).observe(content);
+    if (global.ResizeObserver) new ResizeObserver(() => { refreeze(); fitEditor(); if (srcShown()) buildMirrorSoon(); }).observe(content);
 
     // ---------- modes / theme / panels ----------
     function setMode(m, quiet) {
+      if (!['read', 'write', 'edit', 'split'].includes(m)) m = 'read';
+      W.commitAll();
       if (S.editingSec !== null) finishSection(S.editingSec, true);
+      const was = S.mode;
       S.mode = m; root.dataset.mode = m;
       seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
-      if (m === 'read') paint(); else if (m === 'split') paint();
+      if (m === 'read' || m === 'split' || m === 'write' || was === 'write') paint();
       refreeze(); // the pane is half as wide in Split: a frozen (magnified) layout must re-lay out for it
-      fitEditor(); if (m !== 'read') requestAnimationFrame(buildMirror);
-      if (m !== 'read') setTimeout(() => ta.focus(), 0);
+      fitEditor(); if (srcShown()) requestAnimationFrame(buildMirror);
+      if (srcShown()) setTimeout(() => ta.focus(), 0);
+      if (m === 'write' && docKind() !== 'md' && !quiet) flash('Write works on Markdown pages -- use Edit for JSON and SQL', 3000);
       if (!quiet) adapter.setPref && adapter.setPref('mode', m);
     }
     function setTheme(t) {
       if (!THEMES.some((x) => x.id === t)) t = DEFAULT_THEME;
       S.theme = t; document.documentElement.dataset.theme = t; themeSel.value = t;
       refreeze();
-      if (S.mode !== 'read') requestAnimationFrame(() => { fitEditor(); buildMirror(); });
+      if (srcShown()) requestAnimationFrame(() => { fitEditor(); buildMirror(); });
       revealActiveTab(); requestAnimationFrame(revealActiveTab); // the strip's padding and zoom change per theme, which can scroll the active tab out of view
       adapter.setPref && adapter.setPref('theme', t);
     }
@@ -715,6 +975,7 @@
     // ---------- per-section editing ----------
     function editSection(i) {
       if (docKind() !== 'md') return; // JSON / SQL have no markdown sections to splice; use Edit mode
+      W.commitAll();
       if (S.editingSec !== null && S.editingSec !== i) finishSection(S.editingSec, true, true);
       const { sections } = MD.split(S.text);
       const sec = secs.querySelector(`.sec[data-i="${i}"]`);
@@ -800,6 +1061,7 @@
     }
     function stashActive() {
       const t = S.tabs[S.tab]; if (!t) return;
+      W.commitAll();
       if (S.editingSec !== null) finishSection(S.editingSec, true);
       t.text = S.text; t.saved = S.saved; t.scroll = content.scrollTop; t.filters = S.filters;
     }
@@ -968,6 +1230,7 @@
       const t = curTab();
       if (!t) return flash('Nothing to save');
       if (isUntitled(t) && !adapter.canSave()) return flash('Cannot save from here');
+      W.commitAll();
       if (S.editingSec !== null) finishSection(S.editingSec, true);
       t.text = S.text;
       try {
@@ -992,8 +1255,8 @@
       if (k === 'f' && !e.shiftKey && !e.altKey) { e.preventDefault(); return openFind(); }
       if (k === 'g') { e.preventDefault(); return stepFind(e.shiftKey ? -1 : 1); }
       if (k === 's') { e.preventDefault(); save(); }
-      else if (k === 'e' && !e.shiftKey) { e.preventDefault(); setMode(S.mode === 'read' ? 'edit' : 'read'); }
-      else if (k === '1') { e.preventDefault(); setMode('read'); } else if (k === '2') { e.preventDefault(); setMode('edit'); } else if (k === '3') { e.preventDefault(); setMode('split'); }
+      else if (k === 'e' && !e.shiftKey) { e.preventDefault(); setMode(!srcShown() ? 'edit' : 'read'); }
+      else if (k === '1') { e.preventDefault(); setMode('read'); } else if (k === '2') { e.preventDefault(); setMode('edit'); } else if (k === '3') { e.preventDefault(); setMode('split'); } else if (k === '4') { e.preventDefault(); setMode('write'); }
       else if (k === '\\') { e.preventDefault(); adapter.listDir && togglePanel('files'); }
       else if (k === '/') { e.preventDefault(); togglePanel('outline'); }
       else if (k === 'y' && e.shiftKey) { e.preventDefault(); cycleTheme(); }
@@ -1013,12 +1276,15 @@
     // Pasting onto an empty untitled tab while reading fills it, so ⌘T then ⌘V works in any mode.
     addEventListener('paste', (e) => {
       const t = curTab();
-      if (!isUntitled(t) || S.mode !== 'read' || S.text.trim() || /^(TEXTAREA|INPUT)$/.test((e.target.tagName || '').toUpperCase())) return;
+      if (e.defaultPrevented) return;
+      if (!isUntitled(t) || srcShown() || S.text.trim() || /^(TEXTAREA|INPUT)$/.test((e.target.tagName || '').toUpperCase())) return;
       const md = e.clipboardData && e.clipboardData.getData('text/plain'); if (!md) return;
       e.preventDefault(); setText(md); t.text = md; paint(); notifyTabs();
     });
     doc.addEventListener('click', (e) => {
       const a = e.target.closest('a[href]'); if (!a) return;
+      if (S.mode === 'write' && a.closest('.wblock')) { if (!(e.metaKey || e.ctrlKey)) { e.preventDefault(); return; } }
+      if (a.dataset.path && S.mode === 'write') { e.preventDefault(); openPathLink(a.dataset.path, false); return; }
       if (a.dataset.path) { e.preventDefault(); openPathLink(a.dataset.path, e.metaKey || e.ctrlKey); return; }
       const href = a.getAttribute('href');
       if (href.startsWith('#')) { e.preventDefault(); scrollTo(href.slice(1)); }
@@ -1090,7 +1356,7 @@
       return out.filter((r) => { const el = r.startContainer.parentElement; return (el.checkVisibility ? el.checkVisibility() || el.closest('details:not([open])') : true); });
     }
     function srcHits(q, cs) {
-      if (S.mode === 'read' || !sync.lines || !sync.lines.length) return [];
+      if (!srcShown() || !sync.lines || !sync.lines.length) return [];
       const needle = cs ? q : q.toLowerCase(), out = [];
       sync.lines.forEach((d, ln) => {
         const t = d.firstChild; if (!t || t.nodeType !== 3) return;
@@ -1099,7 +1365,7 @@
       });
       return out;
     }
-    const navPane = () => (S.mode === 'read' ? 'doc' : S.mode === 'edit' ? 'src' : F.pane);
+    const navPane = () => (!srcShown() ? 'doc' : S.mode === 'edit' ? 'src' : F.pane);
     function paintFind() {
       if (!hasHL) return;
       const list = navPane() === 'src' ? F.hits.src : F.hits.doc, cur = list[F.cur];
@@ -1144,7 +1410,7 @@
       F.cur = (F.cur + dir + list.length) % list.length; showHit();
     }
     function openFind() {
-      const sel = S.mode !== 'read' && document.activeElement === ta ? ta.value.slice(ta.selectionStart, ta.selectionEnd) : String(getSelection() || '');
+      const sel = srcShown() && document.activeElement === ta ? ta.value.slice(ta.selectionStart, ta.selectionEnd) : String(getSelection() || '');
       if (sel && !sel.includes('\n') && sel.length < 200) findIn.value = sel.trim() || findIn.value;
       if (S.mode === 'split') F.pane = document.activeElement === ta ? 'src' : F.pane;
       F.open = true; findBar.hidden = false; placeFind();
@@ -1156,7 +1422,7 @@
       const list = navPane() === 'src' ? F.hits.src : F.hits.doc, r = list[F.cur];
       if (hasHL) { CSS.highlights.delete('mdr-find'); CSS.highlights.delete('mdr-find-cur'); }
       if (r && r.ln !== undefined) { const p = sync.starts[r.ln] + r.col; ta.focus({ preventScroll: true }); ta.setSelectionRange(p, p + F.q.length); } // leave the caret on the match, like an editor
-      else if (S.mode !== 'read') ta.focus({ preventScroll: true });
+      else if (srcShown()) ta.focus({ preventScroll: true });
       F.hits = { doc: [], src: [] }; F.cur = -1;
     }
     function placeFind() { findBar.style.top = (content.offsetTop + 10) + 'px'; }

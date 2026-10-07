@@ -467,3 +467,32 @@ html[data-theme=studio] .diagram .dgerr b{color:#ff8b8b}
 ::highlight(mdr-find){background:color-mix(in srgb,#f5c542 38%,transparent)}
 ::highlight(mdr-find-cur){background:color-mix(in srgb,#f59e0b 72%,transparent)}
 html[data-theme=studio] ::highlight(mdr-find){background:color-mix(in srgb,#f5c542 30%,transparent)}
+
+/* ---------- Write mode: Read's page, editable in place ---------- */
+.app[data-mode=write] .editor{display:none!important}
+.app:not([data-kind=md]) .seg [data-mode=write]{display:none}
+.wbar{display:none}
+.app.writing .wbar{display:flex;align-items:center;gap:2px;position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:26;padding:5px 8px;border-radius:12px;
+  background:var(--panel,var(--card,var(--paper,#fff)));color:var(--ink,var(--text,#222));border:1px solid var(--line-2,var(--line,var(--rule,#d6d6d6)));
+  box-shadow:0 10px 30px rgba(0,0,0,.12);font:13px/1 var(--sans,system-ui,sans-serif);width:max-content;max-width:calc(100vw - 40px);flex-wrap:wrap}
+.wbar button{border:0;background:transparent;color:inherit;font:inherit;font-size:13px;min-width:30px;height:28px;padding:0 8px;border-radius:7px;cursor:pointer;opacity:.78;white-space:nowrap}
+.wbar button:hover:not(:disabled){opacity:1;background:color-mix(in srgb,currentColor 8%,transparent)}
+.wbar button.on{opacity:1;color:var(--accent,#3b82f6);background:color-mix(in srgb,var(--accent,#3b82f6) 14%,transparent)}
+.wbar button:disabled{opacity:.35;cursor:default}
+.wbar .wsep{width:1px;height:18px;margin:0 4px;background:var(--line-2,var(--line,var(--rule,#ddd)))}
+.wbar .wtag{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent,#3b82f6);padding:0 8px 0 4px}
+.wbar .whelp{font-size:12px;color:var(--ink-3,var(--text-3,#888));padding:0 6px 0 8px;white-space:nowrap}
+.wbar .wlink{width:300px;border:1px solid var(--accent,#3b82f6);border-radius:7px;outline:0;background:transparent;color:inherit;font:inherit;padding:5px 8px;margin:0 4px}
+.wbar .wlink[hidden]{display:none}
+/* every editable block shows a faint frame on hover and a soft tint while you type in it */
+.app.writing .doc{padding-bottom:110px}
+.app.writing .wblock{border-radius:6px;transition:box-shadow .12s,background-color .12s;cursor:text}
+.app.writing .wblock:hover{box-shadow:0 0 0 5px color-mix(in srgb,var(--accent,#3b82f6) 6%,transparent)}
+.app.writing .wblock:focus-within{background-color:color-mix(in srgb,var(--accent,#3b82f6) 5%,transparent);box-shadow:0 0 0 5px color-mix(in srgb,var(--accent,#3b82f6) 5%,transparent),0 0 0 6px color-mix(in srgb,var(--accent,#3b82f6) 28%,transparent)}
+.app.writing [contenteditable]:focus{outline:0}
+.app.writing [contenteditable]{caret-color:var(--accent,#3b82f6)}
+.app.writing .wblock input[type=checkbox]{cursor:pointer}
+.app.writing .w-locked{cursor:default}
+.app.writing p.wblock:has(> br:only-child){position:relative}
+.app.writing p.wblock:has(> br:only-child)::before{content:'Type here -- "## " heading, "- " list, "> " quote';position:absolute;left:0;opacity:.38;pointer-events:none;white-space:nowrap}
+.app.writing .sec .tools{z-index:3}

@@ -206,6 +206,7 @@ function buildMenu() {
       { label: 'Read', accelerator: 'CmdOrCtrl+1', click: () => send('mode:read') },
       { label: 'Edit', accelerator: 'CmdOrCtrl+2', click: () => send('mode:edit') },
       { label: 'Split', accelerator: 'CmdOrCtrl+3', click: () => send('mode:split') },
+      { label: 'Write (edit the page)', accelerator: 'CmdOrCtrl+4', click: () => send('mode:write') },
       { label: 'Toggle Edit', accelerator: 'CmdOrCtrl+E', click: () => send('toggle-edit') },
       { type: 'separator' },
       { label: 'Theme', submenu: [
