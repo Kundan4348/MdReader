@@ -36,6 +36,7 @@
     const curTab = () => S.tabs[S.tab];
     const curDisp = () => (curTab() ? dispOf(curTab()) : { crumbs: [], name: 'MdReader', dir: null });
     const DEFAULT_THEME = 'mono';
+    const DEFAULT_MODE = 'write';
     const srcShown = () => S.mode === 'edit' || S.mode === 'split'; // the source pane is on screen (not Read / Write)
 
     // ---------- DOM ----------
@@ -267,7 +268,7 @@
         linkIn.onblur = () => { linkIn.hidden = true; };
       }
       const ACTS = [['P', '¶', 'Plain paragraph'], ['H2', 'H2', 'Heading'], ['H3', 'H3', 'Sub-heading'], null,
-        ['bold', '<b>B</b>', 'Bold (⌘B)'], ['italic', '<i>I</i>', 'Italic (⌘I)'], ['strike', '<s>S</s>', 'Strikethrough'], ['code', '&lt;/&gt;', 'Inline code'], ['link', 'Link', 'Link (⌘K)'], null,
+        ['bold', '<b>B</b>', 'Bold (⌘B)'], ['italic', '<i>I</i>', 'Italic (⌘I)'], ['strike', '<s>S</s>', 'Strikethrough'], ['code', '&lt;/&gt;', 'Inline code'], ['link', 'Link', 'Link (⌘K) · ⌥-click a link to edit its text'], null,
         ['UL', '• List', 'Bulleted list (or type "- ")'], ['OL', '1. List', 'Numbered list (or type "1. ")'], ['TASK', '☐ Tasks', 'Checklist (or type "[ ] ")'], ['BLOCKQUOTE', '❝ Quote', 'Quote (or type "> ")']];
       function buildBar() {
         if (built) return; built = true;
@@ -1283,8 +1284,8 @@
     });
     doc.addEventListener('click', (e) => {
       const a = e.target.closest('a[href]'); if (!a) return;
-      if (S.mode === 'write' && a.closest('.wblock')) { if (!(e.metaKey || e.ctrlKey)) { e.preventDefault(); return; } }
-      if (a.dataset.path && S.mode === 'write') { e.preventDefault(); openPathLink(a.dataset.path, false); return; }
+      // Write (the default mode) follows links like Read does; ⌥-click puts the cursor inside the link text instead
+      if (S.mode === 'write' && e.altKey && a.closest('.wblock')) { e.preventDefault(); return; }
       if (a.dataset.path) { e.preventDefault(); openPathLink(a.dataset.path, e.metaKey || e.ctrlKey); return; }
       const href = a.getAttribute('href');
       if (href.startsWith('#')) { e.preventDefault(); scrollTo(href.slice(1)); }
@@ -1315,7 +1316,7 @@
       togglePanel('outline', await g('outline', true));
       { const z = +(await g('zoom', 1)); S.zoom = z >= ZOOM_STEPS[0] && z <= ZOOM_STEPS[ZOOM_STEPS.length - 1] ? Math.round(z * 100) / 100 : 1; } applyZoom();
       setWidth(await g('width', 'auto'));
-      setMode('read');
+      setMode(DEFAULT_MODE, true); // opens ready to type on the page; Read / Edit / Split stay one click (⌘1-3) away
       saveBtn.disabled = true;
     })();
 
