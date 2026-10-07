@@ -1,6 +1,6 @@
 /* Theme: Lumen -- airy editorial page, no cards. Each `##` section gets its own quiet colour (numeral, rail,
    list markers, table header, callouts), so you always know which part of the document you are in.
-   Bold text gets a soft highlighter so key facts stand out when skimming. */
+   Bold text is heavier and slightly tinted towards the section colour. */
 html[data-theme=lumen]{
   --bg:#f7f8fb;--page:#ffffff;--ink:#1c2230;--ink-2:#465066;--ink-3:#8a93a6;--line:#e4e7ee;--line-2:#eef0f5;
   --accent:#5a5fd0;--accent-soft:#ecedfb;--sh:#5a5fd0;
@@ -91,9 +91,8 @@ html[data-theme=lumen] h3::before{content:'';width:8px;height:8px;border-radius:
 html[data-theme=lumen] h4{font-family:var(--sans);font-weight:700;font-size:12.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--sh);margin:24px 0 8px}
 html[data-theme=lumen] p{margin:0 0 16px}
 html[data-theme=lumen] .sec .body>:last-child{margin-bottom:0}
-html[data-theme=lumen] strong{font-weight:650;color:#141927}
-html[data-theme=lumen] .doc p strong,html[data-theme=lumen] .doc li strong{
-  background:linear-gradient(transparent 60%,color-mix(in srgb,var(--sh) 16%,transparent) 0);padding:0 .08em}
+/* bold: heavier and a touch darker, with a faint lean towards the section colour -- no highlighter band */
+html[data-theme=lumen] strong{font-weight:700;color:color-mix(in srgb,var(--sh) 18%,#10141f)}
 html[data-theme=lumen] em{color:var(--ink-2)}
 html[data-theme=lumen] .doc a{color:var(--sh);text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--sh) 35%,transparent);text-underline-offset:3px}
 html[data-theme=lumen] .doc a:hover{text-decoration-color:var(--sh)}
@@ -108,7 +107,6 @@ html[data-theme=lumen] hr{border:0;height:1px;background:linear-gradient(90deg,v
 html[data-theme=lumen] blockquote{margin:0 0 18px;padding:14px 20px;border-left:4px solid var(--sh);border-radius:0 12px 12px 0;
   background:color-mix(in srgb,var(--sh) 7%,#fff);color:var(--ink-2);font-family:var(--sans);font-size:15.5px;line-height:1.65}
 html[data-theme=lumen] blockquote p:last-child{margin:0}
-html[data-theme=lumen] blockquote strong{background:none}
 
 /* tables: a framed sheet with the section's colour on the header and gentle row striping */
 html[data-theme=lumen] .table-wrap{margin:18px 0 22px}
