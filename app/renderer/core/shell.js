@@ -10,6 +10,7 @@
     { id: 'studio', name: 'Studio', hint: 'dark app, files + outline' },
     { id: 'sections', name: 'Sections', hint: 'light cards, one per section' },
     { id: 'mono', name: 'Mono', hint: 'monospace, typewriter calm' },
+    { id: 'lumen', name: 'Lumen', hint: 'airy page, a colour per section' },
   ];
   const WIDTHS = ['auto', 'narrow', 'wide', 'full'];
   const ZOOM_STEPS = [0.8, 0.9, 1, 1.1, 1.2, 1.35, 1.5, 1.7, 2];
@@ -359,13 +360,20 @@
     // ignored until it has reached the target it was sent to, with a time cap as the safety net.
     function setScroll(el, top, smooth) {
       top = Math.max(0, Math.min(top, el.scrollHeight - el.clientHeight));
-      sync.prog.set(el, { top, until: now() + (smooth ? 1500 : 150) });
+      // A long smooth scroll (thousands of px, e.g. a tall page in a roomy theme) can run past 1.5 s, and its slow
+      // tail was then taken for a user scroll that dragged the other pane back. Give it up to 4 s; the pane is
+      // released early when the scroll ends (scrollend) or the user takes over (wheel / pointer / key, below).
+      sync.prog.set(el, { top, until: now() + (smooth ? 4000 : 150) });
       if (smooth) el.scrollTo({ top, behavior: 'smooth' }); else el.scrollTop = top;
     }
+    function releaseScroll(e) { sync.prog.delete(e.currentTarget); }
     function echo(el) { // true while el is still travelling to a target this code set
       const p = sync.prog.get(el); if (!p) return false;
-      if (Math.abs(el.scrollTop - p.top) < 1) { sync.prog.delete(el); return true; } // arrived: this event is the echo
-      if (now() > p.until) { sync.prog.delete(el); return false; } // never arrived (clamped, interrupted): this one is the user's
+      // Arrived: this event is the echo. Keep the entry (until scrollend / user input / the cap) so a repeat event at
+      // the same position -- layout settling after the scroll, a repaint of the selection marks -- is not mistaken
+      // for the user scrolling and does not drag the other pane back.
+      if (Math.abs(el.scrollTop - p.top) < 1) { p.arrived = true; return true; }
+      if (p.arrived || now() > p.until) { sync.prog.delete(el); return false; } // moved off the target, or never got there: the user's
       return true;
     }
     // The mirror is also the line-number gutter: every .ln row carries its number in a ::before drawn to the left of
@@ -441,6 +449,21 @@
     // padding and is cancelled so line 0 at the top of the left pane <-> scrollTop 0 on the right. Otherwise the
     // space above the first block is the header the leading lines map onto, and nothing is cancelled.
     const topGap = (bs) => (bs[0].l0 === 0 ? bs[0].top : 0);
+    // Cancelling that whole offset everywhere would leave every aligned block that far below the top of the right
+    // pane -- harmless for a 22px page margin, but a theme whose title sits in a padded hero band (Lumen) would show
+    // the previous block's tail. So the full offset is cancelled only at the top and eases down to the page's own
+    // top padding over the next stretch of the same height. paneY maps a document y to a scrollTop; docY inverts it.
+    const docPad = () => parseFloat(getComputedStyle(doc).paddingTop) || 0;
+    function paneY(yRaw, bs) {
+      const g = topGap(bs), p = Math.min(docPad(), g);
+      if (yRaw <= g) return 0;
+      if (yRaw <= 2 * g - p) return 2 * (yRaw - g);
+      return yRaw - p;
+    }
+    function docY(y, bs) {
+      const g = topGap(bs), p = Math.min(docPad(), g);
+      return y <= 2 * (g - p) ? g + y / 2 : y + p;
+    }
     function onSrcScroll() {
       hl.scrollTop = ta.scrollTop;
       if (!inSplit() || echo(ta) || !sync.lines.length) return;
@@ -448,7 +471,7 @@
       sync.raf = requestAnimationFrame(() => {
         const bs = blocks(); if (!bs.length) return;
         const ln = lineAtY(ta.scrollTop + hlPad());
-        const y = Math.max(0, lineToY(ln, bs) - topGap(bs));
+        const y = paneY(lineToY(ln, bs), bs);
         if (Math.abs(content.scrollTop - y) < 1) return;
         setScroll(content, y);
       });
@@ -459,7 +482,7 @@
       cancelAnimationFrame(sync.raf);
       sync.raf = requestAnimationFrame(() => {
         const bs = blocks(); if (!bs.length) return;
-        const ln = yToLine(content.scrollTop + topGap(bs), bs);
+        const ln = yToLine(docY(content.scrollTop, bs), bs);
         const y = Math.max(0, lineY(ln) - hlPad());
         if (Math.abs(ta.scrollTop - y) < 1) return;
         setScroll(ta, y);
@@ -566,6 +589,7 @@
       if (top < vt + 8 || bottom > vb - 8) setScroll(content, top - Math.min(80, content.clientHeight / 4), true);
     }, 60);
     document.addEventListener('selectionchange', onSelChange);
+    for (const el of [ta, content]) for (const ev of ['scrollend', 'wheel', 'pointerdown', 'keydown', 'touchstart']) el.addEventListener(ev, releaseScroll, { passive: true });
     ['select', 'keyup', 'mouseup'].forEach((ev) => ta.addEventListener(ev, onSrcSelect));
     if (global.ResizeObserver) new ResizeObserver(() => { refreeze(); fitEditor(); if (S.mode !== 'read') buildMirrorSoon(); }).observe(content);
 

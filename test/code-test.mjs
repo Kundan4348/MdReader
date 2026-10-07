@@ -51,7 +51,7 @@ report.copy = await ev(`(async () => { const b = document.querySelector('#app .c
 report.copyOk = report.copy.eq && report.copy.head.startsWith('WITH p AS (') && report.copy.tail.endsWith('ORDER BY d.realm, d.name;') && report.copy.btn === 'Copied';
 await shot('code-mono.png');
 report.themes = {};
-for (const th of ['paper', 'studio', 'sections']) {
+for (const th of ['paper', 'studio', 'sections', 'lumen']) {
   await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value='${th}'; s.dispatchEvent(new Event('change',{bubbles:true}));})()`); await sleep(250);
   report.themes[th] = await ev(`(() => { const b = document.querySelector('#app .codeblock'); const k = b.querySelector('.tk-k'), s = b.querySelector('.tk-s'), code = b.querySelector('pre>code'); const bar = b.querySelector('.codebar').getBoundingClientRect(), pre = b.querySelector('pre').getBoundingClientRect(); return { kwColor: getComputedStyle(k).color, strColor: getComputedStyle(s).color, base: getComputedStyle(code).color, barInside: bar.top >= pre.top - 1 && bar.right <= pre.right + 1, textBelowBar: code.getBoundingClientRect().top >= bar.bottom - 1 }; })()`);
 }

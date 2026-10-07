@@ -79,7 +79,7 @@ for (const w of ['auto', 'narrow', 'wide', 'full']) {
 await ev(`document.querySelector('#app .top button.width').click()`);
 report.zoom = await ev(`getComputedStyle(document.querySelector('#app')).getPropertyValue('--zoom').trim()`);
 report.themes = {};
-for (const t of ['paper', 'studio', 'sections', 'mono']) {
+for (const t of ['paper', 'studio', 'sections', 'mono', 'lumen']) {
   await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value='${t}'; s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   await sleep(400);
   report.themes[t] = { applied: await ev('document.documentElement.dataset.theme'), cols: await ev(`getComputedStyle(document.querySelector('#app')).gridTemplateColumns`) };
@@ -224,7 +224,7 @@ report.crumbsOk = report.revealBtn && report.crumbLabels[0] === '~' && report.cr
 // theme, even with the long fixtures path in the crumbs; the top 6px must be no-drag everywhere so the resize border works.
 const dragScan = `((y)=>{const drag=(x)=>{let el=document.elementFromPoint(x,y);while(el){const r=getComputedStyle(el).webkitAppRegion||getComputedStyle(el).appRegion;if(r==='drag')return true;if(r==='no-drag')return false;el=el.parentElement;}return false;};let n=0;for(let x=2;x<innerWidth;x+=4)if(drag(x))n+=4;return n;})`;
 report.dragPx = {};
-for (const th of ['mono', 'paper', 'studio', 'sections']) {
+for (const th of ['mono', 'paper', 'studio', 'sections', 'lumen']) {
   await ev(`shell.setTheme('${th}')`); await sleep(250);
   report.dragPx[th] = { mid: await ev(`${dragScan}(22)`), edge: await ev(`${dragScan}(3)`), strip: await ev(`${dragScan}(Math.round(document.querySelector('#app .tabs').getBoundingClientRect().top + 16))`) };
 }

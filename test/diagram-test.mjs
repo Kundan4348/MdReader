@@ -65,7 +65,7 @@ await ev(`document.querySelector('#app .diagram[data-kind=flowchart] .dgbar .big
 await ev(`document.querySelector('#app .diagram.broken').scrollIntoView({ block: 'center' })`); await sleep(200); await shot('diagram-mono-broken.png');
 // themes: the picture is redrawn in each theme's own colours and font
 report.themes = {};
-for (const th of ['paper', 'studio', 'sections']) {
+for (const th of ['paper', 'studio', 'sections', 'lumen']) {
   await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value='${th}'; s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   for (let i = 0; i < 40; i++) { await sleep(150); if (await ev(`[...document.querySelectorAll('#app .diagram:not(.broken)')].every(d => d.dataset.state === 'drawn' && !d.querySelector('.dgv').getAttribute('aria-busy'))`)) break; }
   await sleep(250);
@@ -92,7 +92,7 @@ report.hoverOk = report.hover.trace && report.hover.onNodes.join() === 'B,C,D,E'
 report.sourceOk = report.source.shown && report.source.hiddenAgain && report.source.startsWith === 'sequenceDiagram' && report.source.lines === 22 && report.source.kws >= 10 && report.source.ops >= 10 && report.source.head >= 1 && report.source.gutter === 'counter(ln)' && report.source.copied && report.source.copyBtn === 'Copied';
 report.largeOk = report.large.open && report.large.fits && report.large.zoomed && report.large.closed && report.large.nodes === 9 && /^FlowchartFlow, top to bottom/.test(report.large.bar);
 report.legendOk = report.legend.off && report.legend.stored === 'off' && report.legend.compact && report.legend.back;
-report.themesOk = ['paper', 'studio', 'sections'].every((t) => { const o = report.themes[t]; return o.drawn === 'drawn' && o.fill === o.wantFill && o.font === o.wantFont; }) && new Set(Object.values(report.themes).map((o) => o.fill)).size === 3;
+report.themesOk = ['paper', 'studio', 'sections', 'lumen'].every((t) => { const o = report.themes[t]; return o.drawn === 'drawn' && o.fill === o.wantFill && o.font === o.wantFont; }) && new Set(Object.values(report.themes).map((o) => o.fill)).size === 4;
 report.mmdOk = report.mmd.kind === 'mmd' && report.mmd.cards === 1 && report.mmd.state === 'drawn' && /^Flow, left to right · 5 steps, 1 decision · 5 arrows$/.test(report.mmd.sum) && report.mmd.fmtShown === 'none';
 report.diagramOk = report.mounted && report.cards.length === 8 && report.rest.codeblocks === 0 && report.rest.lastP === 'Closing paragraph after the diagrams.' && report.flowOk && report.seqOk && report.othersOk && report.hoverOk && report.sourceOk && report.brokenOk && report.largeOk && report.legendOk && report.themesOk && report.mmdOk;
 console.log(JSON.stringify(report, null, 1));

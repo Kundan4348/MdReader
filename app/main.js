@@ -213,6 +213,7 @@ function buildMenu() {
         { label: 'Studio', click: () => send('theme:studio') },
         { label: 'Sections', click: () => send('theme:sections') },
         { label: 'Mono', click: () => send('theme:mono') },
+        { label: 'Lumen', click: () => send('theme:lumen') },
         { label: 'Next Theme', accelerator: 'CmdOrCtrl+Shift+Y', click: () => send('theme:next') },
       ] },
       { label: 'Next Tab', accelerator: 'Ctrl+Tab', click: () => send('tab:next') },

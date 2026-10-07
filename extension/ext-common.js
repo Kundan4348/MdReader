@@ -1,7 +1,7 @@
 // Shared host glue for the extension (content script on a .md page, and the viewer page).
 // Provides: theme/pref storage, stylesheet loading, File System Access save flow, IndexedDB handle store.
 (function (global) {
-  const CSS = ['core/fonts/fonts.css', 'core/shell.css', 'core/themes/paper.css', 'core/themes/studio.css', 'core/themes/sections.css', 'core/themes/mono.css'];
+  const CSS = ['core/fonts/fonts.css', 'core/shell.css', 'core/themes/paper.css', 'core/themes/studio.css', 'core/themes/sections.css', 'core/themes/mono.css', 'core/themes/lumen.css'];
 
   async function injectStyles(extra = []) {
     for (const f of [...CSS, ...extra]) {

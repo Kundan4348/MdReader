@@ -1,0 +1,145 @@
+/* Theme: Lumen -- airy editorial page, no cards. Each `##` section gets its own quiet colour (numeral, rail,
+   list markers, table header, callouts), so you always know which part of the document you are in.
+   Bold text gets a soft highlighter so key facts stand out when skimming. */
+html[data-theme=lumen]{
+  --bg:#f7f8fb;--page:#ffffff;--ink:#1c2230;--ink-2:#465066;--ink-3:#8a93a6;--line:#e4e7ee;--line-2:#eef0f5;
+  --accent:#5a5fd0;--accent-soft:#ecedfb;--sh:#5a5fd0;
+  --disp:'Fraunces',Georgia,serif;--head:'Manrope',system-ui,sans-serif;--body:'Source Serif 4',Georgia,serif;
+  --sans:'Inter',system-ui,sans-serif;--mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
+  background:var(--bg);color:var(--ink);font-family:var(--body)}
+html[data-theme=lumen] body{background:
+  radial-gradient(900px 420px at 12% -120px,rgba(90,95,208,.10),transparent 70%),
+  radial-gradient(800px 380px at 88% -140px,rgba(15,139,141,.09),transparent 70%),var(--bg)}
+html[data-theme=lumen] .app{--top-h:50px;--files-w:232px;--outline-w:216px;--measure:min(100%,clamp(860px,64cqw,1160px))}
+
+/* one hue per section, cycling; muted so they read as labels, not decoration */
+html[data-theme=lumen] .sec:nth-child(6n+1){--sh:#5a5fd0}
+html[data-theme=lumen] .sec:nth-child(6n+2){--sh:#14858a}
+html[data-theme=lumen] .sec:nth-child(6n+3){--sh:#b4741c}
+html[data-theme=lumen] .sec:nth-child(6n+4){--sh:#bf4a6e}
+html[data-theme=lumen] .sec:nth-child(6n+5){--sh:#7a5cc0}
+html[data-theme=lumen] .sec:nth-child(6n+6){--sh:#2f8456}
+html[data-theme=lumen] .head .chips a:nth-child(6n+1){--sh:#5a5fd0}
+html[data-theme=lumen] .head .chips a:nth-child(6n+2){--sh:#14858a}
+html[data-theme=lumen] .head .chips a:nth-child(6n+3){--sh:#b4741c}
+html[data-theme=lumen] .head .chips a:nth-child(6n+4){--sh:#bf4a6e}
+html[data-theme=lumen] .head .chips a:nth-child(6n+5){--sh:#7a5cc0}
+html[data-theme=lumen] .head .chips a:nth-child(6n+6){--sh:#2f8456}
+
+/* top bar */
+html[data-theme=lumen] .top{font-family:var(--sans);background:rgba(255,255,255,.78);backdrop-filter:blur(14px) saturate(1.2);border-bottom:1px solid var(--line);color:var(--ink-2)}
+html[data-theme=lumen] .top .crumbs .c{color:var(--ink-3);opacity:1}
+html[data-theme=lumen] .top .crumbs b{color:var(--ink)}
+html[data-theme=lumen] .top .dot{background:var(--accent)}
+html[data-theme=lumen] .top .seg{background:var(--line-2);border:1px solid var(--line)}
+html[data-theme=lumen] .top .seg button{color:var(--ink-2);font-weight:500}
+html[data-theme=lumen] .top .seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(28,34,48,.10)}
+html[data-theme=lumen] .top button.save{background:var(--ink);border:1px solid var(--ink);color:#fff}
+html[data-theme=lumen] .top select.theme{border:1px solid var(--line);background-color:#fff;color:var(--ink-2)}
+html[data-theme=lumen] .top button.icon{color:var(--ink-2)}
+html[data-theme=lumen] .top .view{border:1px solid var(--line);background:#fff;border-radius:9px}
+
+/* side panels */
+html[data-theme=lumen] .files,html[data-theme=lumen] .outline{font-family:var(--sans);color:var(--ink-2);background:rgba(255,255,255,.45)}
+html[data-theme=lumen] .files{border-right:1px solid var(--line)}
+html[data-theme=lumen] .outline{border-left:1px solid var(--line)}
+html[data-theme=lumen] .tree .label:hover,html[data-theme=lumen] .tree .file:hover{background:#fff}
+html[data-theme=lumen] .tree .file.on{background:var(--accent-soft);color:var(--accent);opacity:1}
+html[data-theme=lumen] .toc a{color:var(--ink-2);text-decoration:none;border-radius:0 6px 6px 0}
+html[data-theme=lumen] .toc a:hover{background:#fff}
+html[data-theme=lumen] .toc a.l1{color:var(--ink)}
+html[data-theme=lumen] .toc a.active{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+html[data-theme=lumen] .outline .meta{border-top:1px solid var(--line)}
+
+/* the page */
+html[data-theme=lumen] .doc{padding:30px 34px 140px;font-size:17.5px;line-height:1.78}
+html[data-theme=lumen] .editor{padding:30px 34px 140px}
+html[data-theme=lumen] .src{--src-pad-l:24px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px 24px;font-size:13.5px;color:var(--ink);caret-color:var(--accent)}
+html[data-theme=lumen] .src:focus{border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+html[data-theme=lumen] .app[data-mode=split] .editor{padding:22px 12px 22px 22px}
+html[data-theme=lumen] .app[data-mode=split] .doc{padding:22px 22px 120px 14px}
+
+/* hero: title, intro and the section chips on a soft tinted band */
+html[data-theme=lumen] .head{position:relative;padding:34px 38px 22px;margin:0 0 30px;border-radius:22px;
+  background:linear-gradient(135deg,rgba(90,95,208,.08),rgba(20,133,138,.06) 55%,rgba(180,116,28,.05));
+  border:1px solid rgba(90,95,208,.12)}
+html[data-theme=lumen] .head:empty{display:none}
+html[data-theme=lumen] h1{font-family:var(--disp);font-weight:600;font-size:44px;line-height:1.1;letter-spacing:-.015em;margin:0 0 14px;color:#141927}
+html[data-theme=lumen] .head h1+p{font-family:var(--sans);font-size:15.5px;line-height:1.65;color:var(--ink-2);margin:0 0 14px;max-width:760px}
+html[data-theme=lumen] .head h1:not(:first-child){margin-top:26px}
+html[data-theme=lumen] .head .chips{display:flex;flex-wrap:wrap;gap:8px;position:sticky;top:0;z-index:5;margin:16px 0 0;padding:10px 0 4px}
+html[data-theme=lumen] .head .chips a{font-family:var(--sans);font-size:12.5px;font-weight:500;color:var(--ink-2);text-decoration:none;
+  background:rgba(255,255,255,.85);border:1px solid var(--line);padding:5px 12px 5px 10px;border-radius:999px;display:inline-flex;align-items:center;gap:7px}
+html[data-theme=lumen] .head .chips a::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--sh);flex:none}
+html[data-theme=lumen] .head .chips a:hover{border-color:var(--sh);color:var(--sh)}
+html[data-theme=lumen] .head .table-wrap{background:#fff;border-radius:14px}
+
+/* sections: no cards -- an eyebrow numeral, a strong title and a thin coloured rail down the content */
+html[data-theme=lumen] .secs{display:flex;flex-direction:column;gap:14px}
+html[data-theme=lumen] .sec{padding:18px 0 10px}
+html[data-theme=lumen] .sec h2{font-family:var(--head);font-weight:800;font-size:27px;line-height:1.22;letter-spacing:-.015em;color:#141927;
+  margin:0 0 18px;padding:0 150px 14px 0;position:relative}
+html[data-theme=lumen] .sec h2::after{content:'';position:absolute;left:0;bottom:0;width:72px;height:3px;border-radius:3px;
+  background:linear-gradient(90deg,var(--sh),color-mix(in srgb,var(--sh) 0%,transparent))}
+html[data-theme=lumen] h2 .n{display:block;font-family:var(--sans);font-size:11.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--sh);margin:0 0 6px}
+html[data-theme=lumen] h2 .n::before{content:'Section '}
+html[data-theme=lumen] .sec .body{padding-left:24px;border-left:2px solid color-mix(in srgb,var(--sh) 22%,transparent)}
+html[data-theme=lumen] .sec.editing .sec-src{border:1px solid var(--sh);box-shadow:0 0 0 4px color-mix(in srgb,var(--sh) 12%,transparent)}
+html[data-theme=lumen] h3{font-family:var(--head);font-weight:700;font-size:19px;letter-spacing:-.005em;color:#141927;margin:30px 0 10px;display:flex;align-items:center;gap:10px}
+html[data-theme=lumen] h3::before{content:'';width:8px;height:8px;border-radius:3px;background:var(--sh);transform:rotate(45deg);flex:none}
+html[data-theme=lumen] h4{font-family:var(--sans);font-weight:700;font-size:12.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--sh);margin:24px 0 8px}
+html[data-theme=lumen] p{margin:0 0 16px}
+html[data-theme=lumen] .sec .body>:last-child{margin-bottom:0}
+html[data-theme=lumen] strong{font-weight:650;color:#141927}
+html[data-theme=lumen] .doc p strong,html[data-theme=lumen] .doc li strong{
+  background:linear-gradient(transparent 60%,color-mix(in srgb,var(--sh) 16%,transparent) 0);padding:0 .08em}
+html[data-theme=lumen] em{color:var(--ink-2)}
+html[data-theme=lumen] .doc a{color:var(--sh);text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--sh) 35%,transparent);text-underline-offset:3px}
+html[data-theme=lumen] .doc a:hover{text-decoration-color:var(--sh)}
+html[data-theme=lumen] code{font-family:var(--mono);font-size:.82em;background:color-mix(in srgb,var(--sh) 9%,#fff);color:color-mix(in srgb,var(--sh) 70%,#1c2230);padding:.12em .42em;border-radius:6px}
+html[data-theme=lumen] pre.code{background:#fbfbfd;border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin:0 0 18px;font-size:13.5px;line-height:1.6}
+html[data-theme=lumen] pre.code code{background:transparent;padding:0;color:var(--ink);font-size:inherit}
+html[data-theme=lumen] ul,html[data-theme=lumen] ol{padding-left:1.3em;margin:0 0 18px}
+html[data-theme=lumen] li{margin:7px 0;padding-left:.25em}
+html[data-theme=lumen] ul>li::marker{color:var(--sh);font-size:1.1em}
+html[data-theme=lumen] ol>li::marker{color:var(--sh);font-family:var(--head);font-weight:800;font-size:.9em}
+html[data-theme=lumen] hr{border:0;height:1px;background:linear-gradient(90deg,var(--line),transparent);margin:30px 0}
+html[data-theme=lumen] blockquote{margin:0 0 18px;padding:14px 20px;border-left:4px solid var(--sh);border-radius:0 12px 12px 0;
+  background:color-mix(in srgb,var(--sh) 7%,#fff);color:var(--ink-2);font-family:var(--sans);font-size:15.5px;line-height:1.65}
+html[data-theme=lumen] blockquote p:last-child{margin:0}
+html[data-theme=lumen] blockquote strong{background:none}
+
+/* tables: a framed sheet with the section's colour on the header and gentle row striping */
+html[data-theme=lumen] .table-wrap{margin:18px 0 22px}
+html[data-theme=lumen] table{width:100%;border-collapse:separate;border-spacing:0;font-family:var(--sans);font-size:14px;line-height:1.55;
+  background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:0 10px 28px -22px rgba(28,34,48,.35)}
+html[data-theme=lumen] thead th{text-align:left;font-weight:650;font-size:12px;letter-spacing:.03em;color:color-mix(in srgb,var(--sh) 80%,#1c2230);
+  padding:11px 16px;background:color-mix(in srgb,var(--sh) 8%,#fff);border-bottom:1px solid color-mix(in srgb,var(--sh) 18%,#fff)}
+html[data-theme=lumen] tbody td{padding:11px 16px;vertical-align:top;border-bottom:1px solid var(--line-2)}
+html[data-theme=lumen] tbody tr:nth-child(even) td{background:#fafbfd}
+html[data-theme=lumen] tbody tr:last-child td{border-bottom:0}
+html[data-theme=lumen] tbody tr:hover td{background:color-mix(in srgb,var(--sh) 5%,#fff)}
+html[data-theme=lumen] td:first-child{font-weight:600;color:#141927}
+html[data-theme=lumen] td.num{font-family:var(--mono);font-size:13px;color:var(--ink)}
+html[data-theme=lumen] tr.total td{background:color-mix(in srgb,var(--sh) 10%,#fff);font-weight:700}
+html[data-theme=lumen] td code{background:transparent;padding:0;color:color-mix(in srgb,var(--sh) 75%,#1c2230)}
+
+/* section tools, toast, hint */
+html[data-theme=lumen] .sec .tools{top:20px}
+html[data-theme=lumen] .sec .tools button{font-family:var(--sans);border:1px solid var(--line);background:#fff;color:var(--ink-2)}
+html[data-theme=lumen] .sec .tools button:hover{border-color:var(--sh);color:var(--sh)}
+html[data-theme=lumen] .sec-src{border:1px solid var(--accent);background:#fff;color:var(--ink)}
+html[data-theme=lumen] .toast{background:#141927;color:#fff;font-family:var(--sans)}
+html[data-theme=lumen] .hint{font-family:var(--sans);color:var(--ink-3);background:rgba(255,255,255,.9);border:1px solid var(--line)}
+html[data-theme=lumen] .hint kbd{background:#fff;border-color:var(--line)}
+
+/* tabs */
+html[data-theme=lumen] .tabs{padding:8px 18px 0;font-family:var(--sans);color:var(--ink-2)}
+html[data-theme=lumen] .tab{border-radius:9px;padding:6px 8px 6px 12px}
+html[data-theme=lumen] .tab:hover{background:rgba(255,255,255,.7)}
+html[data-theme=lumen] .tab.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(28,34,48,.08),0 0 0 1px var(--line)}
+html[data-theme=lumen] .tab .dot{background:var(--accent)}
+
+html[data-theme=lumen] ::-webkit-scrollbar{width:10px;height:10px}
+html[data-theme=lumen] ::-webkit-scrollbar-thumb{background:#d6dae3;border-radius:10px;border:2px solid var(--bg)}

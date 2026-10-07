@@ -86,7 +86,7 @@ await ev(`document.querySelector('#app .top [data-mode=read]').click()`); await 
 for (let i = 0; i < 14; i++) await ev(`dispatchEvent(new KeyboardEvent('keydown',{key:'t',metaKey:true,bubbles:true}))`);
 await sleep(300);
 report.manyTabs = {};
-for (const th of ['paper', 'sections', 'studio', 'mono']) {
+for (const th of ['paper', 'sections', 'studio', 'mono', 'lumen']) {
   await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value='${th}'; s.dispatchEvent(new Event('change',{bubbles:true}));})()`); await sleep(200);
   report.manyTabs[th] = await ev(`(()=>{const strip=document.querySelector('#app .tabs'); const tabs=[...strip.querySelectorAll('.tab')]; const on=strip.querySelector('.tab.on').getBoundingClientRect(); const sr=strip.getBoundingClientRect();
     return {n:tabs.length, minW:Math.round(Math.min(...tabs.map(t=>t.getBoundingClientRect().width))), scrolls:strip.scrollWidth>strip.clientWidth+20, activeVisible:on.left>=sr.left-1&&on.right<=sr.right+1, divider:(()=>{const cs=getComputedStyle(tabs[2],'::before'); return cs.display==='none'?'none':cs.borderLeftStyle})(), names:tabs.slice(0,3).map(t=>t.querySelector('.name').textContent)}})()`);
@@ -103,7 +103,7 @@ await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value='mo
 report.nestedMounted = await mount(base + '/test/fixtures/nested.json');
 await ev(`document.querySelector('#app .head button.jx[data-act=expand]').click()`);
 report.nested = {};
-for (const th of ['paper', 'sections', 'studio', 'mono']) {
+for (const th of ['paper', 'sections', 'studio', 'mono', 'lumen']) {
   await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value='${th}'; s.dispatchEvent(new Event('change',{bubbles:true}));})()`); await sleep(250);
   report.nested[th] = await ev(`(()=>{const ws=[...document.querySelectorAll('#app .jroot details.jn>.table-wrap')]; const pane=document.querySelector('#app .doc').getBoundingClientRect(); return ws.map(w=>{const r=w.getBoundingClientRect(); const sm=w.parentElement.querySelector('summary').getBoundingClientRect(); return {inside:r.left>=sm.left-1 && r.right<=pane.right+1, indented:r.left>sm.left+8, narrow:r.width<pane.width*0.8, rowH:Math.round(w.querySelector("tbody tr").getBoundingClientRect().height), rows:w.querySelectorAll('tbody tr').length}})})()`);
   if (th === 'paper') await shot('json-nested-paper.png');

@@ -64,7 +64,7 @@ report.filesDebug = await evalJs(`({cls: document.querextSelector ? 0 : document
 report.filesHidden = await evalJs(`getComputedStyle(document.querySelector('#app .files')).display==='none' && getComputedStyle(document.querySelector('#app')).gridTemplateColumns.startsWith('0px')`);
 report.extraButtons = await evalJs(`[...document.querySelectorAll('#app .top button')].map(b=>b.title||b.textContent.trim()).filter(Boolean)`);
 report.themes = {};
-for (const t of ['paper', 'studio', 'sections', 'mono']) {
+for (const t of ['paper', 'studio', 'sections', 'mono', 'lumen']) {
   await evalJs(`(async()=>{const s=document.querySelector('#app select.theme'); s.value='${t}'; s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   await sleep(400);
   report.themes[t] = { headerAlign: await evalJs(`(()=>{const th=document.querySelector('#app table thead th.num'); const td=document.querySelector('#app table tbody tr td.num'); const a=getComputedStyle(th).textAlign, b=getComputedStyle(td).textAlign; return a+'/'+b})()`), applied: await evalJs('document.documentElement.dataset.theme'), bg: await evalJs('getComputedStyle(document.body).backgroundColor'), font: await evalJs(`getComputedStyle(document.querySelector('#app h1')).fontFamily.slice(0,40)`) };
@@ -94,7 +94,8 @@ report.buttonsOk = report.zoomAfterPlus === report.zoomBefore && pagePlus === 1.
 const pinch = (dy, n) => evalJs(`(()=>{const el=document.querySelector('#app .doc');const r=el.getBoundingClientRect();for(let i=0;i<${n};i++) el.dispatchEvent(new WheelEvent('wheel',{deltaY:${dy},ctrlKey:true,bubbles:true,cancelable:true,clientX:r.left+50,clientY:r.top+50}));})()`);
 const z0 = await zoomVar(), p0 = await pageVar();
 await pinch(-8, 3); await sleep(50); const pIn = await pageVar(), zIn = await zoomVar();
-const docWider = await evalJs(`document.querySelector('#app').classList.contains('paged') && document.querySelector('#app .doc').getBoundingClientRect().width > document.querySelector('#app .content').clientWidth`);
+// magnified = the frozen page really grew (a theme with a narrow column need not overflow the pane at 1.27x)
+const docWider = await evalJs(`(()=>{const d=document.querySelector('#app .doc');return document.querySelector('#app').classList.contains('paged') && d.getBoundingClientRect().width > parseFloat(d.style.width)*1.2})()`);
 // the buttons must keep working after a pinch (the bug Kundan hit): A+ multiplies the pinched value by 1.1
 await clickBtn('zoom-in'); await sleep(50); const pPlusAfterPinch = await pageVar();
 await clickBtn('zoom-out'); await sleep(50); const pMinusAfterPinch = await pageVar();
@@ -196,7 +197,7 @@ report.lnumOk = ['split', 'edit'].every((k) => ln[k].display !== 'none' && ln[k]
 // holds a wide table and even while magnified (it used to grow to the table's min-content and spill off-screen).
 const fillQ = `(()=>{const c=document.querySelector('#app .content'),ed=document.querySelector('#app .editor'),d=document.querySelector('#app .doc'),cr=c.getBoundingClientRect(),er=ed.getBoundingClientRect(),dr=d.getBoundingClientRect();return {edGap:Math.round(cr.bottom-er.bottom),paneScrolls:c.scrollHeight>c.clientHeight+1,docW:Math.round(dr.width),colW:Math.round(parseFloat((getComputedStyle(c).gridTemplateColumns.split(" ")[1]))||cr.width/2),overflowX:c.scrollWidth>c.clientWidth+1}})()`;
 const fl = {};
-for (const t of ['paper', 'studio', 'sections', 'mono']) {
+for (const t of ['paper', 'studio', 'sections', 'mono', 'lumen']) {
   await evalJs(`(()=>{const s=document.querySelector('#app select.theme'); s.value='${t}'; s.dispatchEvent(new Event('change',{bubbles:true}));})()`); await sleep(200);
   await evalJs(`document.querySelector('#app .top [data-mode=edit]').click()`); await sleep(250);
   const edit = await evalJs(fillQ);
@@ -209,7 +210,7 @@ await evalJs(`document.querySelector('#app .top [data-mode=split]').click()`); a
 fl.magSplit = await evalJs(fillQ); fl.magSplit.paged = await evalJs(`document.querySelector('#app').classList.contains('paged')`);
 await evalJs(`(()=>{const b=[...document.querySelectorAll('#app .top button')].find(b=>/Reset zoom/.test(b.title));b.click();})()`); await sleep(150);
 report.fill = fl;
-report.fillOk = ['paper', 'studio', 'sections', 'mono'].every((t) => fl[t].edit.edGap <= 1 && !fl[t].edit.paneScrolls && fl[t].split.edGap <= 1 && Math.abs(fl[t].split.docW - fl[t].split.colW) <= 2 && !fl[t].split.overflowX)
+report.fillOk = ['paper', 'studio', 'sections', 'mono', 'lumen'].every((t) => fl[t].edit.edGap <= 1 && !fl[t].edit.paneScrolls && fl[t].split.edGap <= 1 && Math.abs(fl[t].split.docW - fl[t].split.colW) <= 2 && !fl[t].split.overflowX)
   && fl.magSplit.paged && Math.abs(fl.magSplit.docW - fl.magSplit.colW) <= 2 && !fl.magSplit.overflowX;
 // Per-section Edit -> Done / Cancel must leave the section where it was on screen, even with pictures above it
 // (a re-render brings them back at zero height until they load again, which used to slide the page away).
@@ -218,7 +219,7 @@ await sleep(300);
 await evalJs(`document.querySelector('#app .top [data-mode=read]').click()`); await sleep(300);
 const secQ = (n) => `(()=>{const c=document.querySelector('#app .content'),s=document.querySelector('#app .sec[data-i="${n}"]');return s?Math.round(s.getBoundingClientRect().top-c.getBoundingClientRect().top):null})()`;
 const se = {};
-for (const t of ['paper', 'studio', 'sections', 'mono']) {
+for (const t of ['paper', 'studio', 'sections', 'mono', 'lumen']) {
   await evalJs(`(()=>{const s=document.querySelector('#app select.theme'); s.value='${t}'; s.dispatchEvent(new Event('change',{bubbles:true}));})()`); await sleep(1200);
   const n = await evalJs(`Math.floor(document.querySelectorAll('#app .sec').length*0.7)`);
   // scroll down gradually so the lazy pictures above the target load, the way a reader gets there
