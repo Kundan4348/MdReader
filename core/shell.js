@@ -129,7 +129,7 @@
         }
         buildBar();
       }
-      function reset() { dirty.clear(); clearTimeout(timer); cur = null; hideMenu(); }
+      function reset() { dirty.clear(); clearTimeout(timer); cur = null; hideMenu(); if (typeof endDrag === 'function') endDrag(false); }
       function mark(b) { dirty.add(b); clearTimeout(timer); timer = setTimeout(commitAll, 400); }
       function commitAll() { clearTimeout(timer); for (const b of [...dirty]) commit(b); }
       function commit(b) {
@@ -275,7 +275,7 @@
         ['UL', '• List', 'Bulleted list (or type "- ")'], ['OL', '1. List', 'Numbered list (or type "1. ")'], ['TASK', '☐ Tasks', 'Checklist (or type "[ ] ")'], ['BLOCKQUOTE', '❝ Quote', 'Quote (or type "> ")']];
       // ---- the table group of the toolbar, and its full menu (also on right-click in a cell) ----
       const TBL = [['rowBelow', '+ Row', 'Insert a row below (⌘↩, or Tab in the last cell)'], ['colRight', '+ Column', 'Insert a column to the right'],
-        ['delRows', '− Row', 'Delete the row(s) the selection touches'], ['delCols', '− Column', 'Delete the column(s) the selection touches'], ['menu', 'Table ▾', 'Every table action (or right-click a cell)']];
+        ['delRows', '− Row', 'Delete the row(s) the selection touches'], ['delCols', '− Column', 'Delete the column(s) the selection touches'], ['hdr', 'Header', 'Header row: make this row the header, or turn the header into a normal row'], ['menu', 'Table ▾', 'Every table action (or right-click a cell)']];
       function buildBar() {
         if (built) return; built = true;
         const btn = (a, cls) => h('button', { type: 'button', class: cls || '', 'data-act': a[0], title: a[2], html: a[1],
@@ -292,7 +292,7 @@
           if (!b || WR.kindOf(b) !== 'table') return flash('Click into a table first');
           const sel = tableSel(b);
           if (name === 'menu') { const r = e.currentTarget.getBoundingClientRect(); return showMenu(r.left, r.top, b, sel, true); }
-          return tableOp(b, name, sel);
+          return tableOp(b, name === 'hdr' ? (sel.r === 0 ? 'headerToRow' : 'makeHeader') : name, sel);
         }
         if (!b) return flash('Click into the text first');
         const k = WR.kindOf(b);
@@ -315,6 +315,7 @@
           const a = x.dataset.act;
           x.classList.toggle('on', !!b && (a === cur || (['bold', 'italic', 'strike'].includes(a) && document.queryCommandState(a === 'strike' ? 'strikeThrough' : a))));
           x.disabled = !b && a !== 'table';
+          if (a === 'hdr') { const c = b && WR.kindOf(b) === 'table' && cellOf(getSelection().anchorNode); x.classList.toggle('on', !!c && c.tagName === 'TH'); }
         });
       }
 
@@ -470,6 +471,21 @@
             body.sort((x, y) => { const v = cmpCells(x.cells[k] || '', y.cells[k] || ''); return !(x.cells[k] || '').trim() || !(y.cells[k] || '').trim() ? v : v * dir; });
             rows.push(...body); to = [1, c]; msg = `Sorted by "${rows[0].cells[k].trim() || 'column ' + (k + 1)}"`; break;
           }
+          // Header toggle. Markdown always has a header line, so "no header" is an empty one; making a row the header
+          // drops such an empty header instead of keeping it as a blank row, so the toggle round-trips.
+          case 'makeHeader': {
+            if (r === 0) return flash('This row is already the header');
+            const old = rows[0], [row] = rows.splice(r, 1);
+            if (old.cells.some((x) => x.trim())) rows.splice(1, 0, old); rows.splice(0, 1, row);
+            to = [0, c]; msg = 'Header row set'; break;
+          }
+          case 'headerToRow': rows.unshift({ cells: Array(n).fill(''), line: null }); to = [0, c]; msg = 'Header is now a normal row -- type headings in the empty row, or leave it blank'; break;
+          case 'moveRow': { // drag and drop: sel.from / sel.to are row indexes, the header being 0
+            const from = sel.from, slot = sel.to;
+            if (from < 1 || slot < 1 || slot === from || slot === from + 1) return;
+            const [row] = rows.splice(from, 1), dest = slot > from ? slot - 1 : slot;
+            rows.splice(dest, 0, row); to = [dest, c]; msg = 'Row moved'; break;
+          }
           case 'clearCells': for (const [i, j] of sel.cells.length ? sel.cells : [[r, c]]) if (rows[i] && j < rows[i].cells.length) { rows[i].cells[j] = ''; rows[i].line = null; } break;
           case 'delTable': gone = true; break;
           default: return;
@@ -514,6 +530,7 @@
           grp(nr > 1 ? `${nr} rows` : hdr ? 'Header row' : 'Row'),
           item('rowAbove', 'Insert row above'), item('rowBelow', 'Insert row below', '⌘↩'), item('dupRow', nr > 1 ? `Duplicate ${nr} rows` : 'Duplicate row'),
           item('moveUp', 'Move up', '', lo === 0), item('moveDown', 'Move down', '', hi >= rows.length - 1),
+          item(hdr ? 'headerToRow' : 'makeHeader', hdr ? 'Turn header into a normal row' : 'Make this the header row', '', nr > 1),
           item('delRows', nr > 1 ? `Delete ${nr} rows` : 'Delete row', '', false, true),
           grp(nc > 1 ? `${nc} columns` : 'Column'),
           item('colLeft', 'Insert column left'), item('colRight', 'Insert column right'),
@@ -534,6 +551,64 @@
       document.addEventListener('mousedown', (e) => { if (!menu.hidden && !menu.contains(e.target)) hideMenu(); }, true);
       document.addEventListener('keydown', (e) => { if (!menu.hidden && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); hideMenu(); } }, true);
       content.addEventListener('scroll', () => { if (!menu.hidden) hideMenu(); }, { passive: true });
+      // ---- drag a table row by its handle ----
+      // One floating grip (outside the page, so it never ends up in the file) follows the row under the pointer. Dragging it
+      // shows a line where the row will land; dropping moves the row in the markdown. Body rows only: the header is set
+      // with the Header toggle. Esc cancels.
+      const grip = h('div', { class: 'wdrag', title: 'Drag to move this row', hidden: '',
+        html: '<svg viewBox="0 0 10 16" width="10" height="16" aria-hidden="true"><g fill="currentColor"><circle cx="2.5" cy="3" r="1.3"/><circle cx="7.5" cy="3" r="1.3"/><circle cx="2.5" cy="8" r="1.3"/><circle cx="7.5" cy="8" r="1.3"/><circle cx="2.5" cy="13" r="1.3"/><circle cx="7.5" cy="13" r="1.3"/></g></svg>' });
+      const dropLine = h('div', { class: 'wdrop', hidden: '' });
+      root.append(grip, dropLine);
+      let gripRow = null, drag = null;
+      const bodyRows = (b) => [...b.querySelectorAll('table > tbody > tr')];
+      function placeGrip(tr) {
+        gripRow = tr;
+        const r = tr.getBoundingClientRect(), t = tr.closest('table').getBoundingClientRect();
+        grip.hidden = false; grip.style.left = (t.left - 22) + 'px'; grip.style.top = (r.top + r.height / 2 - 11) + 'px';
+      }
+      function hideGrip() { if (drag) return; grip.hidden = true; gripRow = null; }
+      doc.addEventListener('mousemove', (e) => {
+        if (!ok() || drag) return;
+        const tr = e.target.closest && e.target.closest('.table-wrap tbody > tr');
+        if (tr && blockOf(tr)) return placeGrip(tr);
+        // on the way from a row to the grip, the pointer crosses the margin left of the table: keep the grip there
+        if (gripRow && gripRow.isConnected) { const r = gripRow.getBoundingClientRect(); if (e.clientY >= r.top && e.clientY <= r.bottom && e.clientX >= r.left - 34 && e.clientX <= r.right) return; }
+        hideGrip();
+      });
+      content.addEventListener('scroll', () => { if (!drag) hideGrip(); }, { passive: true });
+      // the slot (0 = before the first body row) nearest the pointer, among the rows a filter has not hidden
+      function slotAt(y) {
+        const rows = bodyRows(drag.b), vis = rows.filter((tr) => tr.offsetParent !== null);
+        for (const tr of vis) { const r = tr.getBoundingClientRect(); if (y < r.top + r.height / 2) return { slot: rows.indexOf(tr), y: r.top }; }
+        const last = vis[vis.length - 1]; return { slot: rows.indexOf(last) + 1, y: last.getBoundingClientRect().bottom };
+      }
+      grip.addEventListener('pointerdown', (e) => {
+        if (!gripRow || !ok() || e.button !== 0) return;
+        const b = blockOf(gripRow); if (!b) return;
+        e.preventDefault(); commitAll(); hideMenu();
+        grip.setPointerCapture(e.pointerId);
+        drag = { b, tr: gripRow, from: bodyRows(b).indexOf(gripRow), slot: -1 };
+        gripRow.classList.add('wdragging'); root.classList.add('w-dragging');
+      });
+      grip.addEventListener('pointermove', (e) => {
+        if (!drag) return;
+        const { slot, y } = slotAt(e.clientY), t = drag.tr.closest('table').getBoundingClientRect();
+        drag.slot = slot;
+        const still = slot === drag.from || slot === drag.from + 1;
+        dropLine.hidden = still;
+        if (!still) { dropLine.style.left = t.left + 'px'; dropLine.style.width = t.width + 'px'; dropLine.style.top = (y - 1.5) + 'px'; }
+        grip.style.top = (e.clientY - 11) + 'px';
+      });
+      function endDrag(apply) {
+        if (!drag) return;
+        const d = drag; drag = null;
+        d.tr.classList.remove('wdragging'); root.classList.remove('w-dragging'); dropLine.hidden = true; grip.hidden = true; gripRow = null;
+        if (apply && d.slot >= 0 && d.slot !== d.from && d.slot !== d.from + 1) tableOp(d.b, 'moveRow', { rows: [], cols: [], cells: [], r: d.from + 1, c: 0, from: d.from + 1, to: d.slot + 1 });
+      }
+      grip.addEventListener('pointerup', () => endDrag(true));
+      grip.addEventListener('pointercancel', () => endDrag(false));
+      document.addEventListener('keydown', (e) => { if (drag && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); endDrag(false); } }, true);
+
       doc.addEventListener('contextmenu', (e) => {
         if (!ok()) return; const cell = e.target.closest('td, th'), b = cell && blockOf(cell);
         if (!b || WR.kindOf(b) !== 'table' || cell.closest('tr.filters')) return;

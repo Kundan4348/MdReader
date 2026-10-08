@@ -516,3 +516,13 @@ html[data-theme=studio] .wmenu button.danger{color:#fb923c}
 .wmenu .walign{display:flex;align-items:center;gap:2px;padding:2px 9px}
 .wmenu .walign>span{flex:1;opacity:.85}
 .wmenu .walign button.wal{width:auto;padding:5px 7px;justify-content:center}
+/* Write: row drag grip and drop line */
+.wdrag{position:fixed;z-index:40;width:18px;height:22px;display:flex;align-items:center;justify-content:center;border-radius:5px;cursor:grab;
+  color:var(--ink-3,var(--text-3,#888));background:var(--panel,var(--card,var(--paper,#fff)));border:1px solid var(--line-2,var(--line,rgba(0,0,0,.14)));touch-action:none}
+.wdrag[hidden]{display:none}
+.wdrag:hover{color:var(--accent,#3b82f6)}
+.app.w-dragging,.app.w-dragging *{cursor:grabbing!important;user-select:none}
+.wdrop{position:fixed;z-index:39;height:3px;border-radius:2px;background:var(--accent,#3b82f6);pointer-events:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--accent,#3b82f6) 22%,transparent)}
+.wdrop[hidden]{display:none}
+.app.writing tr.wdragging{opacity:.45}
+.app.w-intable .wbar .whelp{display:none}

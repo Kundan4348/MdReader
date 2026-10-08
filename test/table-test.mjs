@@ -55,7 +55,7 @@ const menuClick = (label) => ev(`(()=>{const b=[...document.querySelectorAll('#a
 const bar = (act) => ev(`document.querySelector('#app .wbar [data-act=${act}]').click()`);
 const caretRow = () => ev(`(()=>{const a=getSelection().anchorNode; const c=(a.nodeType===1?a:a.parentElement).closest('td,th'); if(!c) return null; const rows=[...c.closest('table').querySelectorAll('thead>tr:not(.filters),tbody>tr')]; return [rows.indexOf(c.parentElement),[...c.parentElement.children].indexOf(c)]})()`);
 const S1 = {};
-const TB = async () => { const l = (await SRC()).split('\n'); const i = l.findIndex((x) => x.startsWith('| Name')); if (i < 0) return []; const out = []; for (let j = i; j < l.length && l[j].startsWith('|'); j++) out.push(l[j]); return out; };
+const TB = async () => { const l = (await SRC()).split('\n'); const i = l.findIndex((x) => x.startsWith('|')); if (i < 0) return []; const out = []; for (let j = i; j < l.length && l[j].startsWith('|'); j++) out.push(l[j]); return out; };
 // A. right-click a cell -> Insert row below; type into it
 S1.menuShown = await rclick('beta'); await shotF('table-menu.png');
 S1.ins = await menuClick('Insert row below'); await sleep(400);
@@ -92,6 +92,32 @@ await key('Tab', 'Tab', 9); await sleep(400);
 S1.tabCaret = await caretRow(); await typeText('omega'); await sleep(700);
 S1.afterTab = await TB();
 S1.logsMid = logs.length;
+// F2. drag the "omega" row above "delta" by its grip
+const mouse = (type, x, y, extra = {}) => send('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1, ...extra });
+const rect = (js) => ev(`(()=>{const r=(${js}).getBoundingClientRect(); return [r.left,r.top,r.width,r.height]})()`);
+const om = await rect(tdWith('omega'));
+await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: om[0] + 10, y: om[1] + om[3] / 2 }); await sleep(150);
+S1.gripShown = await ev(`!document.querySelector('#app .wdrag').hidden`);
+const g = await rect(`document.querySelector('#app .wdrag')`);
+const de = await rect(tdWith('delta'));
+await mouse('mousePressed', g[0] + 9, g[1] + 11); await sleep(100);
+await mouse('mouseMoved', g[0] + 9, de[1] + 6); await sleep(150);
+S1.dropShown = await ev(`!document.querySelector('#app .wdrop').hidden`);
+await shotF('table-drag.png');
+await mouse('mouseReleased', g[0] + 9, de[1] + 6); await sleep(500);
+S1.afterDrag = await TB();
+// F3. header toggle: header -> normal row, then back
+const thWith = (t) => `[...document.querySelectorAll('#app .table-wrap th')].find(x=>x.textContent.trim()===${JSON.stringify(t)})`;
+await ev(`(()=>{const c=${thWith('Name')}; document.querySelector('#app .doc').focus(); const r=document.createRange(); r.selectNodeContents(c); r.collapse(false); const s=getSelection(); s.removeAllRanges(); s.addRange(r)})()`); await sleep(100);
+S1.hdrOn = await ev(`document.querySelector('#app .wbar [data-act=hdr]').classList.contains('on')`);
+await bar('hdr'); await sleep(400);
+S1.afterUnhead = await TB();
+await caretIn('Name'); await bar('hdr'); await sleep(400);
+S1.afterRehead = await TB();
+await rclick('eta'); await menuClick('Make this the header row'); await sleep(400);
+S1.afterEtaHead = await TB();
+await key('z', 'KeyZ', 90, 4); await sleep(400);
+S1.afterEtaUndo = await TB();
 // G. Backspace at the start of a paragraph joins it to the one above
 await caretAfter('#app .sec:last-of-type .body > p:last-of-type', 'T', true); await ev(`(()=>{const s=getSelection(); s.collapseToStart()})()`);
 await key('Backspace', 'Backspace', 8); await sleep(400);
@@ -120,13 +146,18 @@ const E = {
   afterSort: J(['| Name | Count |  |', '| :--- | ---: | :---: |', '| delta | 40 | x1 |', '| theta | 15 |  |', '| eta | 7 |  |']),
   afterMove: J(['| Name | Count |  |', '| :--- | ---: | :---: |', '| delta | 40 | x1 |', '| eta | 7 |  |', '| theta | 15 |  |']),
   afterTab: J(['| Name | Count |  |', '| :--- | ---: | :---: |', '| delta | 40 | x1 |', '| eta | 7 |  |', '| theta | 15 |  |', '| omega |   |   |']),
+  afterDrag: J(['| Name | Count |  |', '| :--- | ---: | :---: |', '| omega |   |   |', '| delta | 40 | x1 |', '| eta | 7 |  |', '| theta | 15 |  |']),
+  afterUnhead: J(['|  |  |  |', '| :--- | ---: | :---: |', '| Name | Count |  |', '| omega |   |   |', '| delta | 40 | x1 |', '| eta | 7 |  |', '| theta | 15 |  |']),
+  afterRehead: J(['| Name | Count |  |', '| :--- | ---: | :---: |', '| omega |   |   |', '| delta | 40 | x1 |', '| eta | 7 |  |', '| theta | 15 |  |']),
+  afterEtaHead: J(['| eta | 7 |  |', '| :--- | ---: | :---: |', '| Name | Count |  |', '| omega |   |   |', '| delta | 40 | x1 |', '| theta | 15 |  |']),
+  afterEtaUndo: J(['| Name | Count |  |', '| :--- | ---: | :---: |', '| omega |   |   |', '| delta | 40 | x1 |', '| eta | 7 |  |', '| theta | 15 |  |']),
 };
 report.got = {}; report.bad = [];
 for (const [k, v] of Object.entries(E)) { report.got[k] = J(S1[k]); if (report.got[k] !== v) report.bad.push(k); }
 const FINAL = '# Table fixture\n\nIntro Xsection para.Third para here.\n\n| Key | Column 2 | Column 3 |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |';
 report.s = S1;
 report.checks = {
-  menu: S1.menuShown && S1.ins, insCaret: JSON.stringify(S1.insCaret) === '[3,0]', multiSel: /beta/.test(S1.selC || ''),
+  menu: S1.menuShown && S1.ins, drag: S1.gripShown && S1.dropShown, hdrOn: S1.hdrOn, insCaret: JSON.stringify(S1.insCaret) === '[3,0]', multiSel: /beta/.test(S1.selC || ''),
   undo: J(S1.undone) === E.afterDel2, redo: J(S1.redone) === E.afterMulti, colCaret: JSON.stringify(S1.colCaret) === '[1,2]',
   tab: JSON.stringify(S1.tabFirst) === '[3,2]' && JSON.stringify(S1.tabCaret) === '[4,0]',
   joined: S1.joined === 'Second section para.Third para here.' && S1.joinCaret === 'para.|Third',
