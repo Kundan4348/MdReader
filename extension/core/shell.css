@@ -526,3 +526,18 @@ html[data-theme=studio] .wmenu button.danger{color:#fb923c}
 .wdrop[hidden]{display:none}
 .app.writing tr.wdragging{opacity:.45}
 .app.w-intable .wbar .whelp{display:none}
+.wdrag.col{width:22px;height:16px}
+.wdrop.v{width:3px;height:auto}
+.app.writing .wdragging{opacity:.45}
+/* Table colour: status chips and numeric bars (theme-var based, all themes) */
+.doc td .stc{display:inline-block;padding:1px 9px;border-radius:999px;font-size:.86em;font-weight:600;line-height:1.5;
+  background:color-mix(in srgb,var(--chip) 16%,transparent);color:color-mix(in srgb,var(--chip) 72%,var(--ink,var(--text,#222)))}
+html[data-dg-dark] .doc td .stc,html[data-theme=studio] .doc td .stc{background:color-mix(in srgb,var(--chip) 26%,transparent);color:color-mix(in srgb,var(--chip) 60%,#fff)}
+.doc td[data-st=ok]{--chip:var(--ok,#2e9e5b)}
+.doc td[data-st=bad]{--chip:var(--danger,#d1493f)}
+.doc td[data-st=warn]{--chip:var(--warn,#c58a1a)}
+.doc td[data-st=muted]{--chip:var(--ink-3,var(--text-3,#9a9a9a))}
+.doc td.bar{position:relative;z-index:0}
+.doc td.bar::before{content:'';position:absolute;z-index:-1;top:4px;bottom:4px;right:0;width:calc(var(--bar,0)*100%);
+  background:color-mix(in srgb,var(--accent,#3b82f6) 15%,transparent);border-radius:3px}
+html[data-theme=studio] .doc td.bar::before,html[data-dg-dark] .doc td.bar::before{background:color-mix(in srgb,var(--accent,#7cc4ff) 22%,transparent)}

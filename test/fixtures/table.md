@@ -15,6 +15,15 @@ Intro para one.
 
 Para after table.
 
+## Status
+
+| Task | State | Score |
+|:-----|:------|------:|
+| Build | passed | 95 |
+| Deploy | failed | 12 |
+| Review | pending | 60 |
+| Docs | n/a | 40 |
+
 ## Other
 
 Second section para.

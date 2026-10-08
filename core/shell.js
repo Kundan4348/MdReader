@@ -129,7 +129,7 @@
         }
         buildBar();
       }
-      function reset() { dirty.clear(); clearTimeout(timer); cur = null; hideMenu(); if (typeof endDrag === 'function') endDrag(false); }
+      function reset() { dirty.clear(); clearTimeout(timer); cur = null; hideMenu(); if (typeof endDrag === 'function') { endDrag(false); endCdrag(false); } }
       function mark(b) { dirty.add(b); clearTimeout(timer); timer = setTimeout(commitAll, 400); }
       function commitAll() { clearTimeout(timer); for (const b of [...dirty]) commit(b); }
       function commit(b) {
@@ -480,6 +480,13 @@
             to = [0, c]; msg = 'Header row set'; break;
           }
           case 'headerToRow': rows.unshift({ cells: Array(n).fill(''), line: null }); to = [0, c]; msg = 'Header is now a normal row -- type headings in the empty row, or leave it blank'; break;
+          case 'moveCol': { // drag and drop: sel.from / sel.to are column indexes; to is a slot (0 = before the first column)
+            const from = sel.from, slot = sel.to;
+            if (slot === from || slot === from + 1) return;
+            const dest = slot > from ? slot - 1 : slot;
+            eachRow((x) => x.splice(dest, 0, ...x.splice(from, 1))); m.aligns.splice(dest, 0, ...m.aligns.splice(from, 1));
+            to = [r, dest]; msg = 'Column moved'; break;
+          }
           case 'moveRow': { // drag and drop: sel.from / sel.to are row indexes, the header being 0
             const from = sel.from, slot = sel.to;
             if (from < 1 || slot < 1 || slot === from || slot === from + 1) return;
@@ -608,6 +615,61 @@
       grip.addEventListener('pointerup', () => endDrag(true));
       grip.addEventListener('pointercancel', () => endDrag(false));
       document.addEventListener('keydown', (e) => { if (drag && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); endDrag(false); } }, true);
+
+      // ---- drag a table column by its handle (shown above the header cell under the pointer) ----
+      const cgrip = h('div', { class: 'wdrag col', title: 'Drag to move this column', hidden: '',
+        html: '<svg viewBox="0 0 16 10" width="16" height="10" aria-hidden="true"><g fill="currentColor"><circle cx="3" cy="2.5" r="1.3"/><circle cx="8" cy="2.5" r="1.3"/><circle cx="13" cy="2.5" r="1.3"/><circle cx="3" cy="7.5" r="1.3"/><circle cx="8" cy="7.5" r="1.3"/><circle cx="13" cy="7.5" r="1.3"/></g></svg>' });
+      const cdrop = h('div', { class: 'wdrop v', hidden: '' });
+      root.append(cgrip, cdrop);
+      let gripTh = null, cdrag = null;
+      const headCells = (b) => { const tr = b.querySelector('table > thead > tr:not(.filters)'); return tr ? [...tr.children] : []; };
+      function placeCgrip(th) {
+        gripTh = th; const r = th.getBoundingClientRect();
+        cgrip.hidden = false; cgrip.style.left = (r.left + r.width / 2 - 11) + 'px'; cgrip.style.top = (r.top - 13) + 'px';
+      }
+      function hideCgrip() { if (cdrag) return; cgrip.hidden = true; gripTh = null; }
+      doc.addEventListener('mousemove', (e) => {
+        if (!ok() || cdrag || drag) return;
+        const th = e.target.closest && e.target.closest('.table-wrap thead > tr:not(.filters) > th');
+        if (th && blockOf(th)) return placeCgrip(th);
+        // on the way up to the grip the pointer crosses the strip above the header: keep the grip there
+        if (gripTh && gripTh.isConnected) { const r = gripTh.getBoundingClientRect(); if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top - 26 && e.clientY <= r.bottom) return; }
+        hideCgrip();
+      });
+      content.addEventListener('scroll', () => { if (!cdrag) hideCgrip(); }, { passive: true });
+      function colSlotAt(x) {
+        const ths = headCells(cdrag.b);
+        for (const [i, th] of ths.entries()) { const r = th.getBoundingClientRect(); if (x < r.left + r.width / 2) return { slot: i, x: r.left }; }
+        return { slot: ths.length, x: ths[ths.length - 1].getBoundingClientRect().right };
+      }
+      const colCells = (b, i) => [...b.querySelectorAll('table > thead > tr:not(.filters), table > tbody > tr')].map((tr) => tr.children[i]).filter(Boolean);
+      cgrip.addEventListener('pointerdown', (e) => {
+        if (!gripTh || !ok() || e.button !== 0) return;
+        const b = blockOf(gripTh); if (!b) return;
+        e.preventDefault(); commitAll(); hideMenu(); hideGrip();
+        cgrip.setPointerCapture(e.pointerId);
+        const from = headCells(b).indexOf(gripTh);
+        cdrag = { b, from, slot: -1, cells: colCells(b, from) };
+        cdrag.cells.forEach((c) => c.classList.add('wdragging')); root.classList.add('w-dragging');
+      });
+      cgrip.addEventListener('pointermove', (e) => {
+        if (!cdrag) return;
+        const { slot, x } = colSlotAt(e.clientX), t = cdrag.b.querySelector('table').getBoundingClientRect();
+        cdrag.slot = slot;
+        const still = slot === cdrag.from || slot === cdrag.from + 1;
+        cdrop.hidden = still;
+        if (!still) { cdrop.style.left = (x - 1.5) + 'px'; cdrop.style.top = t.top + 'px'; cdrop.style.height = t.height + 'px'; }
+        cgrip.style.left = (e.clientX - 11) + 'px';
+      });
+      function endCdrag(apply) {
+        if (!cdrag) return;
+        const d = cdrag; cdrag = null;
+        d.cells.forEach((c) => c.classList.remove('wdragging')); root.classList.remove('w-dragging'); cdrop.hidden = true; cgrip.hidden = true; gripTh = null;
+        if (apply && d.slot >= 0 && d.slot !== d.from && d.slot !== d.from + 1) tableOp(d.b, 'moveCol', { rows: [], cols: [], cells: [], r: 0, c: d.from, from: d.from, to: d.slot });
+      }
+      cgrip.addEventListener('pointerup', () => endCdrag(true));
+      cgrip.addEventListener('pointercancel', () => endCdrag(false));
+      document.addEventListener('keydown', (e) => { if (cdrag && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); endCdrag(false); } }, true);
 
       doc.addEventListener('contextmenu', (e) => {
         if (!ok()) return; const cell = e.target.closest('td, th'), b = cell && blockOf(cell);

@@ -46,6 +46,13 @@ const enter = () => key('Enter', 'Enter', 13);
 const blur = () => ev(`document.activeElement && document.activeElement.blur()`);
 
 report.mounted = await mount(base + '/test/fixtures/table.md'); await sleep(800); // the shell's init (prefs) finishes after first paint
+// J. colour: status chips + numeric bars on a fresh Read of the full fixture (before any Write edits)
+report.colour = await ev(`(()=>{const a=document.querySelector('#app');
+  const chips=[...a.querySelectorAll('.doc td .stc')].length;
+  const states=[...new Set([...a.querySelectorAll('.doc td[data-st]')].map(td=>td.dataset.st))].sort();
+  const bars=[...a.querySelectorAll('.doc td.bar')].length;
+  const maxBar=[...a.querySelectorAll('.doc td.bar')].map(td=>+td.style.getPropertyValue('--bar')).sort((x,y)=>y-x)[0];
+  return {chips, states, bars, maxBar}})()`);
 await ev(`document.querySelector('#app .top [data-mode=write]').click()`); await sleep(400);
 const T = async () => { const l = (await SRC()).split('\n'); const i = l.findIndex((x) => x.startsWith('| Name')); return i < 0 ? [] : l.slice(i, l.findIndex((x, j) => j > i && !x.startsWith('|')) >>> 0 || undefined); };
 const tdWith = (t) => `[...document.querySelectorAll('#app .table-wrap td')].find(x=>x.textContent.trim()===${JSON.stringify(t)})`;
@@ -118,6 +125,21 @@ await rclick('eta'); await menuClick('Make this the header row'); await sleep(40
 S1.afterEtaHead = await TB();
 await key('z', 'KeyZ', 90, 4); await sleep(400);
 S1.afterEtaUndo = await TB();
+// F4. drag the "Count" column left of "Name" by its grip
+const colGrip = async (headerText) => {
+  const hr = await rect(thWith(headerText));
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: hr[0] + hr[2] / 2, y: hr[1] + hr[3] / 2 }); await sleep(150);
+  return ev(`!document.querySelector('#app .wdrag.col').hidden`);
+};
+S1.cgripShown = await colGrip('Count');
+const cg = await rect(`document.querySelector('#app .wdrag.col')`);
+const nameH = await rect(thWith('Name'));
+await mouse('mousePressed', cg[0] + 11, cg[1] + 8); await sleep(100);
+await mouse('mouseMoved', nameH[0] + 2, cg[1] + 8); await sleep(150);
+S1.cdropShown = await ev(`!document.querySelector('#app .wdrop.v').hidden`);
+await mouse('mouseReleased', nameH[0] + 2, cg[1] + 8); await sleep(500);
+S1.afterColDrag = await TB();
+
 // G. Backspace at the start of a paragraph joins it to the one above
 await caretAfter('#app .sec:last-of-type .body > p:last-of-type', 'T', true); await ev(`(()=>{const s=getSelection(); s.collapseToStart()})()`);
 await key('Backspace', 'Backspace', 8); await sleep(400);
@@ -151,19 +173,21 @@ const E = {
   afterRehead: J(['| Name | Count |  |', '| :--- | ---: | :---: |', '| omega |   |   |', '| delta | 40 | x1 |', '| eta | 7 |  |', '| theta | 15 |  |']),
   afterEtaHead: J(['| eta | 7 |  |', '| :--- | ---: | :---: |', '| Name | Count |  |', '| omega |   |   |', '| delta | 40 | x1 |', '| theta | 15 |  |']),
   afterEtaUndo: J(['| Name | Count |  |', '| :--- | ---: | :---: |', '| omega |   |   |', '| delta | 40 | x1 |', '| eta | 7 |  |', '| theta | 15 |  |']),
+  afterColDrag: J(['| Count | Name |  |', '| ---: | :--- | :---: |', '|  | omega |  |', '| 40 | delta | x1 |', '| 7 | eta |  |', '| 15 | theta |  |']),
 };
 report.got = {}; report.bad = [];
 for (const [k, v] of Object.entries(E)) { report.got[k] = J(S1[k]); if (report.got[k] !== v) report.bad.push(k); }
 const FINAL = '# Table fixture\n\nIntro Xsection para.Third para here.\n\n| Key | Column 2 | Column 3 |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |';
 report.s = S1;
 report.checks = {
-  menu: S1.menuShown && S1.ins, drag: S1.gripShown && S1.dropShown, hdrOn: S1.hdrOn, insCaret: JSON.stringify(S1.insCaret) === '[3,0]', multiSel: /beta/.test(S1.selC || ''),
+  menu: S1.menuShown && S1.ins, drag: S1.gripShown && S1.dropShown, hdrOn: S1.hdrOn, coldrag: S1.cgripShown && S1.cdropShown, insCaret: JSON.stringify(S1.insCaret) === '[3,0]', multiSel: /beta/.test(S1.selC || ''),
   undo: J(S1.undone) === E.afterDel2, redo: J(S1.redone) === E.afterMulti, colCaret: JSON.stringify(S1.colCaret) === '[1,2]',
   tab: JSON.stringify(S1.tabFirst) === '[3,2]' && JSON.stringify(S1.tabCaret) === '[4,0]',
   joined: S1.joined === 'Second section para.Third para here.' && S1.joinCaret === 'para.|Third',
   cross: S1.crossSrc.replace(/\n+$/, '') === '# Table fixture\n\nIntro Xsection para.Third para here.' && S1.crossCaret === 'Intro X|sect' && !S1.crossSrc.includes('\u2063'),
   newTable: /^column 1$/i.test(S1.newSel) && S1.final.replace(/\n+$/, '') === FINAL,
 };
-report.tableOk = report.mounted && !report.bad.length && Object.values(report.checks).every(Boolean) && !logs.length;
+
+report.tableOk = report.mounted && !report.bad.length && Object.values(report.checks).every(Boolean) && report.colour.chips>=4 && JSON.stringify(report.colour.states)==='["bad","muted","ok","warn"]' && report.colour.bars>=3 && report.colour.maxBar===1 && !logs.length;
 console.log(JSON.stringify(report, null, 2));
 killChrome(); process.exit(report.tableOk ? 0 : 1);

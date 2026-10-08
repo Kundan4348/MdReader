@@ -259,7 +259,9 @@ report.sqlOpen = await ev(`({kind:document.querySelector('#app').dataset.kind, t
 await ev(`shell.closeTab()`); await sleep(300);
 // mermaid: the app loads core/mermaid.min.js on first use (under its CSP) and draws every fence; a .mmd file is its own kind
 await launch2(path.join(root, 'test/fixtures/diagrams.md')); await sleep(900);
-for (let i = 0; i < 60; i++) { const st = await ev(`[...document.querySelectorAll('#app .diagram')].map(d => d.dataset.state || 'pending')`); if (st.length === 8 && st.every((x) => x !== 'pending')) break; await sleep(250); }
+// gantt is the slowest to draw and can lag when the machine was busy (a full test run precedes this), so poll generously
+for (let i = 0; i < 160; i++) { const st = await ev(`[...document.querySelectorAll('#app .diagram')].map(d => d.dataset.state || 'pending')`); if (st.length === 8 && st.every((x) => x === 'drawn' || x === 'error')) break; await sleep(250); }
+await sleep(500);
 report.diagramsApp = await ev(`({ states: [...document.querySelectorAll('#app .diagram')].map(d => d.dataset.state), lib: typeof mermaid, svgs: document.querySelectorAll('#app .diagram .dgv svg').length, w: document.querySelector('#app .diagram .dgv svg')?.getBoundingClientRect().width|0 })`);
 await ev(`shell.closeTab()`); await sleep(300);
 await launch2(path.join(root, 'test/fixtures/flow.mmd')); await sleep(900);

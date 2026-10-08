@@ -32,6 +32,16 @@
     return s === '' ? null : (NUM_RE.test(s) || /^[—–-]$/.test(s));
   };
 
+  // Status words get a muted chip so a column of results reads at a glance. Whole-cell matches only (a sentence that
+  // mentions "failed" is left alone), short cells only.
+  const STATUS = [
+    ['ok', /^(✅|✔️?|done|yes|y|pass(ed)?|ok(ay)?|success(ful)?|complete(d)?|merged|shipped|live|deployed|resolved|fixed|approved|enabled|active|green|true|tested( in (beta|prod|gamma|alpha))?|healthy|available|in prod)$/i],
+    ['bad', /^(❌|✖️?|no|n|fail(ed|ing|s)?|error|errors|broken|blocked|blocker|rejected|disabled|down|red|false|missing|critical|sev ?[12]|p0|p1|high|outage|regression|not fixed|not started)$/i],
+    ['warn', /^(⚠️?|pending|in progress|wip|todo|to do|partial(ly)?|review|in review|waiting|on hold|medium|med|amber|yellow|warn(ing)?|tbd|open|draft|investigating|degraded|retry|unknown|maybe|sev ?3|p2)$/i],
+    ['muted', /^(n\/?a|na|none|nil|null|-|—|–|skipped|skip|not applicable|low|p3|sev ?[45]|closed|cancel(l)?ed|deprecated)$/i],
+  ];
+  const statusOf = (t) => { const s = t.replace(/\s+/g, ' ').trim(); if (!s || s.length > 24) return null; for (const [k, re] of STATUS) if (re.test(s)) return k; return null; };
+
   // Post-process rendered tables in a detached DOM.
   function decorateTables(root) {
     root.querySelectorAll('table').forEach((table) => {
@@ -58,6 +68,22 @@
         });
         if (allStrong) tr.classList.add('total');
       });
+      // status chips: the cell's own content wrapped in a span (Write serializes a span as its contents)
+      rows.forEach((tr) => [...tr.children].forEach((td) => {
+        if (td.querySelector('table, ul, ol, pre, img')) return;
+        const st = statusOf(td.textContent); if (!st) return;
+        const chip = document.createElement('span'); chip.className = 'stc'; chip.append(...td.childNodes); td.append(chip); td.dataset.st = st;
+      }));
+      // a light bar behind each number in a numeric column, as long as the value is against the column's largest
+      for (let c = 0; c < cols; c++) {
+        if (!head[c].classList.contains('num')) continue;
+        const cells = rows.map((r) => r.children[c]).filter((td) => td && !td.closest('tr.total'));
+        const vals = cells.map((td) => { const m = /-?\d[\d,]*(\.\d+)?/.exec(td.textContent.replace(/[−–]/g, '-')); return m ? parseFloat(m[0].replace(/,/g, '')) : null; });
+        const good = vals.filter((v) => v !== null);
+        if (good.length < 3 || good.some((v) => v < 0)) continue;
+        const max = Math.max(...good); if (!(max > 0)) continue;
+        cells.forEach((td, i) => { if (vals[i] !== null) { td.classList.add('bar'); td.style.setProperty('--bar', (vals[i] / max).toFixed(3)); } });
+      }
       // wrap for horizontal scroll
       if (!table.parentElement.classList.contains('table-wrap')) {
         const wrap = document.createElement('div');
