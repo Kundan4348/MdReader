@@ -554,8 +554,43 @@ html[data-theme=studio] .app:not(.no-tcolour) .doc th[data-cc]{color:color-mix(i
   background:var(--panel,var(--card,var(--paper,#fff)));color:var(--ink-3,var(--text-3,#777));font:11.5px/1 var(--sans,system-ui,sans-serif);padding:4px 9px;cursor:pointer}
 .table-wrap:hover>.tcol-btn,.table-wrap>.tcol-btn:focus-visible{opacity:1;pointer-events:auto}
 .table-wrap>.tcol-btn:hover{color:var(--accent,#3b82f6)}
-.wmenu .wcolours{display:flex;align-items:center;gap:4px;padding:4px 9px;flex-wrap:wrap}
-.wmenu .wcolours>span{flex:1 0 100%;opacity:.85;margin-bottom:2px}
-.wmenu .wcolours button.sw{width:18px;height:18px;padding:0;border-radius:50%;background:var(--cc);border:2px solid color-mix(in srgb,var(--cc) 60%,transparent);flex:none}
-.wmenu .wcolours button.sw:hover{transform:scale(1.15);background:var(--cc)}
-.wmenu .wcolours button.sw.none{background:transparent;border:1px dashed currentColor;font-size:9px;display:flex;align-items:center;justify-content:center;opacity:.6}
+
+/* bottom bar: one line, compact */
+.app.writing .wbar{flex-wrap:nowrap;max-width:calc(100vw - 40px);overflow-x:auto;scrollbar-width:none}
+.app.writing .wbar::-webkit-scrollbar{display:none}
+.wbar button{flex:none}
+@media (max-width:1100px){.wbar .whelp{display:none}}
+@media (max-width:900px){.wbar .wtag{display:none}}
+
+/* colour picker (menu + pill): scope tabs, then 16 swatches in two rows */
+.wcolours{padding:6px 9px 8px}
+.wcolours .wch{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.wcolours .wch>span{flex:1;font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;opacity:.5}
+.wcolours .wscope{display:inline-flex;padding:2px;border-radius:7px;background:color-mix(in srgb,currentColor 7%,transparent)}
+.wmenu .wcolours .wscope button,.wpill .wcolours .wscope button{width:auto;padding:3px 8px;border-radius:5px;font-size:11.5px;opacity:.7}
+.wcolours .wscope button.on{opacity:1;background:var(--panel,var(--card,var(--paper,#fff)));box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.wcolours .wsw{display:grid;grid-template-columns:repeat(9,18px);gap:6px}
+.wcolours button.sw{width:18px!important;height:18px;padding:0!important;border-radius:50%;background:var(--cc)!important;border:2px solid color-mix(in srgb,var(--cc) 55%,#fff);cursor:pointer;transition:transform .08s}
+.wcolours button.sw:hover{transform:scale(1.18)}
+.wcolours button.sw.none{background:transparent!important;border:1px dashed currentColor;font-size:9px;display:flex;align-items:center;justify-content:center;opacity:.55}
+/* whole row / column selection: a soft ring, not a spreadsheet fill */
+.app.writing .doc .wsel{background-color:color-mix(in srgb,var(--accent,#3b82f6) 7%,transparent)!important}
+.app.w-whole[data-whole=row] .doc .wsel{box-shadow:inset 0 1.5px 0 var(--accent,#3b82f6),inset 0 -1.5px 0 var(--accent,#3b82f6)}
+.app.w-whole[data-whole=row] .doc .wsel-first{box-shadow:inset 1.5px 0 0 var(--accent,#3b82f6),inset 0 1.5px 0 var(--accent,#3b82f6),inset 0 -1.5px 0 var(--accent,#3b82f6);border-radius:6px 0 0 6px}
+.app.w-whole[data-whole=row] .doc .wsel-last{box-shadow:inset -1.5px 0 0 var(--accent,#3b82f6),inset 0 1.5px 0 var(--accent,#3b82f6),inset 0 -1.5px 0 var(--accent,#3b82f6);border-radius:0 6px 6px 0}
+.app.w-whole[data-whole=col] .doc .wsel{box-shadow:inset 1.5px 0 0 var(--accent,#3b82f6),inset -1.5px 0 0 var(--accent,#3b82f6)}
+.app.w-whole[data-whole=col] .doc .wsel-first{box-shadow:inset 1.5px 0 0 var(--accent,#3b82f6),inset -1.5px 0 0 var(--accent,#3b82f6),inset 0 1.5px 0 var(--accent,#3b82f6);border-radius:6px 6px 0 0}
+.app.w-whole[data-whole=col] .doc .wsel-last{box-shadow:inset 1.5px 0 0 var(--accent,#3b82f6),inset -1.5px 0 0 var(--accent,#3b82f6),inset 0 -1.5px 0 var(--accent,#3b82f6);border-radius:0 0 6px 6px}
+.app.w-whole .doc .wsel ::selection,.app.w-whole .doc .wsel::selection{background:transparent}
+.app.w-whole .doc{caret-color:transparent}
+/* the pill beside a selected row / column */
+.wpill{position:fixed;z-index:45;display:flex;align-items:center;flex-wrap:wrap;gap:1px;padding:3px;border-radius:9px;max-width:330px;
+  background:var(--panel,var(--card,var(--paper,#fff)));color:var(--ink,var(--text,#222));border:1px solid var(--line-2,var(--line,rgba(0,0,0,.14)));box-shadow:0 8px 22px rgba(0,0,0,.14);font:12px/1 var(--sans,system-ui,sans-serif)}
+.wpill[hidden]{display:none}
+.wpill .wpl{padding:0 7px 0 6px;font-weight:600;opacity:.65;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wpill>button{border:0;background:transparent;color:inherit;width:26px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:.8}
+.wpill>button:hover{opacity:1;background:color-mix(in srgb,var(--accent,#3b82f6) 12%,transparent)}
+.wpill>button.danger{color:#c2410c}
+html[data-theme=studio] .wpill>button.danger{color:#fb923c}
+.wpill>button.wpc::before{content:'';width:12px;height:12px;border-radius:50%;background:conic-gradient(#4f7bd9,#2a9d8f,#4c9a5a,#c9b22a,#d0703b,#c95a7a,#8a6fd0,#4f7bd9)}
+.wpill .wcolours{flex:1 0 100%;border-top:1px solid var(--line-2,var(--line,rgba(0,0,0,.1)));margin-top:3px;padding:8px 6px 5px}

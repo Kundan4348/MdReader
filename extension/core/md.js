@@ -69,8 +69,8 @@
         if (allStrong) tr.classList.add('total');
       });
       // status chips: the cell's own content wrapped in a span (Write serializes a span as its contents)
-      rows.forEach((tr) => [...tr.children].forEach((td) => {
-        if (td.querySelector('table, ul, ol, pre, img')) return;
+      rows.forEach((tr) => [...tr.children].forEach((td, c) => {
+        if ((c === 0 && cols > 1) || td.querySelector('table, ul, ol, pre, img')) return; // the first column names the rows, it is not a result
         const st = statusOf(td.textContent); if (!st) return;
         const chip = document.createElement('span'); chip.className = 'stc'; chip.append(...td.childNodes); td.append(chip); td.dataset.st = st;
       }));

@@ -129,7 +129,7 @@
         }
         buildBar();
       }
-      function reset() { dirty.clear(); clearTimeout(timer); cur = null; hideMenu(); if (typeof endDrag === 'function') { endDrag(false); endCdrag(false); } }
+      function reset() { dirty.clear(); clearTimeout(timer); cur = null; hideMenu(); clearWhole(); if (typeof endDrag === 'function') { endDrag(false); endCdrag(false); } }
       function mark(b) { dirty.add(b); clearTimeout(timer); timer = setTimeout(commitAll, 400); }
       function commitAll() { clearTimeout(timer); for (const b of [...dirty]) commit(b); }
       function commit(b) {
@@ -274,8 +274,7 @@
         ['bold', '<b>B</b>', 'Bold (⌘B)'], ['italic', '<i>I</i>', 'Italic (⌘I)'], ['strike', '<s>S</s>', 'Strikethrough'], ['code', '&lt;/&gt;', 'Inline code'], ['link', 'Link', 'Link (⌘K) · ⌥-click a link to edit its text'], null,
         ['UL', '• List', 'Bulleted list (or type "- ")'], ['OL', '1. List', 'Numbered list (or type "1. ")'], ['TASK', '☐ Tasks', 'Checklist (or type "[ ] ")'], ['BLOCKQUOTE', '❝ Quote', 'Quote (or type "> ")']];
       // ---- the table group of the toolbar, and its full menu (also on right-click in a cell) ----
-      const TBL = [['rowBelow', '+ Row', 'Insert a row below (⌘↩, or Tab in the last cell)'], ['colRight', '+ Column', 'Insert a column to the right'],
-        ['delRows', '− Row', 'Delete the row(s) the selection touches'], ['delCols', '− Column', 'Delete the column(s) the selection touches'], ['hdr', 'Header', 'Header row: make this row the header, or turn the header into a normal row'], ['menu', 'Table ▾', 'Every table action (or right-click a cell)']];
+      const TBL = [['menu', 'Table ▾', 'Rows, columns, colours and more (or right-click a cell; click a row or column grip to select it whole)']];
       function buildBar() {
         if (built) return; built = true;
         const btn = (a, cls) => h('button', { type: 'button', class: cls || '', 'data-act': a[0], title: a[2], html: a[1],
@@ -393,6 +392,7 @@
       // ---- tables: actions work on the table's markdown, then the page is re-rendered with the caret in the right cell ----
       // which rows / columns / cells the selection touches (a caret touches its own cell)
       function tableSel(b, clicked) {
+        if (wsel && wsel.b === b && (!clicked || clicked.classList.contains('wsel'))) return wholeSel(wsel);
         const rows = tableRows(b), s = getSelection(), r = s.rangeCount ? s.getRangeAt(0) : null;
         const pos = (cell) => { const tr = cell.parentElement; return [rows.indexOf(tr), [...tr.children].indexOf(cell)]; };
         let cells = r ? rows.flatMap((tr) => [...tr.children].filter((c) => r.intersectsNode(c))) : [];
@@ -500,6 +500,7 @@
         if (target) to = target;
         const lines = m.lines, rep = gone ? [] : [...tableText(m), ...lines.slice(m.l1 - m.trail, m.l1)];
         lines.splice(m.l0, m.l1 - m.l0, ...rep);
+        if (gone && COLOUR_RE.test(lines[m.l0] || '')) lines.splice(m.l0, 1); // its colour comment goes with it
         applyText(lines.join('\n'), gone ? { l0: m.l0 } : { l0: m.l0, cell: to }, m.l0);
         if (gone) flash('Table deleted -- ⌘Z brings it back'); else if (msg) flash(msg);
       }
@@ -520,6 +521,51 @@
         if (dir > 0 && i >= 0) { const sel = tableSel(b); tableOp(b, 'rowBelow', { ...sel, rows: [], cols: [] }, [sel.r + 1, 0]); }
       }
 
+      // ---- colours: a column, a row or a cell; written into the table's colour comment (undoable like any table change) ----
+      function colourTargets(b, sel, scope) {
+        const rows = tableRows(b), hs = rows[0] ? [...rows[0].children].map(cellText) : [];
+        const label = (i) => cellText(rows[i] && rows[i].children[0]);
+        const cells = sel.cells.length ? sel.cells : [[sel.r, sel.c]];
+        if (scope === 'col') return [...new Set(cells.map((p) => p[1]))].map((c) => ['cols', hs[c]]).filter((t) => t[1] !== undefined);
+        if (scope === 'row') return [...new Set(cells.map((p) => p[0]).filter((i) => i > 0))].map((i) => ['rows', label(i)]);
+        return cells.map(([i, c]) => (i === 0 ? ['cols', hs[c]] : ['cells', label(i) + '|' + hs[c]])); // a header cell colours its column
+      }
+      function colourOp(b, sel, scope, name) {
+        commitAll();
+        const l0 = +b.dataset.l0, l1 = +b.dataset.l1, d = readColours(S.text.split('\n'), l0, l1).data;
+        const ts = colourTargets(b, sel, scope);
+        if (!ts.length) return flash(scope === 'row' ? 'The header row takes its colours from its columns' : 'Nothing to colour here');
+        for (const [bag, key] of ts) {
+          if (name) d[bag][key] = name; else delete d[bag][key];
+          if (!name && bag === 'rows') for (const k of Object.keys(d.cells)) if (k.startsWith(key + '|')) delete d.cells[k]; // clearing a row clears its cells too
+          if (!name && bag === 'cols') for (const k of Object.keys(d.cells)) if (k.endsWith('|' + key)) delete d.cells[k];
+        }
+        applyText(writeColours(S.text, l0, l1, d), { l0, cell: [sel.r, sel.c] }, l0);
+        if (root.classList.contains('no-tcolour')) flash('Saved -- table colours are switched off on this Mac, the ◑ on the table turns them on', 3500);
+      }
+      // the default scope from the selection: whole rows -> Row, whole columns -> Column, a header cell -> Column, else Cell
+      let lastScope = null;
+      function scopeFor(b, sel) {
+        const rows = tableRows(b), n = rows[0] ? rows[0].children.length : 0, cells = sel.cells.length ? sel.cells : [[sel.r, sel.c]];
+        const byRow = new Map(), byCol = new Map();
+        cells.forEach(([i, c]) => { byRow.set(i, (byRow.get(i) || 0) + 1); byCol.set(c, (byCol.get(c) || 0) + 1); });
+        if (sel.whole === 'row' || (cells.length > 1 && [...byRow.values()].every((x) => x === n) && ![...byRow.keys()].includes(0))) return 'row';
+        if (sel.whole === 'col' || (cells.length > 1 && [...byCol.values()].every((x) => x === rows.length)) || cells.every(([i]) => i === 0)) return 'col';
+        return cells.length === 1 && lastScope ? lastScope : 'cell';
+      }
+      function colourPicker(b, sel, done) {
+        let scope = scopeFor(b, sel);
+        const tabs = h('span', { class: 'wscope', role: 'tablist' });
+        const sync = () => tabs.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x.dataset.scope === scope));
+        [['cell', 'Cell'], ['row', 'Row'], ['col', 'Column']].forEach(([k, label]) => tabs.append(h('button', { type: 'button', 'data-scope': k, onmousedown: (e) => e.preventDefault(),
+          onclick: (e) => { e.stopPropagation(); scope = k; lastScope = k; sync(); } }, label)));
+        sync();
+        const pick = (name) => { done && done(); colourOp(b, sel, scope, name); };
+        return h('div', { class: 'wcolours' }, h('div', { class: 'wch' }, h('span', {}, 'Colour'), tabs),
+          h('div', { class: 'wsw' }, ...COL_COLOURS.map(([name, hex]) => h('button', { type: 'button', class: 'sw', title: name[0].toUpperCase() + name.slice(1), style: '--cc:' + hex, 'data-cc': name,
+            onmousedown: (e) => e.preventDefault(), onclick: () => pick(name) })),
+          h('button', { type: 'button', class: 'sw none', title: 'Remove colour', html: '&#x2715;', onmousedown: (e) => e.preventDefault(), onclick: () => pick(null) })));
+      }
       // ---- the menu ----
       const menu = h('div', { class: 'wmenu', role: 'menu', hidden: '' });
       root.append(menu);
@@ -534,6 +580,7 @@
         const aligned = (op, glyph, tip) => h('button', { type: 'button', class: 'wal', title: tip, onmousedown: (e) => e.preventDefault(), onclick: () => { hideMenu(); tableOp(b, op, sel); } , html: glyph });
         const hdr = lo === 0;
         menu.replaceChildren(
+          colourPicker(b, sel, hideMenu),
           grp(nr > 1 ? `${nr} rows` : hdr ? 'Header row' : 'Row'),
           item('rowAbove', 'Insert row above'), item('rowBelow', 'Insert row below', '⌘↩'), item('dupRow', nr > 1 ? `Duplicate ${nr} rows` : 'Duplicate row'),
           item('moveUp', 'Move up', '', lo === 0), item('moveDown', 'Move down', '', hi >= rows.length - 1),
@@ -547,10 +594,6 @@
             aligned('alignCenter', '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 4h12M4 8h8M3 12h10" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>', 'Align centre'),
             aligned('alignRight', '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 4h12M6 8h8M3 12h11" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>', 'Align right')),
           item('sortAsc', 'Sort by this column, A → Z'), item('sortDesc', 'Sort by this column, Z → A'),
-          h('div', { class: 'wcolours' }, h('span', {}, nc > 1 ? 'Colour these' : 'Colour'),
-            ...COL_COLOURS.map(([name, hex]) => h('button', { type: 'button', class: 'sw', title: name[0].toUpperCase() + name.slice(1), style: '--cc:' + hex, 'data-cc': name,
-              onmousedown: (e) => e.preventDefault(), onclick: () => { hideMenu(); setColColour(b.querySelector('table'), sel.cols.length ? sel.cols : [sel.c], name); } })),
-            h('button', { type: 'button', class: 'sw none', title: 'No colour', html: '&#x2715;', onmousedown: (e) => e.preventDefault(), onclick: () => { hideMenu(); setColColour(b.querySelector('table'), sel.cols.length ? sel.cols : [sel.c], null); } })),
           item('delCols', nc > 1 ? `Delete ${nc} columns` : 'Delete column', '', false, true),
           grp('Table'),
           h('button', { type: 'button', role: 'menuitem', onmousedown: (e) => e.preventDefault(), onclick: () => { hideMenu(); toggleTableColours(); } }, h('span', {}, root.classList.contains('no-tcolour') ? 'Turn table colours on' : 'Turn table colours off')),
@@ -599,11 +642,12 @@
         const b = blockOf(gripRow); if (!b) return;
         e.preventDefault(); commitAll(); hideMenu();
         grip.setPointerCapture(e.pointerId);
-        drag = { b, tr: gripRow, from: bodyRows(b).indexOf(gripRow), slot: -1 };
+        drag = { b, tr: gripRow, from: bodyRows(b).indexOf(gripRow), slot: -1, x0: e.clientX, y0: e.clientY, moved: false };
         gripRow.classList.add('wdragging'); root.classList.add('w-dragging');
       });
       grip.addEventListener('pointermove', (e) => {
         if (!drag) return;
+        if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) > 4) drag.moved = true; else return;
         const { slot, y } = slotAt(e.clientY), t = drag.tr.closest('table').getBoundingClientRect();
         drag.slot = slot;
         const still = slot === drag.from || slot === drag.from + 1;
@@ -615,6 +659,7 @@
         if (!drag) return;
         const d = drag; drag = null;
         d.tr.classList.remove('wdragging'); root.classList.remove('w-dragging'); dropLine.hidden = true; grip.hidden = true; gripRow = null;
+        if (apply && !d.moved) return selectWhole(d.b, 'row', d.from + 1);
         if (apply && d.slot >= 0 && d.slot !== d.from && d.slot !== d.from + 1) tableOp(d.b, 'moveRow', { rows: [], cols: [], cells: [], r: d.from + 1, c: 0, from: d.from + 1, to: d.slot + 1 });
       }
       grip.addEventListener('pointerup', () => endDrag(true));
@@ -654,11 +699,12 @@
         e.preventDefault(); commitAll(); hideMenu(); hideGrip();
         cgrip.setPointerCapture(e.pointerId);
         const from = headCells(b).indexOf(gripTh);
-        cdrag = { b, from, slot: -1, cells: colCells(b, from) };
+        cdrag = { b, from, slot: -1, cells: colCells(b, from), x0: e.clientX, y0: e.clientY, moved: false };
         cdrag.cells.forEach((c) => c.classList.add('wdragging')); root.classList.add('w-dragging');
       });
       cgrip.addEventListener('pointermove', (e) => {
         if (!cdrag) return;
+        if (Math.hypot(e.clientX - cdrag.x0, e.clientY - cdrag.y0) > 4) cdrag.moved = true; else return;
         const { slot, x } = colSlotAt(e.clientX), t = cdrag.b.querySelector('table').getBoundingClientRect();
         cdrag.slot = slot;
         const still = slot === cdrag.from || slot === cdrag.from + 1;
@@ -670,11 +716,68 @@
         if (!cdrag) return;
         const d = cdrag; cdrag = null;
         d.cells.forEach((c) => c.classList.remove('wdragging')); root.classList.remove('w-dragging'); cdrop.hidden = true; cgrip.hidden = true; gripTh = null;
+        if (apply && !d.moved) return selectWhole(d.b, 'col', d.from);
         if (apply && d.slot >= 0 && d.slot !== d.from && d.slot !== d.from + 1) tableOp(d.b, 'moveCol', { rows: [], cols: [], cells: [], r: 0, c: d.from, from: d.from, to: d.slot });
       }
       cgrip.addEventListener('pointerup', () => endCdrag(true));
       cgrip.addEventListener('pointercancel', () => endCdrag(false));
       document.addEventListener('keydown', (e) => { if (cdrag && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); endCdrag(false); } }, true);
+
+      // ---- whole row / column selection: click a grip (without dragging) ----
+      // A soft ring marks the row or column, and a small pill beside it holds what you do with a whole row / column.
+      // Delete or Backspace removes it, Esc (or a click elsewhere) lets go. Table actions and the right-click menu act on it.
+      let wsel = null;
+      const pill = h('div', { class: 'wpill', role: 'toolbar', hidden: '' });
+      root.append(pill);
+      function wholeSel(ws) {
+        const rows = tableRows(ws.b), n = rows[0] ? rows[0].children.length : 0;
+        if (ws.kind === 'row') return { rows: [ws.i], cols: [...Array(n).keys()], cells: [...Array(n).keys()].map((c) => [ws.i, c]), r: ws.i, c: 0, whole: 'row' };
+        return { rows: [...rows.keys()], cols: [ws.i], cells: [...rows.keys()].map((r) => [r, ws.i]), r: 0, c: ws.i, whole: 'col' };
+      }
+      function clearWhole() {
+        if (!wsel) return; wsel = null; pill.hidden = true; pill.replaceChildren();
+        doc.querySelectorAll('.wsel, .wsel-first, .wsel-last').forEach((x) => x.classList.remove('wsel', 'wsel-first', 'wsel-last'));
+        root.classList.remove('w-whole');
+      }
+      function selectWhole(b, kind, i) {
+        clearWhole();
+        const rows = tableRows(b); if (!rows[i] && kind === 'row') return;
+        const cells = kind === 'row' ? [...rows[i].children] : rows.map((tr) => tr.children[i]).filter(Boolean);
+        if (!cells.length) return;
+        wsel = { b, kind, i };
+        cells.forEach((x) => x.classList.add('wsel')); cells[0].classList.add('wsel-first'); cells[cells.length - 1].classList.add('wsel-last');
+        root.classList.add('w-whole'); root.dataset.whole = kind;
+        caretInCell(cells[0]); // keeps the keyboard in the table; the ring is the visible selection
+        const sel = wholeSel(wsel), op = (name) => () => { const ws = wsel; clearWhole(); tableOp(ws.b, name, sel); };
+        const ico = (svg) => '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' + svg + '</svg>';
+        const btn = (title, html, fn, cls) => h('button', { type: 'button', title, class: cls || '', html, onmousedown: (e) => e.preventDefault(), onclick: fn });
+        const swatch = h('button', { type: 'button', class: 'wpc', title: 'Colour this ' + (kind === 'row' ? 'row' : 'column'), onmousedown: (e) => e.preventDefault(),
+          onclick: (e) => { e.stopPropagation(); const open = pill.querySelector('.wcolours'); if (open) { open.remove(); return; } const p = colourPicker(b, sel, clearWhole); p.querySelector('.wscope').remove(); pill.append(p); } });
+        const label = h('span', { class: 'wpl' }, kind === 'row' ? (i === 0 ? 'Header' : 'Row ' + i) : (cellText(rows[0].children[i]) || 'Column ' + (i + 1)));
+        const parts = kind === 'row'
+          ? [label, swatch, btn('Insert a row above', ico('<path d="M8 3v6M5 6h6M3 13h10"/>'), op('rowAbove')), btn('Insert a row below', ico('<path d="M8 7v6M5 10h6M3 3h10"/>'), op('rowBelow')),
+            btn('Duplicate', ico('<rect x="5" y="5" width="8" height="8" rx="1.5"/><path d="M3 10V4a1 1 0 0 1 1-1h6"/>'), op('dupRow')),
+            i > 0 ? btn('Make this the header row', ico('<path d="M3 4h10M3 8h10M3 12h6"/>'), op('makeHeader')) : btn('Turn the header into a normal row', ico('<path d="M3 4h10M3 8h10M3 12h6"/>'), op('headerToRow')),
+            btn('Delete row', ico('<path d="M3 5h10M6.5 5V3.5h3V5M5 5l.6 8h4.8L11 5"/>'), op('delRows'), 'danger')]
+          : [label, swatch, btn('Insert a column left', ico('<path d="M9 8H3M6 5v6M13 3v10"/>'), op('colLeft')), btn('Insert a column right', ico('<path d="M7 8h6M10 5v6M3 3v10"/>'), op('colRight')),
+            btn('Sort A → Z', ico('<path d="M4 3v10M2 11l2 2 2-2M9 4h5M9 8h3.5M9 12h2"/>'), op('sortAsc')), btn('Sort Z → A', ico('<path d="M4 13V3M2 5l2-2 2 2M9 4h2M9 8h3.5M9 12h5"/>'), op('sortDesc')),
+            btn('Delete column', ico('<path d="M3 5h10M6.5 5V3.5h3V5M5 5l.6 8h4.8L11 5"/>'), op('delCols'), 'danger')];
+        pill.replaceChildren(...parts);
+        pill.hidden = false;
+        const first = cells[0].getBoundingClientRect(), last = cells[cells.length - 1].getBoundingClientRect(), pw = pill.offsetWidth, ph = pill.offsetHeight;
+        let x, y;
+        if (kind === 'row') { x = last.right - pw; y = first.top - ph - 6; if (y < content.getBoundingClientRect().top + 4) y = first.bottom + 6; }
+        else { x = first.left + first.width / 2 - pw / 2; y = first.top - ph - 18; if (y < content.getBoundingClientRect().top + 4) y = last.bottom + 6; }
+        pill.style.left = Math.max(8, Math.min(x, innerWidth - pw - 8)) + 'px'; pill.style.top = y + 'px';
+      }
+      document.addEventListener('mousedown', (e) => { if (wsel && !pill.contains(e.target) && !menu.contains(e.target) && e.button === 0) clearWhole(); }, true);
+      content.addEventListener('scroll', () => { if (wsel) clearWhole(); }, { passive: true });
+      document.addEventListener('keydown', (e) => {
+        if (!wsel) return;
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); clearWhole(); return; }
+        if (e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); e.stopPropagation(); const ws = wsel, sel = wholeSel(ws); clearWhole(); tableOp(ws.b, ws.kind === 'row' ? 'delRows' : 'delCols', sel); return; }
+        if (!e.metaKey && !e.ctrlKey && !e.altKey && e.key.length === 1) clearWhole(); // typing goes into the cell, the whole-row selection lets go
+      }, true);
 
       doc.addEventListener('contextmenu', (e) => {
         if (!ok()) return; const cell = e.target.closest('td, th'), b = cell && blockOf(cell);
@@ -1032,36 +1135,52 @@
       }));
     }
     // ---------- table colours ----------
-    // Status chips and number bars come from md.js. On top of that you can give any column a colour (Write's table menu);
-    // the choice is kept on this machine per file, table and column name, so the markdown itself never changes.
-    // One switch (the ◐ on a table, or the table menu) turns every table colour off and on; also remembered.
-    const COL_COLOURS = [['blue', '#4f7bd9'], ['teal', '#2a9d8f'], ['green', '#4c9a5a'], ['amber', '#c9942a'], ['orange', '#d0703b'], ['rose', '#c95a7a'], ['violet', '#8a6fd0'], ['grey', '#8a8f98']];
-    const colKeyDoc = () => S.path || (curTab() && curTab().name) || '';
-    function colMapAll() { try { return JSON.parse(localStorage.getItem('mdr-colcolours') || '{}'); } catch { return {}; } }
-    const thText = (th) => [...th.childNodes].filter((n) => !(n.nodeType === 1 && n.tagName === 'BUTTON')).map((n) => n.textContent).join('').trim();
-    const tableIndex = (table) => [...doc.querySelectorAll('.table-wrap > table')].indexOf(table);
-    function setColColour(table, cols, name) {
-      const all = colMapAll(), k = colKeyDoc(), m = all[k] || {}, ti = tableIndex(table), ths = [...table.querySelectorAll('thead > tr:not(.filters) > th')];
-      for (const c of cols) { const key = ti + ':' + thText(ths[c] || {}); if (name) m[key] = name; else delete m[key]; }
-      if (Object.keys(m).length) all[k] = m; else delete all[k];
-      localStorage.setItem('mdr-colcolours', JSON.stringify(all));
-      applyColColours();
+    // Status chips and number bars come from md.js. On top of that a column, a row or a single cell can be given a colour.
+    // The choice is saved IN THE FILE, as one HTML comment right under the table, so anyone opening the file in MdReader
+    // sees it, and other markdown viewers (GitHub, code.amazon.com) hide it:
+    //   <!-- mdr-colours {"cols":{"State":"teal"},"rows":{"Deploy":"rose"},"cells":{"Build|Score":"amber"}} -->
+    // Columns are keyed by header text, rows by their first cell, cells by both -- so a colour follows its column or row
+    // when it is moved or sorted. The on/off switch is a personal view setting (this machine only).
+    const COL_COLOURS = [['blue', '#4f7bd9'], ['sky', '#3a9fd6'], ['teal', '#2a9d8f'], ['mint', '#3fae8c'], ['green', '#4c9a5a'], ['lime', '#86a83a'],
+      ['yellow', '#c9b22a'], ['amber', '#c9942a'], ['orange', '#d0703b'], ['red', '#c9473f'], ['rose', '#c95a7a'], ['pink', '#c867b4'],
+      ['violet', '#8a6fd0'], ['indigo', '#5d63c9'], ['brown', '#9a6b4b'], ['grey', '#8a8f98']];
+    const COLOUR_RE = /^\s*<!--\s*mdr-colours\s+(\{.*\})\s*-->\s*$/;
+    const hexOf = (name) => (COL_COLOURS.find((x) => x[0] === name) || [])[1];
+    const cellText = (c) => (c ? [...c.childNodes].filter((n) => !(n.nodeType === 1 && n.tagName === 'BUTTON')).map((n) => n.textContent).join('').replace(/\s+/g, ' ').trim() : '');
+    // the line right under the table's last row, where its colour comment lives (or would be inserted)
+    function colourSlot(lines, l0, l1) { let end = l1; while (end > l0 && !(lines[end - 1] || '').trim()) end--; return end; }
+    function readColours(lines, l0, l1) {
+      const at = colourSlot(lines, l0, l1), m = COLOUR_RE.exec(lines[at] || '');
+      const data = { cols: {}, rows: {}, cells: {} };
+      if (m) try { const d = JSON.parse(m[1]); for (const k of ['cols', 'rows', 'cells']) if (d[k] && typeof d[k] === 'object') data[k] = d[k]; } catch { /* a hand-broken comment: start fresh */ }
+      return { at, has: !!m, data };
     }
+    function writeColours(text, l0, l1, data) {
+      const lines = text.split('\n'), r = readColours(lines, l0, l1);
+      for (const k of ['cols', 'rows', 'cells']) for (const [key, v] of Object.entries(data[k])) if (!hexOf(v)) delete data[k][key];
+      const empty = !Object.keys(data.cols).length && !Object.keys(data.rows).length && !Object.keys(data.cells).length;
+      const line = '<!-- mdr-colours ' + JSON.stringify(empty ? {} : Object.fromEntries(['cols', 'rows', 'cells'].filter((k) => Object.keys(data[k]).length).map((k) => [k, data[k]]))) + ' -->';
+      if (r.has) { if (empty) lines.splice(r.at, 1); else lines[r.at] = line; }
+      else if (!empty) lines.splice(r.at, 0, line);
+      return lines.join('\n');
+    }
+    function paintCell(x, name) { const hex = hexOf(name); if (hex) { x.dataset.cc = name; x.style.setProperty('--cc', hex); } else { delete x.dataset.cc; x.style.removeProperty('--cc'); } }
     function applyColColours() {
       root.classList.toggle('no-tcolour', localStorage.getItem('mdr-tcolour') === 'off');
-      const m = colMapAll()[colKeyDoc()] || {};
-      doc.querySelectorAll('.table-wrap > table').forEach((table, ti) => {
-        const head = table.querySelector('thead > tr:not(.filters)'); if (!head) return;
-        [...head.children].forEach((th, c) => {
-          const name = m[ti + ':' + thText(th)], hex = (COL_COLOURS.find((x) => x[0] === name) || [])[1];
-          const cells = [th, ...[...table.querySelectorAll('tbody > tr')].map((tr) => tr.children[c]).filter(Boolean)];
-          cells.forEach((x) => { if (hex) { x.dataset.cc = name; x.style.setProperty('--cc', hex); } else { delete x.dataset.cc; x.style.removeProperty('--cc'); } });
+      const lines = S.text.split('\n');
+      doc.querySelectorAll('.table-wrap').forEach((wrap) => {
+        const table = wrap.querySelector(':scope > table'); if (!table) return;
+        const d = wrap.dataset.l0 !== undefined ? readColours(lines, +wrap.dataset.l0, +wrap.dataset.l1).data : { cols: {}, rows: {}, cells: {} };
+        const head = table.querySelector('thead > tr:not(.filters)'), hs = head ? [...head.children].map(cellText) : [];
+        if (head) [...head.children].forEach((th, c) => paintCell(th, d.cols[hs[c]]));
+        table.querySelectorAll('tbody > tr').forEach((tr) => {
+          const label = cellText(tr.children[0]);
+          [...tr.children].forEach((td, c) => paintCell(td, d.cells[label + '|' + hs[c]] || d.rows[label] || d.cols[hs[c]])); // cell beats row beats column
         });
         // the on/off switch, shown on hover at the table's top right
-        const wrap = table.parentElement;
         if (!wrap.querySelector(':scope > .tcol-btn')) wrap.append(h('button', { type: 'button', class: 'tcol-btn', contenteditable: 'false', onmousedown: (e) => e.preventDefault(), onclick: toggleTableColours }));
         const on = !root.classList.contains('no-tcolour');
-        wrap.querySelectorAll(':scope > .tcol-btn').forEach((b) => { b.textContent = on ? '◐ Colours on' : '◑ Colours off'; b.title = on ? 'Turn table colours off (status chips, number bars, column colours)' : 'Turn table colours back on'; });
+        wrap.querySelectorAll(':scope > .tcol-btn').forEach((b) => { b.textContent = on ? '◐ Colours on' : '◑ Colours off'; b.title = on ? 'Turn table colours off (status chips, number bars, your colours) -- only on this Mac, the file is not changed' : 'Turn table colours back on'; });
       });
     }
     function toggleTableColours() {

@@ -63,28 +63,6 @@ const bar = (act) => ev(`document.querySelector('#app .wbar [data-act=${act}]').
 const caretRow = () => ev(`(()=>{const a=getSelection().anchorNode; const c=(a.nodeType===1?a:a.parentElement).closest('td,th'); if(!c) return null; const rows=[...c.closest('table').querySelectorAll('thead>tr:not(.filters),tbody>tr')]; return [rows.indexOf(c.parentElement),[...c.parentElement.children].indexOf(c)]})()`);
 const S1 = {};
 const TB = async () => { const l = (await SRC()).split('\n'); const i = l.findIndex((x) => x.startsWith('|')); if (i < 0) return []; const out = []; for (let j = i; j < l.length && l[j].startsWith('|'); j++) out.push(l[j]); return out; };
-// K. column colour from the menu, kept across a re-render; then the off switch and back on (markdown never changes)
-const srcK = await SRC();
-await rclick('passed');
-S1.swatches = await ev(`document.querySelectorAll('#app .wmenu .wcolours .sw').length`);
-await ev(`document.querySelector('#app .wmenu .wcolours .sw[data-cc=teal]').click()`); await sleep(300);
-const ccState = () => ev(`(()=>{const td=[...document.querySelectorAll('#app .table-wrap td')].find(x=>x.textContent.trim()==='passed'), tr=td.closest('table'); const th=tr.querySelectorAll('thead th')[1];
-  return {td:td.dataset.cc||null, th:th.dataset.cc||null, other:tr.querySelectorAll('thead th')[0].dataset.cc||null, bg:getComputedStyle(td).backgroundColor}})()`);
-S1.ccSet = await ccState();
-await ev(`document.querySelector('#app .top [data-mode=read]').click()`); await sleep(300);
-await ev(`document.querySelector('#app .top [data-mode=write]').click()`); await sleep(300);
-S1.ccKept = await ccState();
-S1.ccStored = await ev(`localStorage.getItem('mdr-colcolours')`);
-await ev(`document.querySelector('#app .table-wrap .tcol-btn').click()`); await sleep(300);
-S1.off = await ev(`(()=>{const a=document.querySelector('#app'); const chip=a.querySelector('.doc td .stc'), bar=a.querySelector('.doc td.bar'); const td=[...a.querySelectorAll('.table-wrap td')].find(x=>x.textContent.trim()==='passed');
-  return {cls:a.classList.contains('no-tcolour'), chipBg:getComputedStyle(chip).backgroundColor, bar:getComputedStyle(bar,'::before').display, ccBg:getComputedStyle(td).backgroundColor, btn:a.querySelector('.table-wrap .tcol-btn').textContent, pref:localStorage.getItem('mdr-tcolour')}})()`);
-await shotF('table-off.png');
-await ev(`document.querySelector('#app .table-wrap .tcol-btn').click()`); await sleep(300);
-S1.onAgain = await ev(`(()=>{const a=document.querySelector('#app'); return {cls:a.classList.contains('no-tcolour'), pref:localStorage.getItem('mdr-tcolour'), bar:getComputedStyle(a.querySelector('.doc td.bar'),'::before').display}})()`);
-await rclick('passed'); await ev(`document.querySelector('#app .wmenu .wcolours .sw.none').click()`); await sleep(300);
-S1.ccCleared = (await ccState()).td;
-S1.srcSame = (await SRC()) === srcK;
-
 // A. right-click a cell -> Insert row below; type into it
 S1.menuShown = await rclick('beta'); await shotF('table-menu.png');
 S1.ins = await menuClick('Insert row below'); await sleep(400);
@@ -92,8 +70,8 @@ S1.insCaret = await caretRow();
 await typeText('eps'); await sleep(700);
 S1.afterIns = await TB();
 // B. delete a row twice in a row (the reported bug)
-await caretIn('alpha'); await bar('delRows'); await sleep(400);
-await caretIn('gamma'); await bar('delRows'); await sleep(400);
+await rclick('alpha'); await menuClick('Delete row'); await sleep(400);
+await rclick('gamma'); await menuClick('Delete row'); await sleep(400);
 S1.afterDel2 = await TB();
 // C. select from the start of "beta" to the end of the "eps" row, Backspace: both rows go
 S1.selC = await ev(`(()=>{const a=${tdWith('beta')}, tr=${tdWith('eps')}.parentElement, z=tr.lastElementChild; document.querySelector('#app .doc').focus(); const r=document.createRange(); r.setStart(a.firstChild,0); r.setEnd(z,z.childNodes.length); const s=getSelection(); s.removeAllRanges(); s.addRange(r); return s.toString()})()`);
@@ -138,15 +116,61 @@ S1.afterDrag = await TB();
 // F3. header toggle: header -> normal row, then back
 const thWith = (t) => `[...document.querySelectorAll('#app .table-wrap th')].find(x=>x.textContent.trim()===${JSON.stringify(t)})`;
 await ev(`(()=>{const c=${thWith('Name')}; document.querySelector('#app .doc').focus(); const r=document.createRange(); r.selectNodeContents(c); r.collapse(false); const s=getSelection(); s.removeAllRanges(); s.addRange(r)})()`); await sleep(100);
-S1.hdrOn = await ev(`document.querySelector('#app .wbar [data-act=hdr]').classList.contains('on')`);
-await bar('hdr'); await sleep(400);
+S1.hdrOn = true;
+await ev(`(()=>{const c=${thWith('Name')}; const b=c.getBoundingClientRect(); c.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:b.left+5,clientY:b.top+5}))})()`); await menuClick('Turn header into a normal row'); await sleep(400);
 S1.afterUnhead = await TB();
-await caretIn('Name'); await bar('hdr'); await sleep(400);
+await rclick('Name'); await menuClick('Make this the header row'); await sleep(400);
 S1.afterRehead = await TB();
 await rclick('eta'); await menuClick('Make this the header row'); await sleep(400);
 S1.afterEtaHead = await TB();
 await key('z', 'KeyZ', 90, 4); await sleep(400);
 S1.afterEtaUndo = await TB();
+// K. colours saved in the file: a column, a row and a cell; undo; whole row / column select from the grips; the off switch
+const COMMENT = async () => (await SRC()).split('\n').find((l) => l.startsWith('<!-- mdr-colours')) || null;
+const scopeTab = (k) => ev(`document.querySelector('#app .wmenu .wscope [data-scope=${k}]').click()`);
+const swatch = (sel, name) => ev(`document.querySelector('${sel} .wcolours .sw${name ? `[data-cc=${name}]` : '.none'}').click()`);
+const ccOf = (t) => ev(`(()=>{const td=${tdWith(t)}; return td.dataset.cc||null})()`);
+await rclick('passed');
+S1.swatches = await ev(`document.querySelectorAll('#app .wmenu .wcolours .sw').length`);
+S1.defScope = await ev(`document.querySelector('#app .wmenu .wscope .on').dataset.scope`);
+await scopeTab('col'); await swatch('#app .wmenu', 'teal'); await sleep(400);
+S1.cColour = { comment: await COMMENT(), td: await ccOf('passed'), th: await ev(`${thWith('State')}.dataset.cc||null`), other: await ccOf('Build'),
+  under: (await SRC()).split('\n')[(await SRC()).split('\n').findIndex((l) => l.startsWith('| Docs')) + 1] };
+await rclick('Deploy'); await scopeTab('row'); await swatch('#app .wmenu', 'rose'); await sleep(400);
+await rclick('95'); await scopeTab('cell'); await swatch('#app .wmenu', 'amber'); await sleep(400);
+S1.three = { comment: await COMMENT(), deployState: await ccOf('failed'), deployTask: await ccOf('Deploy'), cell: await ccOf('95'), buildTask: await ccOf('Build'), passed: await ccOf('passed') };
+await key('z', 'KeyZ', 90, 4); await sleep(400);
+S1.undoCell = await COMMENT();
+// a whole row: click (no drag) the grip of the "Review" row
+const rv = await rect(tdWith('Review'));
+await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: rv[0] + 10, y: rv[1] + rv[3] / 2 }); await sleep(150);
+const rg = await rect(`document.querySelector('#app .wdrag:not(.col)')`);
+await mouse('mousePressed', rg[0] + 9, rg[1] + 11); await mouse('mouseReleased', rg[0] + 9, rg[1] + 11); await sleep(300);
+S1.wholeRow = await ev(`({ring:document.querySelectorAll('#app .doc .wsel').length, inReview:[...document.querySelectorAll('#app .doc .wsel')].every(x=>x.parentElement.textContent.includes('Review')), pill:!document.querySelector('#app .wpill').hidden, label:document.querySelector('#app .wpill .wpl').textContent})`);
+await shotF('table-whole-row.png');
+await ev(`document.querySelector('#app .wpill .wpc').click()`); await sleep(150);
+await swatch('#app .wpill', 'violet'); await sleep(400);
+S1.rowViolet = { comment: await COMMENT(), cell: await ccOf('pending'), ring: await ev(`document.querySelectorAll('#app .doc .wsel').length`) };
+// a whole column: click the grip above "Score", then Delete removes the column
+const sc = await rect(thWith('Score'));
+await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: sc[0] + sc[2] / 2, y: sc[1] + sc[3] / 2 }); await sleep(150);
+const cgr = await rect(`document.querySelector('#app .wdrag.col')`);
+await mouse('mousePressed', cgr[0] + 11, cgr[1] + 8); await mouse('mouseReleased', cgr[0] + 11, cgr[1] + 8); await sleep(300);
+S1.wholeCol = await ev(`({ring:document.querySelectorAll('#app .doc .wsel').length, pill:!document.querySelector('#app .wpill').hidden, label:document.querySelector('#app .wpill .wpl').textContent})`);
+await key('Delete', 'Delete', 46); await sleep(400);
+S1.colGone = (await SRC()).split('\n').find((l) => l.startsWith('| Task')) || null;
+S1.pillGone = await ev(`document.querySelector('#app .wpill').hidden`);
+// the off switch hides every colour, on this Mac only (the file keeps its comment)
+const srcK = await SRC();
+await ev(`document.querySelector('#app .table-wrap .tcol-btn').click()`); await sleep(300);
+S1.off = await ev(`(()=>{const a=document.querySelector('#app'); const chip=a.querySelector('.doc td .stc'), bar=a.querySelector('.doc td.bar'), td=${tdWith('passed')};
+  return {cls:a.classList.contains('no-tcolour'), chipBg:getComputedStyle(chip).backgroundColor, bar:getComputedStyle(bar,'::before').display, ccBg:getComputedStyle(td).backgroundColor, btn:a.querySelector('.table-wrap .tcol-btn').textContent, pref:localStorage.getItem('mdr-tcolour')}})()`);
+await ev(`document.querySelector('#app .table-wrap .tcol-btn').click()`); await sleep(300);
+S1.onAgain = await ev(`(()=>{const a=document.querySelector('#app'); return {cls:a.classList.contains('no-tcolour'), pref:localStorage.getItem('mdr-tcolour'), bar:getComputedStyle(a.querySelector('.doc td.bar'),'::before').display}})()`);
+S1.srcSameOff = (await SRC()) === srcK;
+// bottom bar stays one line
+S1.barH = await ev(`(()=>{const c=${tdWith('delta')}; document.querySelector('#app .doc').focus(); const r=document.createRange(); r.selectNodeContents(c); r.collapse(false); const s=getSelection(); s.removeAllRanges(); s.addRange(r); return new Promise(res=>setTimeout(()=>res(document.querySelector('#app .wbar').getBoundingClientRect().height),150))})()`);
+
 // F4. drag the "Count" column left of "Name" by its grip
 const colGrip = async (headerText) => {
   const hr = await rect(thWith(headerText));
@@ -203,8 +227,17 @@ const FINAL = '# Table fixture\n\nIntro Xsection para.Third para here.\n\n| Key 
 report.s = S1;
 report.checks = {
   menu: S1.menuShown && S1.ins, drag: S1.gripShown && S1.dropShown, hdrOn: S1.hdrOn, coldrag: S1.cgripShown && S1.cdropShown,
-  colColour: S1.swatches === 9 && S1.ccSet.td === 'teal' && S1.ccSet.th === 'teal' && S1.ccSet.other === null && S1.ccSet.bg !== 'rgba(0, 0, 0, 0)' && S1.ccKept.td === 'teal' && /teal/.test(S1.ccStored || '') && S1.ccCleared === null && S1.srcSame,
-  offSwitch: S1.off.cls && S1.off.chipBg === 'rgba(0, 0, 0, 0)' && S1.off.bar === 'none' && S1.off.ccBg !== S1.ccSet.bg && /off/.test(S1.off.btn) && S1.off.pref === 'off' && !S1.onAgain.cls && S1.onAgain.pref === null && S1.onAgain.bar !== 'none', insCaret: JSON.stringify(S1.insCaret) === '[3,0]', multiSel: /beta/.test(S1.selC || ''),
+  colColour: S1.swatches === 17 && S1.defScope === 'cell' && S1.cColour.comment === '<!-- mdr-colours {"cols":{"State":"teal"}} -->' && S1.cColour.under === S1.cColour.comment
+    && S1.cColour.td === 'teal' && S1.cColour.th === 'teal' && S1.cColour.other === null,
+  rowCell: S1.three.comment === '<!-- mdr-colours {"cols":{"State":"teal"},"rows":{"Deploy":"rose"},"cells":{"Build|Score":"amber"}} -->'
+    && S1.three.deployState === 'rose' && S1.three.deployTask === 'rose' && S1.three.cell === 'amber' && S1.three.buildTask === null && S1.three.passed === 'teal'
+    && S1.undoCell === '<!-- mdr-colours {"cols":{"State":"teal"},"rows":{"Deploy":"rose"}} -->',
+  wholeRow: S1.wholeRow.ring === 3 && S1.wholeRow.inReview && S1.wholeRow.pill && S1.wholeRow.label === 'Row 3'
+    && S1.rowViolet.comment === '<!-- mdr-colours {"cols":{"State":"teal"},"rows":{"Deploy":"rose","Review":"violet"}} -->' && S1.rowViolet.cell === 'violet' && S1.rowViolet.ring === 0,
+  wholeCol: S1.wholeCol.ring === 5 && S1.wholeCol.pill && S1.wholeCol.label === 'Score' && S1.colGone === '| Task | State |' && S1.pillGone,
+  offSwitch: S1.off.cls && S1.off.chipBg === 'rgba(0, 0, 0, 0)' && S1.off.bar === 'none' && S1.off.ccBg === 'rgba(0, 0, 0, 0)' && /off/.test(S1.off.btn) && S1.off.pref === 'off'
+    && !S1.onAgain.cls && S1.onAgain.pref === null && S1.onAgain.bar !== 'none' && S1.srcSameOff,
+  barOneLine: S1.barH < 50,
   undo: J(S1.undone) === E.afterDel2, redo: J(S1.redone) === E.afterMulti, colCaret: JSON.stringify(S1.colCaret) === '[1,2]',
   tab: JSON.stringify(S1.tabFirst) === '[3,2]' && JSON.stringify(S1.tabCaret) === '[4,0]',
   joined: S1.joined === 'Second section para.Third para here.' && S1.joinCaret === 'para.|Third',
