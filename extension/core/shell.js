@@ -107,18 +107,21 @@
       function makeEditable(b) {
         const k = WR.kindOf(b); if (!k) return false;
         b.classList.add('wblock'); b.classList.remove('w-locked');
-        const host = hostOf(b);
-        host.contentEditable = k === 'code' ? 'plaintext-only' : 'true';
-        host.spellcheck = k !== 'code';
+        if (k === 'code') hostOf(b).spellcheck = false;
         b.querySelectorAll('button, .tf-bar, tr.filters, .imgmissing, h1 > .n, h2 > .n, .codebar').forEach((x) => { x.contentEditable = 'false'; });
         b.querySelectorAll('input[type=checkbox]').forEach((cb) => { cb.disabled = false; cb.contentEditable = 'false'; });
         return true;
       }
+      // The whole page is ONE editing host, so a selection can run across paragraphs, sections and table rows (separate
+      // hosts would clamp it to one block). Everything that is not a block -- section tools, chips, diagrams -- is an
+      // island marked contenteditable=false, and every edit the browser would make across blocks is done here instead.
       function enable() {
         root.classList.toggle('writing', ok());
-        if (!ok()) return;
+        if (!ok()) { doc.removeAttribute('contenteditable'); hideMenu(); return; }
+        doc.contentEditable = 'true'; doc.spellcheck = true;
+        doc.querySelectorAll('.sec > .tools, .head > nav.chips, .head > :not([data-l0]), .sec > .body > :not([data-l0])').forEach((x) => { x.contentEditable = 'false'; });
         for (const b of doc.querySelectorAll('.head > [data-l0], .sec > .body > [data-l0]')) {
-          if (!makeEditable(b)) { b.classList.add('w-locked'); if (!b.title) b.title = 'Edited as source: use Edit section (top right of the section) or Edit mode'; }
+          if (!makeEditable(b)) { b.classList.add('w-locked'); b.contentEditable = 'false'; if (!b.title) b.title = 'Edited as source: use Edit section (top right of the section) or Edit mode'; }
         }
         if (!doc.querySelector('.wblock')) { // nothing to type into (empty document): one empty paragraph at the end
           const p = h('p', {}, h('br')); p.dataset.l0 = p.dataset.l1 = String(S.text ? S.text.split('\n').length : 0);
@@ -126,7 +129,7 @@
         }
         buildBar();
       }
-      function reset() { dirty.clear(); clearTimeout(timer); }
+      function reset() { dirty.clear(); clearTimeout(timer); cur = null; hideMenu(); }
       function mark(b) { dirty.add(b); clearTimeout(timer); timer = setTimeout(commitAll, 400); }
       function commitAll() { clearTimeout(timer); for (const b of [...dirty]) commit(b); }
       function commit(b) {
@@ -157,7 +160,7 @@
         notifyTabs();
       }
       function caretTo(b, atEnd) {
-        const host = hostOf(b); host.focus({ preventScroll: true });
+        const host = textHost(b); doc.focus({ preventScroll: true });
         const r = document.createRange(); r.selectNodeContents(host); r.collapse(!atEnd);
         const s = getSelection(); s.removeAllRanges(); s.addRange(r);
         const br = host.getBoundingClientRect(), cr = content.getBoundingClientRect();
@@ -255,7 +258,7 @@
         const at = s.anchorNode.nodeType === 1 ? s.anchorNode : s.anchorNode.parentElement, a = at.closest('a');
         const r = s.getRangeAt(0).cloneRange();
         if (r.collapsed && !a) return flash('Select the words to link first');
-        const back = () => { linkIn.hidden = true; hostOf(b).focus({ preventScroll: true }); const s2 = getSelection(); s2.removeAllRanges(); s2.addRange(r); };
+        const back = () => { linkIn.hidden = true; doc.focus({ preventScroll: true }); const s2 = getSelection(); s2.removeAllRanges(); s2.addRange(r); };
         linkIn.hidden = false; linkIn.value = a ? a.getAttribute('href') || '' : ''; linkIn.focus(); linkIn.select();
         linkIn.onkeydown = (e) => {
           if (e.key === 'Escape') { e.preventDefault(); back(); }
@@ -270,14 +273,27 @@
       const ACTS = [['P', '¶', 'Plain paragraph'], ['H2', 'H2', 'Heading'], ['H3', 'H3', 'Sub-heading'], null,
         ['bold', '<b>B</b>', 'Bold (⌘B)'], ['italic', '<i>I</i>', 'Italic (⌘I)'], ['strike', '<s>S</s>', 'Strikethrough'], ['code', '&lt;/&gt;', 'Inline code'], ['link', 'Link', 'Link (⌘K) · ⌥-click a link to edit its text'], null,
         ['UL', '• List', 'Bulleted list (or type "- ")'], ['OL', '1. List', 'Numbered list (or type "1. ")'], ['TASK', '☐ Tasks', 'Checklist (or type "[ ] ")'], ['BLOCKQUOTE', '❝ Quote', 'Quote (or type "> ")']];
+      // ---- the table group of the toolbar, and its full menu (also on right-click in a cell) ----
+      const TBL = [['rowBelow', '+ Row', 'Insert a row below (⌘↩, or Tab in the last cell)'], ['colRight', '+ Column', 'Insert a column to the right'],
+        ['delRows', '− Row', 'Delete the row(s) the selection touches'], ['delCols', '− Column', 'Delete the column(s) the selection touches'], ['menu', 'Table ▾', 'Every table action (or right-click a cell)']];
       function buildBar() {
         if (built) return; built = true;
-        wbar.append(h('span', { class: 'wtag' }, 'Writing'), ...ACTS.map((a) => (a ? h('button', { type: 'button', 'data-act': a[0], title: a[2], html: a[1],
-          onmousedown: (e) => e.preventDefault(), onclick: () => act(a[0]) }) : h('span', { class: 'wsep' }))), linkIn,
-          h('span', { class: 'whelp', title: 'Changes go into the file text as you type; ⌘S saves. Diagrams and raw HTML are edited with Edit section.' }, '⌘S saves'));
+        const btn = (a, cls) => h('button', { type: 'button', class: cls || '', 'data-act': a[0], title: a[2], html: a[1],
+          onmousedown: (e) => e.preventDefault(), onclick: (e) => act(a[0], e) });
+        wbar.append(h('span', { class: 'wtag' }, 'Writing'), ...ACTS.map((a) => (a ? btn(a) : h('span', { class: 'wsep' }))),
+          h('span', { class: 'wsep' }), btn(['table', '⊞ Table', 'Insert a table below this block']),
+          h('span', { class: 'wtbl' }, h('span', { class: 'wsep' }), ...TBL.map((a) => btn(a, 'tb'))), linkIn,
+          h('span', { class: 'whelp', title: 'Changes go into the file text as you type; ⌘S saves; ⌘Z undoes a table or multi-block change. Diagrams and raw HTML are edited with Edit section.' }, '⌘S saves'));
       }
-      function act(name) {
-        const s = getSelection(); const b = s.rangeCount ? blockOf(s.anchorNode) : null;
+      function act(name, e) {
+        const b = selBlock();
+        if (name === 'table') return insertTable(b);
+        if (TBL.some((a) => a[0] === name)) {
+          if (!b || WR.kindOf(b) !== 'table') return flash('Click into a table first');
+          const sel = tableSel(b);
+          if (name === 'menu') { const r = e.currentTarget.getBoundingClientRect(); return showMenu(r.left, r.top, b, sel, true); }
+          return tableOp(b, name, sel);
+        }
         if (!b) return flash('Click into the text first');
         const k = WR.kindOf(b);
         if (name === 'bold' || name === 'italic' || name === 'strike') { if (k !== 'code') document.execCommand(name === 'strike' ? 'strikeThrough' : name); return; }
@@ -292,17 +308,382 @@
       }
       function barState() {
         if (!ok()) return;
-        const s = getSelection(); const b = s.rangeCount ? blockOf(s.anchorNode) : null;
+        const b = selBlock();
         const cur = b ? (isTask(b) ? 'TASK' : b.tagName) : '';
+        root.classList.toggle('w-intable', !!b && WR.kindOf(b) === 'table');
         wbar.querySelectorAll('button[data-act]').forEach((x) => {
           const a = x.dataset.act;
           x.classList.toggle('on', !!b && (a === cur || (['bold', 'italic', 'strike'].includes(a) && document.queryCommandState(a === 'strike' ? 'strikeThrough' : a))));
-          x.disabled = !b;
+          x.disabled = !b && a !== 'table';
         });
       }
-      document.addEventListener('selectionchange', () => { if (S.mode === 'write') barState(); });
+
+      // ---- helpers over the one editing host ----
+      const TOP = '.head > [data-l0], .sec > .body > [data-l0]';
+      const MK = '\u2063'; // invisible: marks where the caret goes back after a re-render, removed straight after
+      const topBlocks = () => [...doc.querySelectorAll(TOP)];
+      const blockAt = (l0) => doc.querySelector(`.head > [data-l0="${l0}"], .sec > .body > [data-l0="${l0}"]`);
+      const selBlock = () => { const s = getSelection(); return s.rangeCount ? blockOf(s.anchorNode) : null; };
+      const textHost = (b) => (WR.kindOf(b) === 'h' && b.querySelector(':scope > .t')) || hostOf(b);
+      const txt = (sc, so, ec, eo) => { const x = document.createRange(); x.setStart(sc, so); x.setEnd(ec, eo); return x.toString(); };
+      const TEXTISH = ['p', 'h', 'list', 'quote'];
+      function textNodes(el) {
+        const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.parentElement.closest('button, .n, .tf-bar') ? 2 : 1) });
+        const out = []; while (w.nextNode()) out.push(w.currentNode); return out;
+      }
+      function setCaret(node, off, endNode, endOff) {
+        doc.focus({ preventScroll: true });
+        const r = document.createRange(); r.setStart(node, off); if (endNode) r.setEnd(endNode, endOff); else r.collapse(true);
+        const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+        const el = node.nodeType === 1 ? node : node.parentElement, br = el.getBoundingClientRect(), cr = content.getBoundingClientRect();
+        if (br.bottom > cr.bottom - 80 || br.top < cr.top) content.scrollTop += br.top - cr.top - content.clientHeight / 3;
+      }
+      function caretInCell(cell, selectAll) {
+        const ns = textNodes(cell);
+        if (!ns.length) return setCaret(cell, 0);
+        const last = ns[ns.length - 1];
+        if (selectAll) setCaret(ns[0], 0, last, last.length); else setCaret(last, last.length);
+      }
+      const atEnd = (host) => { const s = getSelection(); if (!s.rangeCount || !s.isCollapsed) return false; return !txt(s.anchorNode, s.anchorOffset, host, host.childNodes.length).length; };
+      const cellOf = (n) => { const el = n && (n.nodeType === 1 ? n : n.parentElement); return el ? el.closest('td, th') : null; };
+      const tableRows = (b) => [...b.querySelectorAll('table > thead > tr:not(.filters), table > tbody > tr')];
+
+      // ---- structural undo: table actions and multi-block edits re-render the page, which the browser cannot undo ----
+      const hist = [], redo = [];
+      function applyText(next, place, pinL0) {
+        const before = S.text, clean = next.split(MK).join('');
+        if (clean === before && next === clean) return false;
+        hist.push({ before, after: clean }); if (hist.length > 60) hist.shift(); redo.length = 0;
+        const t = curTab();
+        busy++;
+        try {
+          setText(next); if (t) t.text = next;
+          const pin = pinL0 !== undefined && pinL0 !== null ? pinL0 : place && place.l0;
+          keepInPlace(() => (pin === undefined || pin === null ? null : blockAt(pin)), paint);
+          placeCaret(place);
+          if (next !== clean) { setText(clean); if (t) t.text = clean; }
+        } finally { busy--; }
+        notifyTabs(); track();
+        return true;
+      }
+      function placeCaret(place) {
+        for (const n of textNodes(doc)) { const i = n.nodeValue.indexOf(MK); if (i >= 0) { n.deleteData(i, 1); return setCaret(n, i); } }
+        if (!place) return;
+        const b = blockAt(place.l0); if (!b) return;
+        if (place.cell && WR.kindOf(b) === 'table') {
+          const rows = tableRows(b), tr = rows[Math.max(0, Math.min(place.cell[0], rows.length - 1))];
+          const td = tr && tr.children[Math.max(0, Math.min(place.cell[1], tr.children.length - 1))];
+          if (td) return caretInCell(td, place.select);
+        }
+        if (b.classList.contains('wblock')) caretTo(b, !!place.end);
+      }
+      function undo(again) {
+        commitAll();
+        const from = again ? redo : hist, top = from[from.length - 1];
+        if (!top) return false;
+        if (S.text !== (again ? top.before : top.after)) { from.length = 0; return false; } // typed since: the browser's own undo takes over
+        from.pop(); (again ? hist : redo).push(top);
+        const t = curTab(), y = content.scrollTop, v = again ? top.after : top.before;
+        busy++; try { setText(v); if (t) t.text = v; paint(); content.scrollTop = y; } finally { busy--; }
+        notifyTabs(); flash(again ? 'Redone' : 'Undone');
+        return true;
+      }
+
+      // ---- tables: actions work on the table's markdown, then the page is re-rendered with the caret in the right cell ----
+      // which rows / columns / cells the selection touches (a caret touches its own cell)
+      function tableSel(b, clicked) {
+        const rows = tableRows(b), s = getSelection(), r = s.rangeCount ? s.getRangeAt(0) : null;
+        const pos = (cell) => { const tr = cell.parentElement; return [rows.indexOf(tr), [...tr.children].indexOf(cell)]; };
+        let cells = r ? rows.flatMap((tr) => [...tr.children].filter((c) => r.intersectsNode(c))) : [];
+        if (clicked && !cells.includes(clicked)) cells = [clicked];
+        if (!cells.length) { const c = cellOf(s.anchorNode) || (rows[0] && rows[0].children[0]); if (c) cells = [c]; }
+        const at = cells.map(pos).filter((p) => p[0] >= 0);
+        const anchor = (clicked && pos(clicked)) || (cellOf(s.anchorNode) && pos(cellOf(s.anchorNode))) || at[0] || [0, 0];
+        return { rows: [...new Set(at.map((p) => p[0]))].sort((a, b2) => a - b2), cols: [...new Set(at.map((p) => p[1]))].sort((a, b2) => a - b2), cells: at, r: anchor[0], c: anchor[1] };
+      }
+      function tableModel(b) {
+        commitAll();
+        const lines = S.text.split('\n'), l0 = +b.dataset.l0, l1 = +b.dataset.l1, own = lines.slice(l0, l1);
+        let trail = 0; while (trail < own.length && !own[own.length - 1 - trail].trim()) trail++;
+        const tl = own.slice(0, own.length - trail);
+        const head = WR.splitRow(tl[0] || '|  |'), n = head.length;
+        const fit = (cells) => { const c = cells.slice(0, n); while (c.length < n) c.push(''); return c; };
+        const rows = [{ cells: head, line: tl[0] }, ...tl.slice(2).map((l) => ({ cells: fit(WR.splitRow(l)), line: l }))];
+        const aligns = fit(WR.splitRow(tl[1] || '').map((c) => (/^:-+:$/.test(c) ? 'center' : /^-+:$/.test(c) ? 'right' : /^:-+$/.test(c) ? 'left' : '')));
+        return { lines, l0, l1, trail, rows, aligns, sep: tl[1], alignsWere: aligns.join(','), n };
+      }
+      function tableText(m) {
+        const line = (row) => row.line != null ? row.line : '| ' + row.cells.map((c) => c.trim()).join(' | ') + ' |';
+        const n = m.rows[0].cells.length;
+        const sep = m.sep && m.aligns.join(',') === m.alignsWere && WR.splitRow(m.sep).length === n ? m.sep
+          : '| ' + m.aligns.map((a) => (a === 'center' ? ':---:' : a === 'right' ? '---:' : a === 'left' ? ':---' : '---')).join(' | ') + ' |';
+        return [line(m.rows[0]), sep, ...m.rows.slice(1).map(line)];
+      }
+      const cmpCells = (a, b2) => {
+        const x = a.trim(), y = b2.trim();
+        if (!x || !y) return x ? -1 : y ? 1 : 0; // empty cells last
+        const nx = cellNumber(x), ny = cellNumber(y);
+        if (nx !== null && ny !== null && nx !== ny) return nx - ny;
+        return x.localeCompare(y, undefined, { numeric: true, sensitivity: 'base' });
+      };
+      const TOPS = {
+        rowAbove: 'Insert row above', rowBelow: 'Insert row below', dupRow: 'Duplicate row', moveUp: 'Move row up', moveDown: 'Move row down', delRows: 'Delete row',
+        colLeft: 'Insert column left', colRight: 'Insert column right', moveLeft: 'Move column left', moveRight: 'Move column right', delCols: 'Delete column',
+        alignLeft: 'Align left', alignCenter: 'Align centre', alignRight: 'Align right', sortAsc: 'Sort A → Z', sortDesc: 'Sort Z → A', clearCells: 'Clear cells', delTable: 'Delete table',
+      };
+      function tableOp(b, op, sel, target) {
+        const m = tableModel(b), rows = m.rows, n = m.n, empty = () => ({ cells: Array(rows[0].cells.length).fill(''), line: null });
+        let { r, c } = sel; r = Math.max(0, Math.min(r, rows.length - 1)); c = Math.max(0, Math.min(c, n - 1));
+        const R = sel.rows.filter((i) => i < rows.length), C = sel.cols.filter((i) => i < n);
+        const lo = R.length ? R[0] : r, hi = R.length ? R[R.length - 1] : r, clo = C.length ? C[0] : c, chi = C.length ? C[C.length - 1] : c;
+        const eachRow = (fn) => rows.forEach((row) => { fn(row.cells); row.line = null; });
+        let to = [r, c], gone = false, msg = '';
+        switch (op) {
+          case 'rowAbove': rows.splice(r, 0, empty()); to = [r, c]; if (r === 0) msg = 'New header row -- the old header is now the first row'; break;
+          case 'rowBelow': rows.splice(r + 1, 0, empty()); to = [r + 1, c]; break;
+          case 'dupRow': rows.splice(hi + 1, 0, ...rows.slice(lo, hi + 1).map((x) => ({ cells: [...x.cells], line: null }))); to = [hi + 1, c]; break;
+          case 'moveUp': if (lo === 0) return flash('Already the top row'); rows.splice(hi, 0, ...rows.splice(lo - 1, 1)); to = [r - 1, c]; break;
+          case 'moveDown': if (hi >= rows.length - 1) return flash('Already the last row'); rows.splice(lo, 0, ...rows.splice(hi + 1, 1)); to = [r + 1, c]; break;
+          case 'delRows': {
+            const del = new Set(R.length ? R : [r]);
+            if (del.size >= rows.length) { gone = true; break; }
+            for (const i of [...del].sort((a, b2) => b2 - a)) rows.splice(i, 1);
+            if (del.has(0)) msg = 'The first remaining row is now the header';
+            to = [Math.min(lo, rows.length - 1), c]; msg = msg || (del.size > 1 ? `Deleted ${del.size} rows` : 'Row deleted'); break;
+          }
+          case 'colLeft': eachRow((x) => x.splice(c, 0, '')); m.aligns.splice(c, 0, ''); to = [r, c]; break;
+          case 'colRight': eachRow((x) => x.splice(c + 1, 0, '')); m.aligns.splice(c + 1, 0, ''); to = [r, c + 1]; break;
+          case 'moveLeft': if (clo === 0) return flash('Already the first column'); eachRow((x) => x.splice(chi, 0, ...x.splice(clo - 1, 1))); m.aligns.splice(chi, 0, ...m.aligns.splice(clo - 1, 1)); to = [r, c - 1]; break;
+          case 'moveRight': if (chi >= n - 1) return flash('Already the last column'); eachRow((x) => x.splice(clo, 0, ...x.splice(chi + 1, 1))); m.aligns.splice(clo, 0, ...m.aligns.splice(chi + 1, 1)); to = [r, c + 1]; break;
+          case 'delCols': {
+            const del = new Set(C.length ? C : [c]);
+            if (del.size >= n) { gone = true; break; }
+            for (const i of [...del].sort((a, b2) => b2 - a)) { eachRow((x) => x.splice(i, 1)); m.aligns.splice(i, 1); }
+            to = [r, Math.min(clo, n - del.size - 1)]; msg = del.size > 1 ? `Deleted ${del.size} columns` : 'Column deleted'; break;
+          }
+          case 'alignLeft': case 'alignCenter': case 'alignRight': {
+            const a = { alignLeft: 'left', alignCenter: 'center', alignRight: 'right' }[op], cs = C.length ? C : [c];
+            const same = cs.every((i) => m.aligns[i] === a); cs.forEach((i) => { m.aligns[i] = same ? '' : a; }); break;
+          }
+          case 'sortAsc': case 'sortDesc': {
+            const body = rows.splice(1), k = c, dir = op === 'sortAsc' ? 1 : -1;
+            body.sort((x, y) => { const v = cmpCells(x.cells[k] || '', y.cells[k] || ''); return !(x.cells[k] || '').trim() || !(y.cells[k] || '').trim() ? v : v * dir; });
+            rows.push(...body); to = [1, c]; msg = `Sorted by "${rows[0].cells[k].trim() || 'column ' + (k + 1)}"`; break;
+          }
+          case 'clearCells': for (const [i, j] of sel.cells.length ? sel.cells : [[r, c]]) if (rows[i] && j < rows[i].cells.length) { rows[i].cells[j] = ''; rows[i].line = null; } break;
+          case 'delTable': gone = true; break;
+          default: return;
+        }
+        if (target) to = target;
+        const lines = m.lines, rep = gone ? [] : [...tableText(m), ...lines.slice(m.l1 - m.trail, m.l1)];
+        lines.splice(m.l0, m.l1 - m.l0, ...rep);
+        applyText(lines.join('\n'), gone ? { l0: m.l0 } : { l0: m.l0, cell: to }, m.l0);
+        if (gone) flash('Table deleted -- ⌘Z brings it back'); else if (msg) flash(msg);
+      }
+      function insertTable(b) {
+        commitAll();
+        const lines = S.text.split('\n'), at = b ? +b.dataset.l1 : lines.length;
+        const tbl = ['| Column 1 | Column 2 | Column 3 |', '| --- | --- | --- |', '|  |  |  |', '|  |  |  |'];
+        const pre = at > 0 && (lines[at - 1] || '').trim() ? [''] : [], post = at < lines.length && (lines[at] || '').trim() ? [''] : [];
+        lines.splice(at, 0, ...pre, ...tbl, ...post);
+        applyText(lines.join('\n'), { l0: at + pre.length, cell: [0, 0], select: true }, b ? +b.dataset.l0 : null);
+        flash('Table added -- Tab moves between cells, right-click for rows and columns', 3000);
+      }
+      // Tab / Shift-Tab between cells; Tab in the last cell adds a row
+      function moveCell(b, dir) {
+        const rows = tableRows(b), cells = rows.flatMap((tr) => [...tr.children]), cur = cellOf(getSelection().anchorNode);
+        const i = cells.indexOf(cur), next = cells[i + dir];
+        if (next) return caretInCell(next, true);
+        if (dir > 0 && i >= 0) { const sel = tableSel(b); tableOp(b, 'rowBelow', { ...sel, rows: [], cols: [] }, [sel.r + 1, 0]); }
+      }
+
+      // ---- the menu ----
+      const menu = h('div', { class: 'wmenu', role: 'menu', hidden: '' });
+      root.append(menu);
+      function hideMenu() { menu.hidden = true; menu.replaceChildren(); }
+      function showMenu(x, y, b, sel, above) {
+        const nr = sel.rows.length || 1, nc = sel.cols.length || 1, rows = tableRows(b), n = rows[0] ? rows[0].children.length : 0;
+        const lo = sel.rows.length ? sel.rows[0] : sel.r, hi = sel.rows.length ? sel.rows[nr - 1] : sel.r;
+        const clo = sel.cols.length ? sel.cols[0] : sel.c, chi = sel.cols.length ? sel.cols[nc - 1] : sel.c;
+        const item = (op, label, key, dis, danger) => h('button', { type: 'button', role: 'menuitem', class: danger ? 'danger' : '', disabled: dis ? '' : null,
+          onmousedown: (e) => e.preventDefault(), onclick: () => { hideMenu(); tableOp(b, op, sel); } }, h('span', {}, label), key ? h('kbd', {}, key) : null);
+        const grp = (name) => h('div', { class: 'wmh' }, name);
+        const aligned = (op, glyph, tip) => h('button', { type: 'button', class: 'wal', title: tip, onmousedown: (e) => e.preventDefault(), onclick: () => { hideMenu(); tableOp(b, op, sel); } , html: glyph });
+        const hdr = lo === 0;
+        menu.replaceChildren(
+          grp(nr > 1 ? `${nr} rows` : hdr ? 'Header row' : 'Row'),
+          item('rowAbove', 'Insert row above'), item('rowBelow', 'Insert row below', '⌘↩'), item('dupRow', nr > 1 ? `Duplicate ${nr} rows` : 'Duplicate row'),
+          item('moveUp', 'Move up', '', lo === 0), item('moveDown', 'Move down', '', hi >= rows.length - 1),
+          item('delRows', nr > 1 ? `Delete ${nr} rows` : 'Delete row', '', false, true),
+          grp(nc > 1 ? `${nc} columns` : 'Column'),
+          item('colLeft', 'Insert column left'), item('colRight', 'Insert column right'),
+          item('moveLeft', 'Move left', '', clo === 0), item('moveRight', 'Move right', '', chi >= n - 1),
+          h('div', { class: 'walign' }, h('span', {}, 'Align'),
+            aligned('alignLeft', '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 4h12M2 8h8M2 12h11" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>', 'Align left'),
+            aligned('alignCenter', '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 4h12M4 8h8M3 12h10" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>', 'Align centre'),
+            aligned('alignRight', '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 4h12M6 8h8M3 12h11" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>', 'Align right')),
+          item('sortAsc', 'Sort by this column, A → Z'), item('sortDesc', 'Sort by this column, Z → A'),
+          item('delCols', nc > 1 ? `Delete ${nc} columns` : 'Delete column', '', false, true),
+          grp('Table'),
+          item('clearCells', sel.cells.length > 1 ? `Clear ${sel.cells.length} cells` : 'Clear cell'), item('delTable', 'Delete table', '', false, true));
+        menu.hidden = false;
+        const mw = menu.offsetWidth, mh = menu.offsetHeight;
+        menu.style.left = Math.max(8, Math.min(x, innerWidth - mw - 8)) + 'px';
+        menu.style.top = Math.max(8, Math.min(above ? y - mh - 8 : y, innerHeight - mh - 8)) + 'px';
+      }
+      document.addEventListener('mousedown', (e) => { if (!menu.hidden && !menu.contains(e.target)) hideMenu(); }, true);
+      document.addEventListener('keydown', (e) => { if (!menu.hidden && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); hideMenu(); } }, true);
+      content.addEventListener('scroll', () => { if (!menu.hidden) hideMenu(); }, { passive: true });
+      doc.addEventListener('contextmenu', (e) => {
+        if (!ok()) return; const cell = e.target.closest('td, th'), b = cell && blockOf(cell);
+        if (!b || WR.kindOf(b) !== 'table' || cell.closest('tr.filters')) return;
+        e.preventDefault(); commitAll();
+        const sel = tableSel(b, cell);
+        if (sel.cells.length === 1) caretInCell(cell); // a right-click outside the selection moves the caret to that cell
+        showMenu(e.clientX, e.clientY, b, sel);
+      });
+
+      // ---- deleting (or typing over) a selection that crosses blocks, sections or table cells ----
+      // within one table: rows the selection covers end to end are removed, the selected text of other cells cleared
+      function tableCut(b, r) {
+        const rows = tableRows(b); let firstCell = null, removed = 0, touched = 0, headCovered = false;
+        for (const [i, tr] of rows.entries()) {
+          const cells = [...tr.children]; if (!cells.some((c) => r.intersectsNode(c))) continue;
+          touched++;
+          const rr = document.createRange(); rr.selectNodeContents(tr);
+          const fromStart = r.compareBoundaryPoints(Range.START_TO_START, rr) <= 0 || !txt(tr, 0, r.startContainer, r.startOffset).trim();
+          const toEnd = r.compareBoundaryPoints(Range.END_TO_END, rr) >= 0 || !txt(r.endContainer, r.endOffset, tr, tr.childNodes.length).trim();
+          if (fromStart && toEnd) { if (i === 0) headCovered = true; else { tr.remove(); removed++; continue; } }
+          for (const c of cells) {
+            if (!r.intersectsNode(c)) continue;
+            const x = document.createRange(); x.selectNodeContents(c);
+            if (c.contains(r.startContainer)) x.setStart(r.startContainer, r.startOffset);
+            if (c.contains(r.endContainer)) x.setEnd(r.endContainer, r.endOffset);
+            [...c.querySelectorAll('button')].forEach((bt) => bt.remove()); // the filter funnel; rebuilt on the next render
+            x.deleteContents(); if (!firstCell) firstCell = [c, x.startContainer, x.startOffset];
+          }
+        }
+        const allGone = headCovered && removed === rows.length - 1;
+        return { firstCell, allGone, touched };
+      }
+      function needsUs(r) {
+        const bl = topBlocks().filter((x) => r.intersectsNode(x));
+        if (bl.length !== 1) return true;
+        const b = bl[0];
+        if (!b.classList.contains('wblock') || !b.contains(r.startContainer) || !b.contains(r.endContainer)) return true;
+        if (WR.kindOf(b) === 'table') { const cs = tableRows(b).flatMap((tr) => [...tr.children]).filter((c) => r.intersectsNode(c)); return cs.length > 1; }
+        return false;
+      }
+      function cutRange(r0, insert, join) { busy++; try { cutNow(r0, insert || '', join); } finally { busy--; } track(); }
+      function cutNow(r0, insert, joining) {
+        commitAll();
+        const r = r0.cloneRange();
+        let bl = topBlocks().filter((x) => r.intersectsNode(x));
+        // a triple-click ends the selection at the very start of the next block: that block is not part of it
+        if (!joining && bl.length > 1 && !txt(bl[bl.length - 1], 0, r.endContainer, r.endOffset).length) { bl.pop(); const e = textHost(bl[bl.length - 1]); r.setEnd(e, e.childNodes.length); }
+        if (!bl.length) return;
+        if (bl.length === 1) {
+          const b = bl[0], k = WR.kindOf(b);
+          if (!b.classList.contains('wblock')) return;
+          if (k === 'table') {
+            const res = tableCut(b, r);
+            if (res.allGone) { const lines = S.text.split('\n'); lines.splice(+b.dataset.l0, +b.dataset.l1 - +b.dataset.l0); applyText(lines.join('\n'), { l0: +b.dataset.l0 }, +b.dataset.l0); return; }
+            const before = S.text;
+            if (res.firstCell && res.firstCell[0].isConnected) {
+              const [, n, o] = res.firstCell; const x = document.createRange(); x.setStart(n, o);
+              if (insert) { const tn = document.createTextNode(insert); x.insertNode(tn); setCaret(tn, insert.length); } else setCaret(n, o);
+            }
+            dirty.add(b); commit(b);
+            if (S.text !== before) { hist.push({ before, after: S.text }); redo.length = 0; }
+            if (res.touched > 1 && tableRows(b).length < res.touched) flash('Rows deleted -- ⌘Z brings them back');
+            return;
+          }
+          // one block, but the range reached past it: keep the part inside
+          const x = document.createRange(); x.setStart(r.startContainer, r.startOffset); x.setEnd(r.endContainer, r.endOffset); x.deleteContents();
+          if (insert) { const tn = document.createTextNode(insert); x.insertNode(tn); setCaret(tn, insert.length); } else setCaret(x.startContainer, x.startOffset);
+          if (!hostOf(b).textContent.trim() && k === 'p' && !b.querySelector('img')) hostOf(b).replaceChildren(h('br'));
+          mark(b); return;
+        }
+        const lines = S.text.split('\n'), first = bl[0], last = bl[bl.length - 1];
+        const fk = first.classList.contains('wblock') ? WR.kindOf(first) : null, lk = last.classList.contains('wblock') ? WR.kindOf(last) : null;
+        const L0 = +first.dataset.l0, L1 = +last.dataset.l1;
+        const srcOf = (x) => { const own = lines.slice(+x.dataset.l0, +x.dataset.l1); while (own.length && !own[own.length - 1].trim()) own.pop(); return own.join('\n'); };
+        const origFirst = srcOf(first), origLast = srcOf(last);
+        let join = null; // [node, offset] where the two halves meet (inside the first block)
+        if (fk === 'table') { const res = tableCut(first, r); if (res.allGone) first.dataset.gone = '1'; }
+        else if (fk) {
+          const e = textHost(first), x = document.createRange(); x.setStart(r.startContainer, r.startOffset); x.setEnd(e, e.childNodes.length);
+          x.deleteContents(); join = [x.startContainer, x.startOffset];
+        }
+        if (lk === 'table') { const res = tableCut(last, r); if (res.allGone) last.dataset.gone = '1'; }
+        else if (lk) { const s = textHost(last), x = document.createRange(); x.setStart(s, 0); x.setEnd(r.endContainer, r.endOffset); x.deleteContents(); }
+        // the caret marker and the typed text go where the halves meet; the rest of a paragraph (or the first bullet) joins it
+        if (join && TEXTISH.includes(fk)) {
+          const x = document.createRange(); x.setStart(join[0], join[1]);
+          let tail = null;
+          if (lk === 'p' || lk === 'h') { tail = itemsOf(last)[0]; last.dataset.gone = '1'; }
+          else if (lk === 'list') { const li = last.querySelector(':scope > li'); if (li && !li.querySelector('ul, ol')) { tail = document.createDocumentFragment(); tail.append(...[...li.childNodes].filter((c) => !(c.nodeType === 1 && c.tagName === 'INPUT'))); li.remove(); } }
+          else if (lk === 'quote') { const p = last.querySelector(':scope > p'); if (p) { tail = document.createDocumentFragment(); tail.append(...p.childNodes); p.remove(); } }
+          if (tail) x.insertNode(tail);
+          x.insertNode(document.createTextNode(insert + MK));
+        } else if (lk && lk !== 'table' && lk !== 'code') { const s = textHost(last); s.insertBefore(document.createTextNode(insert + MK), s.firstChild); }
+        const md = (x, k, orig) => (x.dataset.gone ? '' : k ? WR.block(x, orig) || '' : orig);
+        const parts = [md(first, fk, origFirst), md(last, lk, origLast)].filter((p) => p.trim());
+        const own = lines.slice(L0, L1); let trail = 0; while (trail < own.length && !own[own.length - 1 - trail].trim()) trail++;
+        const rep = parts.length ? [...parts.join('\n\n').split('\n'), ...own.slice(own.length - trail)] : [];
+        lines.splice(L0, L1 - L0, ...rep);
+        applyText(lines.join('\n'), { l0: L0 }, L0);
+      }
+      // Backspace at the start of a paragraph / heading joins it to the text block above; Delete at the end pulls the next one up
+      function joinBlocks(a, b) {
+        const ka = WR.kindOf(a), kb = WR.kindOf(b);
+        if (!a.classList.contains('wblock') || !b.classList.contains('wblock') || !TEXTISH.includes(ka) || !['p', 'h'].includes(kb)) return false;
+        const ns = textNodes(textHost(a)), r = document.createRange();
+        if (ns.length) { const l = ns[ns.length - 1]; r.setStart(l, l.length); } else r.setStart(textHost(a), textHost(a).childNodes.length);
+        r.setEnd(textHost(b), 0);
+        cutRange(r, '', true);
+        return true;
+      }
+      const neighbour = (b, d) => { const all = topBlocks(); return all[all.indexOf(b) + d] || null; };
+
+      document.addEventListener('selectionchange', () => { if (S.mode === 'write') { barState(); track(); } });
+      // the block holding the caret: highlighted, and committed (an empty new line removed) when the caret leaves it
+      let cur = null;
+      function track() {
+        if (!ok() || busy) return;
+        const b = document.activeElement === doc ? selBlock() : null;
+        if (b === cur) return;
+        const prev = cur; cur = b;
+        if (prev) prev.classList.remove('wcur');
+        if (b) b.classList.add('wcur');
+        if (prev) leave(prev);
+      }
+      function leave(b) {
+        if (dirty.has(b)) commit(b);
+        if (b.isConnected && b.dataset.l0 === b.dataset.l1 && !hostOf(b).textContent.trim() && !b.querySelector('img') && doc.querySelectorAll('.wblock').length > 1) b.remove(); // an empty new line you left
+      }
+      doc.addEventListener('beforeinput', (e) => {
+        if (!ok() || busy) return;
+        const t = e.inputType;
+        if (t === 'historyUndo' || t === 'historyRedo') { if (undo(t === 'historyRedo')) e.preventDefault(); return; }
+        const s = getSelection(); if (!s.rangeCount) return;
+        const r = s.getRangeAt(0);
+        if (r.collapsed) { if (!blockOf(r.startContainer)) e.preventDefault(); return; } // between blocks: nothing to type into
+        if (!needsUs(r)) return;
+        if (t === 'insertFromDrop' || t === 'deleteByDrag') { e.preventDefault(); return; }
+        if (/^(insert|delete)/.test(t)) {
+          e.preventDefault();
+          const text = /^insert(Text|ReplacementText|FromPaste)$/.test(t) ? (e.data != null ? e.data : e.dataTransfer ? e.dataTransfer.getData('text/plain') : '') : '';
+          cutRange(r, text);
+        }
+      });
+      doc.addEventListener('cut', (e) => {
+        if (!ok()) return; const s = getSelection(); if (!s.rangeCount || s.isCollapsed || !needsUs(s.getRangeAt(0))) return;
+        e.preventDefault(); if (e.clipboardData) e.clipboardData.setData('text/plain', s.toString());
+        cutRange(s.getRangeAt(0), '');
+      });
       doc.addEventListener('input', (e) => {
-        if (!ok()) return; const b = blockOf(e.target); if (!b) return;
+        if (!ok()) return; const b = selBlock(); if (!b) return;
         // "## ", "- ", "1. ", "> ", "[ ] " typed at the very start of a paragraph turn it into that kind of block
         if (WR.kindOf(b) === 'p' && e.inputType === 'insertText' && e.data === ' ') {
           const f = b.firstChild, s = getSelection();
@@ -312,32 +693,58 @@
         mark(b);
       });
       doc.addEventListener('focusout', (e) => {
-        if (!ok() || busy) return; const b = blockOf(e.target); if (!b || blockOf(e.relatedTarget) === b) return;
-        if (dirty.has(b)) commit(b);
-        if (b.isConnected && b.dataset.l0 === b.dataset.l1 && !hostOf(b).textContent.trim() && !b.querySelector('img') && doc.querySelectorAll('.wblock').length > 1) b.remove(); // an empty new line you left
+        if (!ok() || busy || (e.relatedTarget && doc.contains(e.relatedTarget))) return;
+        if (cur) { const p = cur; cur.classList.remove('wcur'); cur = null; leave(p); }
       });
       doc.addEventListener('paste', (e) => {
-        if (!ok() || !blockOf(e.target) || !S.text.trim()) return; // an empty document: the shell's paste handler fills it as markdown
+        if (!ok() || !selBlock() || !S.text.trim()) return; // an empty document: the shell's paste handler fills it as markdown
         const t = e.clipboardData && e.clipboardData.getData('text/plain'); if (t == null) return;
         e.preventDefault(); document.execCommand('insertText', false, t); // plain text only: no foreign styling
       });
       doc.addEventListener('keydown', (e) => {
-        if (!ok()) return; const b = blockOf(e.target); if (!b) return;
-        const k = WR.kindOf(b), host = hostOf(b), mod = e.metaKey || e.ctrlKey;
-        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); host.blur(); return; }
+        if (!ok()) return;
+        const mod = e.metaKey || e.ctrlKey, s = getSelection();
+        if (mod && !e.altKey && e.key.toLowerCase() === 'z') { if (undo(e.shiftKey)) { e.preventDefault(); return; } }
+        if ((e.key === 'Backspace' || e.key === 'Delete') && s.rangeCount && !s.isCollapsed && needsUs(s.getRangeAt(0))) { e.preventDefault(); cutRange(s.getRangeAt(0), ''); return; }
+        const b = selBlock();
+        if (!b) { if (e.key === 'Escape') doc.blur(); else if (!mod && (e.key.length === 1 || e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Delete') && s.isCollapsed) e.preventDefault(); return; }
+        const k = WR.kindOf(b), host = hostOf(b);
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); doc.blur(); return; }
         if (mod && e.key.toLowerCase() === 'k' && k !== 'code') { e.preventDefault(); return linkAsk(); }
-        if (k === 'code') { if (e.key === 'Tab') { e.preventDefault(); document.execCommand('insertText', false, '  '); } return; }
-        if (e.key === 'Enter' && !mod && e.shiftKey && k === 'p') { e.preventDefault(); document.execCommand('insertLineBreak'); return; }
-        if (e.key === 'Enter' && !mod && (k === 'p' || k === 'h')) { e.preventDefault(); splitAtCaret(b); return; }
-        if (e.key === 'Enter' && !mod && !e.shiftKey && k === 'list') {
-          const s = getSelection(), at = s.anchorNode && (s.anchorNode.nodeType === 1 ? s.anchorNode : s.anchorNode.parentElement), li = at && at.closest('li');
-          if (li && li.parentElement === b && li === b.lastElementChild && !li.textContent.trim()) { e.preventDefault(); li.remove(); caretTo(newParaAfter(b), false); } // Enter on an empty last bullet ends the list
+        if (k === 'code') {
+          if (e.key === 'Tab') { e.preventDefault(); document.execCommand('insertText', false, '  '); }
+          else if (e.key === 'Enter' && !mod) { e.preventDefault(); document.execCommand('insertText', false, '\n'); }
+          else if ((e.key === 'Backspace' && atStart(host)) || (e.key === 'Delete' && atEnd(host))) e.preventDefault();
           return;
         }
-        if (e.key === 'Enter' && k === 'table') { e.preventDefault(); return; } // a table cell is one line
-        if (e.key === 'Backspace' && (k === 'p' || k === 'h') && atStart(host)) {
-          if (!host.textContent.trim() && !host.querySelector('img')) { e.preventDefault(); removeBlock(b, true); }
-          else if (k === 'h') { e.preventDefault(); const x = convert(b, 'P'); if (x) caretTo(x, false); }
+        if (k === 'table') {
+          const cell = cellOf(s.anchorNode);
+          if (e.key === 'Tab') { e.preventDefault(); moveCell(b, e.shiftKey ? -1 : 1); return; }
+          if (e.key === 'Enter') { e.preventDefault(); if (mod) tableOp(b, 'rowBelow', { ...tableSel(b), rows: [], cols: [] }); return; } // a table cell is one line; ⌘↩ adds a row
+          if (cell && ((e.key === 'Backspace' && atStart(cell)) || (e.key === 'Delete' && atEnd(cell)))) e.preventDefault(); // never merge cells
+          return;
+        }
+        if (e.key === 'Enter' && !mod && e.shiftKey && k === 'p') { e.preventDefault(); document.execCommand('insertLineBreak'); return; }
+        if (e.key === 'Enter' && !mod && (k === 'p' || k === 'h')) { e.preventDefault(); splitAtCaret(b); return; }
+        if (e.key === 'Enter' && !mod && !e.shiftKey && (k === 'list' || k === 'quote')) {
+          const at = s.anchorNode && (s.anchorNode.nodeType === 1 ? s.anchorNode : s.anchorNode.parentElement), item = at && at.closest(k === 'list' ? 'li' : 'p, div');
+          if (item && b.contains(item) && item !== b && !item.textContent.trim()) {
+            e.preventDefault();
+            if (item.parentElement === b && item === b.lastElementChild) { item.remove(); caretTo(newParaAfter(b), false); } // Enter on an empty last line ends the list / quote
+            return; // an empty line in the middle: the browser would split the block in two outside our reach
+          }
+          return;
+        }
+        if (e.key === 'Backspace' && !mod && atStart(textHost(b))) {
+          e.preventDefault();
+          if ((k === 'p' || k === 'h') && !host.textContent.trim() && !host.querySelector('img')) return removeBlock(b, true);
+          if (k === 'h') { const x = convert(b, 'P'); if (x) caretTo(x, false); return; }
+          if (k === 'p') { const prev = neighbour(b, -1); if (prev) joinBlocks(prev, b); }
+          return;
+        }
+        if (e.key === 'Delete' && !mod && atEnd(textHost(b))) {
+          e.preventDefault();
+          if (TEXTISH.includes(k)) { const next = neighbour(b, 1); if (next) joinBlocks(b, next); }
         }
       });
       doc.addEventListener('change', (e) => { if (ok() && e.target.type === 'checkbox') { const b = blockOf(e.target); if (b) { dirty.add(b); commit(b); } } });
@@ -490,6 +897,7 @@
         const wrap = table.parentElement; wrap.classList.add('filterable');
         const st = S.filters[ti] || (S.filters[ti] = { q: ths.map(() => ''), all: '', open: false, col: -1 });
         while (st.q.length < ths.length) st.q.push('');
+        st.q.length = ths.length; // a column deleted in Write leaves one box fewer
         const isNum = (c) => ths[c].classList.contains('num');
         const onEsc = (e, clearOne) => { e.stopPropagation(); if (e.target.value) clearOne(); else close(); };
         const inputs = ths.map((th, c) => h('input', {
@@ -995,7 +1403,11 @@
     // height until they load again, so the page would slide away from the section being edited. Pin the section's
     // top to where it was on screen, and keep it pinned while late content settles -- until the user scrolls.
     function keepSectionInPlace(i, change) {
-      const top = () => { const el = secs.querySelector(`.sec[data-i="${i}"]`); return el ? el.getBoundingClientRect().top - content.getBoundingClientRect().top : null; };
+      keepInPlace(() => secs.querySelector(`.sec[data-i="${i}"]`), change);
+    }
+    // the same for any element found again after a re-render (Write's table and multi-block edits pin the block)
+    function keepInPlace(find, change) {
+      const top = () => { const el = find(); return el ? el.getBoundingClientRect().top - content.getBoundingClientRect().top : null; };
       const want = top();
       change();
       if (want === null) return;

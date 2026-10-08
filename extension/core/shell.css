@@ -488,11 +488,31 @@ html[data-theme=studio] ::highlight(mdr-find){background:color-mix(in srgb,#f5c5
 .app.writing .doc{padding-bottom:110px}
 .app.writing .wblock{border-radius:6px;transition:box-shadow .12s,background-color .12s;cursor:text}
 .app.writing .wblock:hover{box-shadow:0 0 0 5px color-mix(in srgb,var(--accent,#3b82f6) 6%,transparent)}
-.app.writing .wblock:focus-within{background-color:color-mix(in srgb,var(--accent,#3b82f6) 5%,transparent);box-shadow:0 0 0 5px color-mix(in srgb,var(--accent,#3b82f6) 5%,transparent),0 0 0 6px color-mix(in srgb,var(--accent,#3b82f6) 28%,transparent)}
+.app.writing .wblock.wcur{background-color:color-mix(in srgb,var(--accent,#3b82f6) 5%,transparent);box-shadow:0 0 0 5px color-mix(in srgb,var(--accent,#3b82f6) 5%,transparent),0 0 0 6px color-mix(in srgb,var(--accent,#3b82f6) 28%,transparent)}
 .app.writing [contenteditable]:focus{outline:0}
+.app.writing .doc[contenteditable]{outline:0}
 .app.writing [contenteditable]{caret-color:var(--accent,#3b82f6)}
 .app.writing .wblock input[type=checkbox]{cursor:pointer}
 .app.writing .w-locked{cursor:default}
 .app.writing p.wblock:has(> br:only-child){position:relative}
 .app.writing p.wblock:has(> br:only-child)::before{content:'Type here -- "## " heading, "- " list, "> " quote';position:absolute;left:0;opacity:.38;pointer-events:none;white-space:nowrap}
 .app.writing .sec .tools{z-index:3}
+
+/* Write: table group in the toolbar (only while the caret is in a table) and the table menu */
+.wbar .wtbl{display:none}
+.app.w-intable .wbar .wtbl{display:contents}
+.wbar button.tb{color:var(--accent,#3b82f6);opacity:.9}
+.wmenu{position:fixed;z-index:60;min-width:236px;padding:6px;border-radius:10px;background:var(--panel,var(--card,var(--paper,#fff)));color:var(--ink,var(--text,#222));
+  border:1px solid var(--line-2,var(--line,rgba(0,0,0,.14)));box-shadow:0 12px 34px rgba(0,0,0,.18);font:13px/1.2 var(--sans,system-ui,sans-serif)}
+.wmenu[hidden]{display:none}
+.wmenu .wmh{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;opacity:.5;padding:8px 9px 4px}
+.wmenu .wmh:first-child{padding-top:3px}
+.wmenu button{display:flex;align-items:center;justify-content:space-between;gap:16px;width:100%;border:0;background:transparent;color:inherit;font:inherit;text-align:left;padding:6px 9px;border-radius:6px;cursor:pointer}
+.wmenu button:hover:not(:disabled){background:color-mix(in srgb,var(--accent,#3b82f6) 12%,transparent)}
+.wmenu button:disabled{opacity:.35;cursor:default}
+.wmenu button.danger{color:#c2410c}
+html[data-theme=studio] .wmenu button.danger{color:#fb923c}
+.wmenu kbd{font:11px var(--mono,ui-monospace,monospace);opacity:.5}
+.wmenu .walign{display:flex;align-items:center;gap:2px;padding:2px 9px}
+.wmenu .walign>span{flex:1;opacity:.85}
+.wmenu .walign button.wal{width:auto;padding:5px 7px;justify-content:center}

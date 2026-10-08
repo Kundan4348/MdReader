@@ -131,7 +131,8 @@
       sep = '| ' + (head ? [...head.children] : []).map((th) => (th.classList.contains('align-center') ? ':---:' : th.classList.contains('align-right') ? '---:' : th.classList.contains('align-left') ? ':---' : '---')).join(' | ') + ' |';
     }
     const out = [row(hcells, 0), sep];
-    body.forEach((tr, i) => { const cells = [...tr.children].map(cell); while (cells.length < hcells.length) cells.push(' '); if (cells.some((c) => c.trim())) out.push(row(cells, i + 2)); });
+    // an emptied row stays (Write's table menu deletes rows); only a row that lost all its cells goes
+    body.forEach((tr, i) => { if (!tr.children.length) return; const cells = [...tr.children].map(cell); while (cells.length < hcells.length) cells.push(' '); out.push(row(cells, i + 2)); });
     return out.join('\n');
   }
   function code(wrapEl, orig) {
@@ -184,5 +185,5 @@
     return null;
   }
 
-  global.WR = { block: blockOf, kindOf, inline: inl, shortcut, escText };
+  global.WR = { block: blockOf, kindOf, inline: inl, shortcut, escText, splitRow };
 })(window);
