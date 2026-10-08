@@ -63,6 +63,28 @@ const bar = (act) => ev(`document.querySelector('#app .wbar [data-act=${act}]').
 const caretRow = () => ev(`(()=>{const a=getSelection().anchorNode; const c=(a.nodeType===1?a:a.parentElement).closest('td,th'); if(!c) return null; const rows=[...c.closest('table').querySelectorAll('thead>tr:not(.filters),tbody>tr')]; return [rows.indexOf(c.parentElement),[...c.parentElement.children].indexOf(c)]})()`);
 const S1 = {};
 const TB = async () => { const l = (await SRC()).split('\n'); const i = l.findIndex((x) => x.startsWith('|')); if (i < 0) return []; const out = []; for (let j = i; j < l.length && l[j].startsWith('|'); j++) out.push(l[j]); return out; };
+// K. column colour from the menu, kept across a re-render; then the off switch and back on (markdown never changes)
+const srcK = await SRC();
+await rclick('passed');
+S1.swatches = await ev(`document.querySelectorAll('#app .wmenu .wcolours .sw').length`);
+await ev(`document.querySelector('#app .wmenu .wcolours .sw[data-cc=teal]').click()`); await sleep(300);
+const ccState = () => ev(`(()=>{const td=[...document.querySelectorAll('#app .table-wrap td')].find(x=>x.textContent.trim()==='passed'), tr=td.closest('table'); const th=tr.querySelectorAll('thead th')[1];
+  return {td:td.dataset.cc||null, th:th.dataset.cc||null, other:tr.querySelectorAll('thead th')[0].dataset.cc||null, bg:getComputedStyle(td).backgroundColor}})()`);
+S1.ccSet = await ccState();
+await ev(`document.querySelector('#app .top [data-mode=read]').click()`); await sleep(300);
+await ev(`document.querySelector('#app .top [data-mode=write]').click()`); await sleep(300);
+S1.ccKept = await ccState();
+S1.ccStored = await ev(`localStorage.getItem('mdr-colcolours')`);
+await ev(`document.querySelector('#app .table-wrap .tcol-btn').click()`); await sleep(300);
+S1.off = await ev(`(()=>{const a=document.querySelector('#app'); const chip=a.querySelector('.doc td .stc'), bar=a.querySelector('.doc td.bar'); const td=[...a.querySelectorAll('.table-wrap td')].find(x=>x.textContent.trim()==='passed');
+  return {cls:a.classList.contains('no-tcolour'), chipBg:getComputedStyle(chip).backgroundColor, bar:getComputedStyle(bar,'::before').display, ccBg:getComputedStyle(td).backgroundColor, btn:a.querySelector('.table-wrap .tcol-btn').textContent, pref:localStorage.getItem('mdr-tcolour')}})()`);
+await shotF('table-off.png');
+await ev(`document.querySelector('#app .table-wrap .tcol-btn').click()`); await sleep(300);
+S1.onAgain = await ev(`(()=>{const a=document.querySelector('#app'); return {cls:a.classList.contains('no-tcolour'), pref:localStorage.getItem('mdr-tcolour'), bar:getComputedStyle(a.querySelector('.doc td.bar'),'::before').display}})()`);
+await rclick('passed'); await ev(`document.querySelector('#app .wmenu .wcolours .sw.none').click()`); await sleep(300);
+S1.ccCleared = (await ccState()).td;
+S1.srcSame = (await SRC()) === srcK;
+
 // A. right-click a cell -> Insert row below; type into it
 S1.menuShown = await rclick('beta'); await shotF('table-menu.png');
 S1.ins = await menuClick('Insert row below'); await sleep(400);
@@ -180,7 +202,9 @@ for (const [k, v] of Object.entries(E)) { report.got[k] = J(S1[k]); if (report.g
 const FINAL = '# Table fixture\n\nIntro Xsection para.Third para here.\n\n| Key | Column 2 | Column 3 |\n| --- | --- | --- |\n|  |  |  |\n|  |  |  |';
 report.s = S1;
 report.checks = {
-  menu: S1.menuShown && S1.ins, drag: S1.gripShown && S1.dropShown, hdrOn: S1.hdrOn, coldrag: S1.cgripShown && S1.cdropShown, insCaret: JSON.stringify(S1.insCaret) === '[3,0]', multiSel: /beta/.test(S1.selC || ''),
+  menu: S1.menuShown && S1.ins, drag: S1.gripShown && S1.dropShown, hdrOn: S1.hdrOn, coldrag: S1.cgripShown && S1.cdropShown,
+  colColour: S1.swatches === 9 && S1.ccSet.td === 'teal' && S1.ccSet.th === 'teal' && S1.ccSet.other === null && S1.ccSet.bg !== 'rgba(0, 0, 0, 0)' && S1.ccKept.td === 'teal' && /teal/.test(S1.ccStored || '') && S1.ccCleared === null && S1.srcSame,
+  offSwitch: S1.off.cls && S1.off.chipBg === 'rgba(0, 0, 0, 0)' && S1.off.bar === 'none' && S1.off.ccBg !== S1.ccSet.bg && /off/.test(S1.off.btn) && S1.off.pref === 'off' && !S1.onAgain.cls && S1.onAgain.pref === null && S1.onAgain.bar !== 'none', insCaret: JSON.stringify(S1.insCaret) === '[3,0]', multiSel: /beta/.test(S1.selC || ''),
   undo: J(S1.undone) === E.afterDel2, redo: J(S1.redone) === E.afterMulti, colCaret: JSON.stringify(S1.colCaret) === '[1,2]',
   tab: JSON.stringify(S1.tabFirst) === '[3,2]' && JSON.stringify(S1.tabCaret) === '[4,0]',
   joined: S1.joined === 'Second section para.Third para here.' && S1.joinCaret === 'para.|Third',

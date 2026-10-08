@@ -541,3 +541,21 @@ html[data-dg-dark] .doc td .stc,html[data-theme=studio] .doc td .stc{background:
 .doc td.bar::before{content:'';position:absolute;z-index:-1;top:4px;bottom:4px;right:0;width:calc(var(--bar,0)*100%);
   background:color-mix(in srgb,var(--accent,#3b82f6) 15%,transparent);border-radius:3px}
 html[data-theme=studio] .doc td.bar::before,html[data-dg-dark] .doc td.bar::before{background:color-mix(in srgb,var(--accent,#7cc4ff) 22%,transparent)}
+/* Table colours: per-column colour (picked in Write's table menu), and the off switch */
+.app:not(.no-tcolour) .doc th[data-cc]{background-color:color-mix(in srgb,var(--cc) 16%,var(--panel,var(--paper-2,transparent)))!important;box-shadow:inset 0 3px 0 var(--cc);color:color-mix(in srgb,var(--cc) 55%,var(--ink,var(--text,#222)))!important}
+.app:not(.no-tcolour) .doc td[data-cc]{background-color:color-mix(in srgb,var(--cc) 7%,transparent)!important}
+html[data-theme=studio] .app:not(.no-tcolour) .doc td[data-cc]{background-color:color-mix(in srgb,var(--cc) 13%,transparent)!important}
+html[data-theme=studio] .app:not(.no-tcolour) .doc th[data-cc]{color:color-mix(in srgb,var(--cc) 55%,#fff)!important}
+.doc td.bar[data-cc]::before{background:color-mix(in srgb,var(--cc) 24%,transparent)}
+.app.no-tcolour .doc td .stc{background:none!important;color:inherit!important;padding:0;font-weight:inherit;font-size:inherit}
+.app.no-tcolour .doc td.bar::before{display:none}
+.table-wrap{position:relative}
+.table-wrap>.tcol-btn{position:absolute;top:6px;right:8px;z-index:3;opacity:0;pointer-events:none;transition:opacity .12s;border:1px solid var(--line-2,var(--line,rgba(0,0,0,.14)));border-radius:999px;
+  background:var(--panel,var(--card,var(--paper,#fff)));color:var(--ink-3,var(--text-3,#777));font:11.5px/1 var(--sans,system-ui,sans-serif);padding:4px 9px;cursor:pointer}
+.table-wrap:hover>.tcol-btn,.table-wrap>.tcol-btn:focus-visible{opacity:1;pointer-events:auto}
+.table-wrap>.tcol-btn:hover{color:var(--accent,#3b82f6)}
+.wmenu .wcolours{display:flex;align-items:center;gap:4px;padding:4px 9px;flex-wrap:wrap}
+.wmenu .wcolours>span{flex:1 0 100%;opacity:.85;margin-bottom:2px}
+.wmenu .wcolours button.sw{width:18px;height:18px;padding:0;border-radius:50%;background:var(--cc);border:2px solid color-mix(in srgb,var(--cc) 60%,transparent);flex:none}
+.wmenu .wcolours button.sw:hover{transform:scale(1.15);background:var(--cc)}
+.wmenu .wcolours button.sw.none{background:transparent;border:1px dashed currentColor;font-size:9px;display:flex;align-items:center;justify-content:center;opacity:.6}

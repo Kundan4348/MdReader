@@ -547,8 +547,13 @@
             aligned('alignCenter', '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 4h12M4 8h8M3 12h10" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>', 'Align centre'),
             aligned('alignRight', '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 4h12M6 8h8M3 12h11" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>', 'Align right')),
           item('sortAsc', 'Sort by this column, A → Z'), item('sortDesc', 'Sort by this column, Z → A'),
+          h('div', { class: 'wcolours' }, h('span', {}, nc > 1 ? 'Colour these' : 'Colour'),
+            ...COL_COLOURS.map(([name, hex]) => h('button', { type: 'button', class: 'sw', title: name[0].toUpperCase() + name.slice(1), style: '--cc:' + hex, 'data-cc': name,
+              onmousedown: (e) => e.preventDefault(), onclick: () => { hideMenu(); setColColour(b.querySelector('table'), sel.cols.length ? sel.cols : [sel.c], name); } })),
+            h('button', { type: 'button', class: 'sw none', title: 'No colour', html: '&#x2715;', onmousedown: (e) => e.preventDefault(), onclick: () => { hideMenu(); setColColour(b.querySelector('table'), sel.cols.length ? sel.cols : [sel.c], null); } })),
           item('delCols', nc > 1 ? `Delete ${nc} columns` : 'Delete column', '', false, true),
           grp('Table'),
+          h('button', { type: 'button', role: 'menuitem', onmousedown: (e) => e.preventDefault(), onclick: () => { hideMenu(); toggleTableColours(); } }, h('span', {}, root.classList.contains('no-tcolour') ? 'Turn table colours on' : 'Turn table colours off')),
           item('clearCells', sel.cells.length > 1 ? `Clear ${sel.cells.length} cells` : 'Clear cell'), item('delTable', 'Delete table', '', false, true));
         menu.hidden = false;
         const mw = menu.offsetWidth, mh = menu.offsetHeight;
@@ -974,6 +979,7 @@
       spy();
       checkPathLinks();
       wireTables();
+      applyColColours();
       wireCode();
       if (global.CSS && CSS.highlights) CSS.highlights.delete('mdr-mirror'); // ranges pointed at the old nodes
       refreshFind();
@@ -1024,6 +1030,44 @@
         const legacy = () => { const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.append(ta); ta.select(); let done = false; try { done = document.execCommand('copy'); } catch { /* refused */ } ta.remove(); done ? ok() : flash('Copy failed'); };
         (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(ok, legacy);
       }));
+    }
+    // ---------- table colours ----------
+    // Status chips and number bars come from md.js. On top of that you can give any column a colour (Write's table menu);
+    // the choice is kept on this machine per file, table and column name, so the markdown itself never changes.
+    // One switch (the ◐ on a table, or the table menu) turns every table colour off and on; also remembered.
+    const COL_COLOURS = [['blue', '#4f7bd9'], ['teal', '#2a9d8f'], ['green', '#4c9a5a'], ['amber', '#c9942a'], ['orange', '#d0703b'], ['rose', '#c95a7a'], ['violet', '#8a6fd0'], ['grey', '#8a8f98']];
+    const colKeyDoc = () => S.path || (curTab() && curTab().name) || '';
+    function colMapAll() { try { return JSON.parse(localStorage.getItem('mdr-colcolours') || '{}'); } catch { return {}; } }
+    const thText = (th) => [...th.childNodes].filter((n) => !(n.nodeType === 1 && n.tagName === 'BUTTON')).map((n) => n.textContent).join('').trim();
+    const tableIndex = (table) => [...doc.querySelectorAll('.table-wrap > table')].indexOf(table);
+    function setColColour(table, cols, name) {
+      const all = colMapAll(), k = colKeyDoc(), m = all[k] || {}, ti = tableIndex(table), ths = [...table.querySelectorAll('thead > tr:not(.filters) > th')];
+      for (const c of cols) { const key = ti + ':' + thText(ths[c] || {}); if (name) m[key] = name; else delete m[key]; }
+      if (Object.keys(m).length) all[k] = m; else delete all[k];
+      localStorage.setItem('mdr-colcolours', JSON.stringify(all));
+      applyColColours();
+    }
+    function applyColColours() {
+      root.classList.toggle('no-tcolour', localStorage.getItem('mdr-tcolour') === 'off');
+      const m = colMapAll()[colKeyDoc()] || {};
+      doc.querySelectorAll('.table-wrap > table').forEach((table, ti) => {
+        const head = table.querySelector('thead > tr:not(.filters)'); if (!head) return;
+        [...head.children].forEach((th, c) => {
+          const name = m[ti + ':' + thText(th)], hex = (COL_COLOURS.find((x) => x[0] === name) || [])[1];
+          const cells = [th, ...[...table.querySelectorAll('tbody > tr')].map((tr) => tr.children[c]).filter(Boolean)];
+          cells.forEach((x) => { if (hex) { x.dataset.cc = name; x.style.setProperty('--cc', hex); } else { delete x.dataset.cc; x.style.removeProperty('--cc'); } });
+        });
+        // the on/off switch, shown on hover at the table's top right
+        const wrap = table.parentElement;
+        if (!wrap.querySelector(':scope > .tcol-btn')) wrap.append(h('button', { type: 'button', class: 'tcol-btn', contenteditable: 'false', onmousedown: (e) => e.preventDefault(), onclick: toggleTableColours }));
+        const on = !root.classList.contains('no-tcolour');
+        wrap.querySelectorAll(':scope > .tcol-btn').forEach((b) => { b.textContent = on ? '◐ Colours on' : '◑ Colours off'; b.title = on ? 'Turn table colours off (status chips, number bars, column colours)' : 'Turn table colours back on'; });
+      });
+    }
+    function toggleTableColours() {
+      const off = localStorage.getItem('mdr-tcolour') === 'off';
+      if (off) localStorage.removeItem('mdr-tcolour'); else localStorage.setItem('mdr-tcolour', 'off');
+      applyColColours(); flash(off ? 'Table colours on' : 'Table colours off -- the ◑ on any table turns them back on', 2600);
     }
     function wireTables() {
       S.filters = S.filters || {};
