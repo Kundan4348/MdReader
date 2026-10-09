@@ -273,7 +273,7 @@
         linkIn.onblur = () => { linkIn.hidden = true; };
       }
       const ACTS = [['P', '¶', 'Plain paragraph'], ['H2', 'H2', 'Heading'], ['H3', 'H3', 'Sub-heading'], null,
-        ['bold', '<b>B</b>', 'Bold (⌘B)'], ['italic', '<i>I</i>', 'Italic (⌘I)'], ['strike', '<s>S</s>', 'Strikethrough'], ['code', '&lt;/&gt;', 'Inline code'], ['link', 'Link', 'Link (⌘K) · ⌥-click a link to edit its text'], null,
+        ['bold', '<b>B</b>', 'Bold (⌘B)'], ['italic', '<i>I</i>', 'Italic (⌘I)'], ['strike', '<s>S</s>', 'Strikethrough'], ['tcolour', '<span class="tc-a">A</span>', 'Text colour or highlight for the selected words'], ['code', '&lt;/&gt;', 'Inline code'], ['link', 'Link', 'Link (⌘K) · ⌥-click a link to edit its text'], null,
         ['UL', '• List', 'Bulleted list (or type "- ")'], ['OL', '1. List', 'Numbered list (or type "1. ")'], ['TASK', '☐ Tasks', 'Checklist (or type "[ ] ")'], ['BLOCKQUOTE', '❝ Quote', 'Quote (or type "> ")']];
       // ---- the table group of the toolbar, and its full menu (also on right-click in a cell) ----
       const TBL = [['menu', 'Table ▾', 'Rows, columns, colours and more (or right-click a cell; click a row or column grip to select it whole)']];
@@ -287,6 +287,7 @@
           h('span', { class: 'whelp', title: 'Changes go into the file text as you type; ⌘S saves; ⌘Z undoes a table or multi-block change. Diagrams and raw HTML are edited with Edit section.' }, '⌘S saves'));
       }
       function act(name, e) {
+        if (name === 'tcolour') return TC.open(e.currentTarget);
         const b = selBlock();
         if (name === 'table') return insertTable(b);
         if (TBL.some((a) => a[0] === name)) {
@@ -1038,7 +1039,7 @@
         }
       });
       doc.addEventListener('change', (e) => { if (ok() && e.target.type === 'checkbox') { const b = blockOf(e.target); if (b) { dirty.add(b); commit(b); } } });
-      return { enable, reset, commitAll, colourPicker };
+      return { enable, reset, commitAll, colourPicker, touch: (n) => { const b = blockOf(n); if (!b || !ok()) return null; mark(b); return b; }, blockOf, kindOf: (b) => WR.kindOf(b) };
     })();
 
     // ---------- Write mode for JSON and SQL ----------
@@ -1237,23 +1238,24 @@
 
       // ---- the toolbar ----
       const BTN = {
-        json: [['add', '+ Add', 'Add a key / item below this one (in a table: a row)'], ['dup', 'Duplicate', 'Duplicate this key, item or row'], ['up', '↑', 'Move up'], ['down', '↓', 'Move down'],
+        json: [['tc', '<span class="tc-a">A</span>', 'Text colour or highlight for the selected text'], ['add', '+ Add', 'Add a key / item below this one (in a table: a row)'], ['dup', 'Duplicate', 'Duplicate this key, item or row'], ['up', '↑', 'Move up'], ['down', '↓', 'Move down'],
           ['del', 'Delete', 'Delete this key, item or row (selected rows: all of them)'], ['more', 'More ▾', 'Type, columns, colours ... (or right-click)']],
-        sql: [['add', '+ Query', 'A new query below this one'], ['dup', 'Duplicate', 'Duplicate this query'], ['up', '↑', 'Move this query up'], ['down', '↓', 'Move this query down'],
+        sql: [['tc', '<span class="tc-a">A</span>', 'Text colour or highlight for the selected text'], ['add', '+ Query', 'A new query below this one'], ['dup', 'Duplicate', 'Duplicate this query'], ['up', '↑', 'Move this query up'], ['down', '↓', 'Move this query down'],
           ['del', 'Delete', 'Delete this query'], ['fmt', 'Format', 'Re-indent the whole file (whitespace only)']],
       };
       function buildBar(k) {
         if (built === k) return; built = k;
         bar.replaceChildren(h('span', { class: 'wtag' }, k === 'json' ? 'Writing JSON' : 'Writing SQL'),
-          ...BTN[k].map(([a, label, tip]) => h('button', { type: 'button', 'data-act': a, title: tip, onmousedown: (e) => e.preventDefault(), onclick: (e) => act(a, e) }, label)),
+          ...BTN[k].map(([a, label, tip]) => h('button', { type: 'button', 'data-act': a, title: tip, html: label.startsWith('<') ? label : null, onmousedown: (e) => e.preventDefault(), onclick: (e) => act(a, e) }, label.startsWith('<') ? null : label)),
           h('span', { class: 'whelp', title: 'Changes go into the file text straight away; ⌘S saves; ⌘Z undoes' }, k === 'json' ? 'Click a value to change it · right-click for more' : 'Type in a query · right-click for more'));
       }
       function syncBar() {
         if (!built) return;
         const has = !!cur && (kind() === 'sql' ? cur.wk === 'sql' : cur.wk !== 'table');
-        bar.querySelectorAll('button[data-act]').forEach((b) => { b.disabled = b.dataset.act !== 'fmt' && !has; });
+        bar.querySelectorAll('button[data-act]').forEach((b) => { b.disabled = b.dataset.act !== 'fmt' && b.dataset.act !== 'tc' && !has; });
       }
       function act(a, e) {
+        if (a === 'tc') return TC.open(e.currentTarget);
         if (a === 'fmt') { commitAll(); return formatDoc(false); }
         const d = cur; if (!d) return flash('Click into the page first');
         if (kind() === 'sql') return sqlAct(a, d.st);
@@ -1876,6 +1878,8 @@
       refreshFind();
       W.enable();
       WD.enable(r);
+      TC.apply();
+      DR.redraw();
     }
     function copyJsonSection(i) { navigator.clipboard.writeText(JV.sectionSource(S.text, i)).then(() => flash('JSON copied')); }
     function copySqlSection(i) { navigator.clipboard.writeText(SQLV.sectionSource(S.text, i)).then(() => flash('SQL copied')); }
@@ -2005,6 +2009,358 @@
       if (off) localStorage.removeItem('mdr-tcolour'); else localStorage.setItem('mdr-tcolour', 'off');
       applyColColours(); flash(off ? 'Table colours on' : 'Table colours off -- the ◑ on any table turns them back on', 2600);
     }
+    // ---------- text colours and highlights (any file) ----------
+    // Select words in Write and pick a text colour or a highlight. Markdown keeps it IN THE FILE as a span the reader
+    // draws and other viewers show as plain text: <span data-c="red.dark">words</span>, <span data-hl="yellow">words</span>.
+    // JSON and SQL cannot carry markup without breaking the file, so there the choice is kept on this Mac, per file,
+    // as "the n-th time this text appears" and drawn with the browser's highlight layer (the page is not changed).
+    // One switch shows or hides every text colour (the table colours keep their own switch).
+    const TC = (() => {
+      const KEY = 'mdr-marks', OFF = 'mdr-txtcolour';
+      // style rules are made for a colour the first time it is used (all 128 up front would slow every repaint)
+      const sheet = h('style', { 'data-mdr': 'text-colours' }); document.head.append(sheet);
+      const made = new Set(), used = new Set();
+      const ink = (hex, sh, dark) => (sh === 'light' ? `color-mix(in srgb,${hex} 55%,var(--ink,var(--text,${dark ? '#eee' : '#222'})))` : sh === 'soft' ? `color-mix(in srgb,${hex} 80%,var(--ink,var(--text,${dark ? '#eee' : '#222'})))`
+        : sh === 'strong' ? hex : `color-mix(in srgb,${hex} ${dark ? '70%,#fff' : '72%,#000'})`);
+      const fill = (hex, sh) => `color-mix(in srgb,${hex} ${{ light: '14%', soft: '26%', strong: '44%', dark: '82%' }[sh]},transparent)`;
+      function ensure(v) {
+        const sp = splitColour(v); if (!sp || made.has(v)) return; made.add(v);
+        const [c, sh] = sp, hex = hexOf(c), n = `${c}-${sh}`;
+        sheet.append(`.app:not(.no-txtc) .doc span[data-c="${v}"]{color:${ink(hex, sh)}${sh === 'dark' ? ';font-weight:600' : ''}}
+html[data-theme=studio] .app:not(.no-txtc) .doc span[data-c="${v}"]{color:${ink(hex, sh, true)}}
+.app:not(.no-txtc) .doc span[data-hl="${v}"]{background:${fill(hex, sh)};border-radius:3px;padding:0 1px;-webkit-box-decoration-break:clone;box-decoration-break:clone${sh === 'dark' ? ';color:#fff' : ''}}
+::highlight(mdr-t-${n}){color:${ink(hex, sh)}}
+html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
+::highlight(mdr-h-${n}){background-color:${fill(hex, sh)}${sh === 'dark' ? ';color:#fff' : ''}}
+`);
+      }
+      const isOff = () => localStorage.getItem(OFF) === 'off';
+      const all = () => { try { return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch { return {}; } };
+      const fileKey = () => { const t = curTab(); return t && !isUntitled(t) ? S.path : null; };
+      const marksOf = () => { const k = fileKey(); return (k && all()[k]) || []; };
+      const saveMarks = (list) => { const k = fileKey(); if (!k) return false; const a = all(); if (list.length) a[k] = list; else delete a[k]; localStorage.setItem(KEY, JSON.stringify(a)); return true; };
+      const hlName = (kind, v) => { const [c, sh] = v.split('.'); return `mdr-${kind}-${c}-${sh || 'soft'}`; };
+
+      // the page's text as one string, with where each text node starts (buttons, line numbers and tools left out)
+      function textMap() {
+        const w = document.createTreeWalker(doc, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.parentElement.closest('button, .tools, .ln, .tf-bar, .jd-chev, .codebar, .lgx') ? 2 : 1) });
+        const nodes = []; let all = '';
+        while (w.nextNode()) { nodes.push([w.currentNode, all.length]); all += w.currentNode.nodeValue; }
+        return { nodes, all };
+      }
+      const posOf = (m, node, off) => { const x = m.nodes.find((n) => n[0] === node); return x ? x[1] + off : -1; };
+      function rangeAt(m, start, len) {
+        const at = (p, end) => { for (let i = m.nodes.length - 1; i >= 0; i--) { const [n, s] = m.nodes[i]; if (s < p || (s === p && !end)) return [n, p - s]; } return null; };
+        const a = at(start, false), b = at(start + len, true); if (!a || !b) return null;
+        const r = document.createRange(); r.setStart(a[0], a[1]); r.setEnd(b[0], Math.min(b[1], b[0].length)); return r;
+      }
+      // draw the saved JSON / SQL marks (after every repaint)
+      function apply() {
+        root.classList.toggle('no-txtc', isOff());
+        if (!global.CSS || !CSS.highlights || !global.Highlight) return;
+        doc.querySelectorAll('span[data-c], span[data-hl]').forEach((sp) => { ensure(sp.dataset.c); ensure(sp.dataset.hl); });
+        for (const nm of used) CSS.highlights.delete(nm); used.clear();
+        const kind = docKind(); if (kind === 'md' || isOff()) return;
+        const list = marksOf(); if (!list.length) return;
+        const m = textMap(), sets = new Map();
+        for (const mk of list) {
+          let i = -1, from = 0; for (let k = 0; k <= mk.n; k++) { i = m.all.indexOf(mk.q, from); if (i < 0) break; from = i + 1; }
+          if (i < 0) continue;
+          const r = rangeAt(m, i, mk.q.length); if (!r) continue;
+          for (const [kk, v] of [['t', mk.c], ['h', mk.hl]]) if (v) { const nm = hlName(kk, v); if (!sets.has(nm)) sets.set(nm, []); sets.get(nm).push(r); }
+        }
+        for (const mk of list) { ensure(mk.c); ensure(mk.hl); }
+        for (const [nm, rs] of sets) { CSS.highlights.set(nm, new Highlight(...rs)); used.add(nm); }
+      }
+      function toggle() {
+        if (isOff()) localStorage.removeItem(OFF); else localStorage.setItem(OFF, 'off');
+        apply(); syncPicker(); flash(isOff() ? 'Text colours hidden -- ⌘⇧H or the colour menu shows them again' : 'Text colours shown', 2600);
+      }
+
+      // ---- colouring the selection ----
+      let saved = null; // the selection when the picker opened
+      const selRange = () => { const s = getSelection(); return s.rangeCount && !s.isCollapsed && doc.contains(s.anchorNode) && doc.contains(s.focusNode) ? s.getRangeAt(0).cloneRange() : null; };
+      function colourMd(r, kind, v) {
+        const b1 = W.blockOf(r.startContainer), b2 = W.blockOf(r.endContainer);
+        if (!b1 || b1 !== b2) return flash('Select words inside one paragraph, heading, list or cell', 3000);
+        const k = W.kindOf(b1); if (k === 'code') return flash('Code blocks keep their own colours', 2600);
+        const attr = kind === 't' ? 'c' : 'hl';
+        // the selection sits inside a span of this kind: split that span around it, and recolour (or uncolour) the middle
+        const anc = r.commonAncestorContainer, inSpan = (anc.nodeType === 1 ? anc : anc.parentElement).closest(`span[data-${attr}]`);
+        if (inSpan && b1.contains(inSpan)) {
+          const cut = (fromStart) => { const x = document.createRange(); if (fromStart) { x.setStart(inSpan, 0); x.setEnd(r.startContainer, r.startOffset); } else { x.setStart(r.endContainer, r.endOffset); x.setEnd(inSpan, inSpan.childNodes.length); } return x.extractContents(); };
+          const before = cut(true), after = cut(false);
+          const wrapLike = (f) => { if (!f.textContent) return null; const c = inSpan.cloneNode(false); c.append(f); return c; };
+          const pb = wrapLike(before), pa = wrapLike(after);
+          if (pb) inSpan.before(pb); if (pa) inSpan.after(pa);
+          let mid = inSpan; ensure(v);
+          if (v) inSpan.dataset[attr] = v; else { delete inSpan.dataset[attr]; if (!inSpan.dataset.c && !inSpan.dataset.hl) { const kids = [...inSpan.childNodes]; inSpan.replaceWith(...kids); mid = kids; } }
+          const s = getSelection(), nr = document.createRange();
+          if (Array.isArray(mid)) { if (mid.length) { nr.setStartBefore(mid[0]); nr.setEndAfter(mid[mid.length - 1]); } } else nr.selectNodeContents(mid);
+          s.removeAllRanges(); s.addRange(nr);
+          W.touch(b1); W.commitAll();
+          flash(v ? 'Colour changed' : 'Colour removed', 1600);
+          return;
+        }
+        // spans of this kind already inside the selection give way to the new choice
+        const frag = r.extractContents();
+        frag.querySelectorAll(`span[data-${attr}]`).forEach((sp) => { delete sp.dataset[attr]; if (!sp.dataset.c && !sp.dataset.hl) sp.replaceWith(...sp.childNodes); });
+        let node = frag; ensure(v);
+        if (v) { const sp = h('span'); sp.dataset[attr] = v; sp.append(frag); node = sp; }
+        const first = node.firstChild, last = node.lastChild;
+        r.insertNode(node);
+        const s = getSelection(); s.removeAllRanges(); const nr = document.createRange();
+        if (v) nr.selectNodeContents(r.startContainer.childNodes[r.startOffset] || first); else if (first && last) { nr.setStartBefore(first); nr.setEndAfter(last); }
+        s.addRange(nr);
+        W.touch(b1); W.commitAll();
+        flash(v ? (kind === 't' ? 'Text colour set -- saved in the file' : 'Highlight set -- saved in the file') : 'Colour removed', 1800);
+      }
+      function colourData(r, kind, v) {
+        if (!fileKey()) return flash('Save this file first -- colours for JSON and SQL are kept per file on this Mac', 3200);
+        const m = textMap(), start = posOf(m, r.startContainer, r.startOffset), q = r.toString();
+        if (start < 0 || !q.trim()) return flash('Select some text on the page first');
+        let n = 0, i = -1; while ((i = m.all.indexOf(q, i + 1)) >= 0 && i < start) n++;
+        const key = kind === 't' ? 'c' : 'hl';
+        let list = marksOf();
+        const same = list.find((x) => x.q === q && x.n === n);
+        if (same) { if (v) same[key] = v; else delete same[key]; if (!same.c && !same.hl) list = list.filter((x) => x !== same); }
+        else if (v) list.push({ q, n, [key]: v });
+        // a removal also clears any mark that overlaps the selection
+        if (!v) list = list.filter((x) => { let j = -1, from = 0; for (let k = 0; k <= x.n; k++) { j = m.all.indexOf(x.q, from); if (j < 0) break; from = j + 1; } return !(j >= 0 && j < start + q.length && j + x.q.length > start) || (x[key] === undefined && (x.c || x.hl)); });
+        saveMarks(list); apply();
+        getSelection().removeAllRanges();
+        if (v && !localStorage.getItem('mdr-marks-told')) { localStorage.setItem('mdr-marks-told', '1'); flash('Saved on this Mac for this file -- a JSON or SQL file cannot hold colours without breaking it', 4500); }
+        else flash(v ? 'Colour set' : 'Colour removed', 1500);
+      }
+      function pick(kind, v) {
+        const r = saved && saved.startContainer.isConnected ? saved : selRange();
+        if (!r || r.collapsed) return flash('Select the words to colour first', 2400);
+        if (isOff() && v) { localStorage.removeItem(OFF); apply(); }
+        if (docKind() === 'md') colourMd(r, kind, v); else colourData(r, kind, v);
+        saved = null; hidePicker();
+      }
+
+      // ---- the picker: Text / Highlight, a shade, 16 colours, ✕ removes; and the show / hide switch ----
+      const pop = h('div', { class: 'tcp', hidden: '', role: 'dialog', 'aria-label': 'Text colour' });
+      root.append(pop);
+      let kind = localStorage.getItem('mdr-tc-kind') || 't', shade = localStorage.getItem('mdr-tc-shade') || 'soft';
+      const nd = (e) => e.preventDefault();
+      const kindSeg = h('span', { class: 'tcp-seg' }, ...[['t', 'Text'], ['h', 'Highlight']].map(([k, l]) => h('button', { type: 'button', 'data-k': k, onmousedown: nd, onclick: () => { kind = k; localStorage.setItem('mdr-tc-kind', k); syncPicker(); } }, l)));
+      const shadeRow = h('span', { class: 'tcp-shades' }, ...SHADES.map(([k, l]) => h('button', { type: 'button', 'data-sh': k, title: l, 'aria-label': l + ' shade', onmousedown: nd, onclick: () => { shade = k; localStorage.setItem('mdr-tc-shade', k); syncPicker(); } })));
+      const sw = h('div', { class: 'tcp-sw' }, ...COL_COLOURS.map(([c, hex]) => h('button', { type: 'button', 'data-c': c, title: c[0].toUpperCase() + c.slice(1), style: `--cc:${hex}`, onmousedown: nd, onclick: () => pick(kind, joinColour(c, shade)) }, h('b', {}, 'A'))),
+        h('button', { type: 'button', class: 'none', title: 'Remove', onmousedown: nd, onclick: () => pick(kind, null) }, '✕'));
+      const showBox = h('input', { type: 'checkbox' });
+      const showRow = h('label', { class: 'tcp-show', title: 'Show or hide every text colour (⌘⇧H). Hiding never changes the file.', onmousedown: nd }, showBox, h('span', {}, 'Show text colours'));
+      showBox.onchange = () => toggle();
+      const where = h('div', { class: 'tcp-where' });
+      pop.append(h('div', { class: 'tcp-top' }, kindSeg, shadeRow), sw, h('div', { class: 'tcp-foot' }, showRow, where));
+      function syncPicker() {
+        kindSeg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.k === kind));
+        shadeRow.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.sh === shade));
+        pop.dataset.kind = kind; pop.dataset.sh = shade; showBox.checked = !isOff();
+        where.textContent = docKind() === 'md' ? 'Saved in the file' : 'Kept on this Mac';
+      }
+      function open(anchor) {
+        saved = selRange();
+        syncPicker(); pop.hidden = false;
+        const r = anchor.getBoundingClientRect(), w = pop.offsetWidth, ph = pop.offsetHeight;
+        pop.style.left = Math.max(8, Math.min(r.left, innerWidth - w - 8)) + 'px';
+        pop.style.top = Math.max(8, r.top - ph - 8) + 'px';
+        if (!saved) flash('Select the words to colour, then pick a colour', 2600);
+      }
+      function hidePicker() { pop.hidden = true; }
+      document.addEventListener('mousedown', (e) => { if (!pop.hidden && !pop.contains(e.target) && !e.target.closest('[data-act=tcolour], [data-act=tc]')) hidePicker(); }, true);
+      document.addEventListener('keydown', (e) => { if (!pop.hidden && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); hidePicker(); } }, true);
+      return { apply, toggle, open, hide: hidePicker, get isOpen() { return !pop.hidden; } };
+    })();
+
+    // ---------- Draw: pencil, marker, highlighter, arrow, eraser and a fading pointer, over any page ----------
+    // Strokes sit on a layer over the page, never in the file. Each one is pinned to the block it was drawn on (the
+    // paragraph, table, code block ...) -- across in that block's width, down in pixels from its top -- so a stroke stays
+    // with its text when the window is resized, the reading width changes or text is added above. Saved per file on this
+    // Mac; one switch shows or hides them. The pointer draws a glowing trail that fades a moment after you let go and
+    // is never saved.
+    const DR = (() => {
+      const KEY = 'mdr-ink', HIDE = 'mdr-ink-hidden', NS = 'http://www.w3.org/2000/svg';
+      const TOOLS = [
+        ['pointer', 'Pointer', 'Pointer: a glowing trail that fades after you let go (P)', '<path d="M5 3l11 6-5 1.5L9 16z" fill="currentColor"/>'],
+        ['pencil', 'Pencil', 'Pencil: a thin line (N)', '<path d="M4 16l1-4L13.5 3.5l3 3L8 15z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>'],
+        ['marker', 'Marker', 'Marker: a bold line (M)', '<path d="M5 15l2-6 6-6 3 3-6 6z" fill="currentColor"/><path d="M4 17h6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>'],
+        ['highlighter', 'Highlighter', 'Highlighter: a wide see-through stroke (H)', '<rect x="3" y="9" width="14" height="6" rx="1.5" fill="currentColor" opacity=".45"/><path d="M8 9l3-5 3 5" fill="currentColor"/>'],
+        ['arrow', 'Arrow', 'Arrow: drag from where it starts to what it points at (A)', '<path d="M4 16L15 5M15 5H8.5M15 5v6.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>'],
+        ['eraser', 'Eraser', 'Eraser: drag across a stroke to remove it (E)', '<path d="M3 13l7-8 7 6-5 6H6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M6.5 9l6 5" stroke="currentColor" stroke-width="1.6"/>'],
+      ];
+      const INK = [['red', '#e0413a'], ['orange', '#f08a24'], ['yellow', '#f2c94c'], ['green', '#2f9e61'], ['blue', '#2f6fe0'], ['violet', '#8a5cd6'], ['ink', 'currentColor']];
+      const WIDTH = { pencil: 2.2, marker: 5, highlighter: 18, arrow: 3, pointer: 5 };
+      const st = { on: false, tool: localStorage.getItem('mdr-ink-tool') || 'pencil', colour: localStorage.getItem('mdr-ink-colour') || 'red', size: +(localStorage.getItem('mdr-ink-size') || 1), live: null, undo: [], mem: {} };
+      const svg = document.createElementNS(NS, 'svg'); svg.setAttribute('class', 'ink'); svg.setAttribute('aria-hidden', 'true');
+      doc.append(svg);
+      // ---- storage ----
+      const fileKey = () => { const t = curTab(); return t ? (isUntitled(t) ? t.path : S.path) : null; };
+      const all = () => { try { return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch { return {}; } };
+      function strokes() { const k = fileKey(); if (!k) return []; const t = curTab(); if (t && isUntitled(t)) return st.mem[k] || (st.mem[k] = []); return all()[k] || []; }
+      function save(list) {
+        const k = fileKey(); if (!k) return; const t = curTab();
+        if (t && isUntitled(t)) { st.mem[k] = list; return; } // an unsaved tab keeps its drawing until the tab closes
+        const a = all(); if (list.length) a[k] = list; else delete a[k];
+        try { localStorage.setItem(KEY, JSON.stringify(a)); } catch { flash('Could not save the drawing -- too much stored on this Mac', 3000); }
+      }
+      const hidden = () => localStorage.getItem(HIDE) === '1';
+      // ---- where things are ----
+      const scale = () => { const r = doc.getBoundingClientRect(); return doc.offsetWidth ? r.width / doc.offsetWidth : 1; };
+      const local = (cx, cy) => { const r = doc.getBoundingClientRect(), k = scale(); return [(cx - r.left) / k, (cy - r.top) / k]; };
+      const boxOf = (el) => { const r = doc.getBoundingClientRect(), b = el.getBoundingClientRect(), k = scale(); return { x: (b.left - r.left) / k, y: (b.top - r.top) / k, w: Math.max(1, b.width / k) }; };
+      function anchorAt(cx, cy) {
+        svg.style.pointerEvents = 'none';
+        const els = document.elementsFromPoint(cx, cy);
+        svg.style.pointerEvents = '';
+        for (const e of els) { if (!doc.contains(e) || e === svg || svg.contains(e)) continue; const a = e.closest('[data-l0]'); if (a && doc.contains(a)) return a; }
+        // between blocks: the nearest block above the point
+        let best = null; for (const a of doc.querySelectorAll('[data-l0]')) { const b = a.getBoundingClientRect(); if (b.top <= cy && (!best || b.top > best.getBoundingClientRect().top)) best = a; }
+        return best;
+      }
+      const anchorKey = (a) => (a ? { l0: a.dataset.l0, tag: a.tagName } : null);
+      const findAnchor = (k) => (k ? [...doc.querySelectorAll(`[data-l0="${k.l0}"]`)].find((e) => e.tagName === k.tag) || doc.querySelector(`[data-l0="${k.l0}"]`) : null);
+      // ---- drawing ----
+      const colourOf = (c) => (INK.find((x) => x[0] === c) || INK[0])[1];
+      function pathD(pts, tool) {
+        if (tool === 'arrow') {
+          const [a, b] = [pts[0], pts[pts.length - 1]], ang = Math.atan2(b[1] - a[1], b[0] - a[0]), L = 12 + 3 * st.size;
+          const w1 = [b[0] - L * Math.cos(ang - 0.45), b[1] - L * Math.sin(ang - 0.45)], w2 = [b[0] - L * Math.cos(ang + 0.45), b[1] - L * Math.sin(ang + 0.45)];
+          return `M${a[0]} ${a[1]}L${b[0]} ${b[1]}M${w1[0]} ${w1[1]}L${b[0]} ${b[1]}L${w2[0]} ${w2[1]}`;
+        }
+        if (pts.length < 3) return `M${pts[0][0]} ${pts[0][1]}L${(pts[1] || pts[0])[0] + 0.01} ${(pts[1] || pts[0])[1]}`;
+        let d = `M${pts[0][0]} ${pts[0][1]}`; // smooth: curves through the midpoints
+        for (let i = 1; i < pts.length - 1; i++) { const m = [(pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2]; d += `Q${pts[i][0]} ${pts[i][1]} ${m[0]} ${m[1]}`; }
+        const l = pts[pts.length - 1]; return d + `L${l[0]} ${l[1]}`;
+      }
+      function pathEl(s, pts) {
+        const p = document.createElementNS(NS, 'path');
+        p.setAttribute('d', pathD(pts, s.t)); p.setAttribute('class', 'ink-' + s.t); p.setAttribute('stroke', colourOf(s.c));
+        p.setAttribute('stroke-width', String((WIDTH[s.t] || 3) * (s.z || 1))); p.dataset.id = s.id || '';
+        p.style.setProperty('--pc', colourOf(s.c));
+        return p;
+      }
+      // a saved stroke back in page coordinates
+      function place(s) {
+        const a = findAnchor(s.a), b = a ? boxOf(a) : { x: 0, y: 0, w: doc.offsetWidth || 1 };
+        return s.p.map(([u, v]) => [b.x + u * b.w, b.y + v]);
+      }
+      let lastKey = null;
+      function redraw() {
+        if (!svg.isConnected) doc.append(svg);
+        if (fileKey() !== lastKey) { lastKey = fileKey(); st.undo = []; }
+        svg.replaceChildren();
+        root.classList.toggle('ink-hidden', hidden()); // the layer is the page's own box (CSS); strokes may run past it
+        for (const s of strokes()) svg.append(pathEl(s, place(s)));
+        syncBar();
+      }
+      let resizeT = 0;
+      if (global.ResizeObserver) new ResizeObserver(() => { clearTimeout(resizeT); resizeT = setTimeout(() => { if (svg.childNodes.length || st.on) redraw(); }, 60); }).observe(doc);
+
+      // ---- the pen ----
+      function down(e) {
+        if (!st.on || e.button !== 0) return;
+        e.preventDefault(); e.stopPropagation();
+        svg.setPointerCapture && svg.setPointerCapture(e.pointerId);
+        const pt = local(e.clientX, e.clientY);
+        if (st.tool === 'eraser') { st.live = { erase: true, gone: new Set() }; eraseAt(e); return; }
+        if (hidden()) { localStorage.removeItem(HIDE); redraw(); }
+        const s = { t: st.tool, c: st.colour, z: st.size, id: Math.random().toString(36).slice(2, 9) };
+        const el = pathEl(s, [pt]);
+        svg.append(el);
+        st.live = { s, pts: [pt], el, cx: e.clientX, cy: e.clientY };
+      }
+      function move(e) {
+        const L = st.live; if (!L) return;
+        if (L.erase) return eraseAt(e);
+        const pt = local(e.clientX, e.clientY), last = L.pts[L.pts.length - 1];
+        if (Math.hypot(pt[0] - last[0], pt[1] - last[1]) < 1.5) return;
+        if (L.s.t === 'arrow') L.pts = [L.pts[0], pt]; else L.pts.push(pt);
+        L.el.setAttribute('d', pathD(L.pts, L.s.t));
+      }
+      function up() {
+        const L = st.live; st.live = null; if (!L) return;
+        if (L.erase) { if (L.gone.size) { const before = strokes(); st.undo.push({ list: before }); save(before.filter((x) => !L.gone.has(x.id))); redraw(); } return; }
+        if (L.s.t === 'pointer') { // fades away, never saved
+          L.el.classList.add('fade'); setTimeout(() => L.el.remove(), 1900); return;
+        }
+        if (L.s.t === 'arrow' && L.pts.length < 2) { L.el.remove(); return; }
+        // pin it to the block under where it started
+        const a = anchorAt(L.cx, L.cy), b = a ? boxOf(a) : { x: 0, y: 0, w: doc.offsetWidth || 1 };
+        L.s.a = anchorKey(a);
+        L.s.p = L.pts.map(([x, y]) => [+((x - b.x) / b.w).toFixed(5), +(y - b.y).toFixed(1)]);
+        const list = strokes(); st.undo.push({ list: list.slice() }); list.push(L.s); save(list);
+        if (st.undo.length > 60) st.undo.shift();
+        syncBar();
+      }
+      function eraseAt(e) {
+        svg.style.pointerEvents = 'stroke';
+        const hits = document.elementsFromPoint(e.clientX, e.clientY).filter((x) => x.parentNode === svg && x.dataset.id);
+        // a little reach, so a thin pencil line is easy to catch
+        for (const [dx, dy] of [[6, 0], [-6, 0], [0, 6], [0, -6]]) document.elementsFromPoint(e.clientX + dx, e.clientY + dy).forEach((x) => { if (x.parentNode === svg && x.dataset.id && !hits.includes(x)) hits.push(x); });
+        svg.style.pointerEvents = '';
+        hits.forEach((p) => { st.live.gone.add(p.dataset.id); p.classList.add('gone'); });
+      }
+      svg.addEventListener('pointerdown', down);
+      addEventListener('pointermove', move);
+      addEventListener('pointerup', up);
+      addEventListener('pointercancel', up);
+      function undo() {
+        const u = st.undo.pop(); if (!u) return flash('Nothing to undo');
+        save(u.list); redraw(); flash('Undone');
+      }
+      function clearAll() {
+        const list = strokes(); if (!list.length) return flash('Nothing drawn on this page');
+        st.undo.push({ list: list.slice() }); save([]); redraw(); flash('Drawing cleared -- Undo brings it back', 2600);
+      }
+      function toggleShow() { if (hidden()) localStorage.removeItem(HIDE); else localStorage.setItem(HIDE, '1'); redraw(); flash(hidden() ? 'Drawings hidden -- nothing was deleted' : 'Drawings shown', 2000); }
+
+      // ---- the palette ----
+      const bar = h('div', { class: 'inkbar', role: 'toolbar', 'aria-label': 'Draw', hidden: '' });
+      const nd = (e) => e.preventDefault();
+      const tb = TOOLS.map(([id, label, tip, icon]) => h('button', { type: 'button', class: 'ink-t', 'data-t': id, title: tip, 'aria-label': label, onmousedown: nd, onclick: () => setTool(id), html: `<svg viewBox="0 0 20 20" width="18" height="18">${icon}</svg>` }));
+      const sw = INK.map(([c, hex]) => h('button', { type: 'button', class: 'ink-c', 'data-c': c, title: c === 'ink' ? 'Text colour' : c[0].toUpperCase() + c.slice(1), style: `--ic:${hex}`, onmousedown: nd, onclick: () => { st.colour = c; localStorage.setItem('mdr-ink-colour', c); if (st.tool === 'eraser') setTool('pencil'); syncBar(); } }));
+      const sizes = [[0.6, 'Fine'], [1, 'Medium'], [1.8, 'Thick']].map(([z, l]) => h('button', { type: 'button', class: 'ink-z', 'data-z': z, title: l, onmousedown: nd, onclick: () => { st.size = z; localStorage.setItem('mdr-ink-size', z); syncBar(); } }, h('i', { style: `--d:${Math.round(4 + z * 5)}px` })));
+      const undoB = h('button', { type: 'button', class: 'ink-a', title: 'Undo the last stroke (⌘Z)', onmousedown: nd, onclick: undo }, 'Undo');
+      const clearB = h('button', { type: 'button', class: 'ink-a', title: 'Remove everything drawn on this page', onmousedown: nd, onclick: clearAll }, 'Clear');
+      const showB = h('button', { type: 'button', class: 'ink-a', onmousedown: nd, onclick: toggleShow });
+      const doneB = h('button', { type: 'button', class: 'ink-done', title: 'Stop drawing (Esc) -- the drawing stays', onmousedown: nd, onclick: () => setOn(false) }, 'Done');
+      const sep = () => h('span', { class: 'ink-sep' });
+      bar.append(...tb, sep(), ...sw, sep(), ...sizes, sep(), undoB, clearB, showB, doneB);
+      root.append(bar);
+      function syncBar() {
+        tb.forEach((b) => b.classList.toggle('on', b.dataset.t === st.tool));
+        sw.forEach((b) => b.classList.toggle('on', b.dataset.c === st.colour));
+        sizes.forEach((b) => b.classList.toggle('on', +b.dataset.z === st.size));
+        const n = strokes().length;
+        undoB.disabled = !st.undo.length; clearB.disabled = !n;
+        showB.textContent = hidden() ? 'Show' : 'Hide'; showB.title = hidden() ? 'Show the drawing again' : 'Hide the drawing (it is kept)'; showB.disabled = !n && !hidden();
+        root.dataset.inkTool = st.tool;
+        drawBtn.classList.toggle('on', st.on); drawBtn.classList.toggle('has', n > 0);
+        drawBtn.title = st.on ? 'Stop drawing (⌘⇧E)' : n ? `Draw (⌘⇧E) -- ${n} stroke${n === 1 ? '' : 's'} on this page` : 'Draw on the page: pencil, marker, highlighter, pointer (⌘⇧E)';
+      }
+      function setTool(t) { st.tool = t; if (t !== 'pointer' && t !== 'eraser') localStorage.setItem('mdr-ink-tool', t); if (!st.on) setOn(true); syncBar(); }
+      function setOn(on) {
+        st.on = on; bar.hidden = !on; root.classList.toggle('inking', on);
+        if (on) { W.commitAll(); WD.commitAll(); if (S.mode === 'edit') setMode('read'); if (document.activeElement && doc.contains(document.activeElement)) document.activeElement.blur(); redraw(); }
+        syncBar();
+      }
+      document.addEventListener('keydown', (e) => {
+        if (!st.on) return;
+        if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable) return;
+        const mod = e.metaKey || e.ctrlKey;
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); return setOn(false); }
+        if (mod && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); e.stopPropagation(); return undo(); }
+        if (mod || e.altKey) return;
+        const k = { p: 'pointer', n: 'pencil', m: 'marker', h: 'highlighter', a: 'arrow', e: 'eraser' }[e.key.toLowerCase()];
+        if (k) { e.preventDefault(); setTool(k); }
+      }, true);
+      const drawBtn = h('button', { class: 'icon drawb', onclick: () => setOn(!st.on), html: '<svg viewBox="0 0 20 20" width="16" height="16"><path d="M4 16l1-4L13.5 3.5l3 3L8 15z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>' });
+      top.insertBefore(drawBtn, themeSel);
+      return { redraw, toggle: () => setOn(!st.on), toggleShow, drawBtn, get on() { return st.on; }, close: () => st.on && setOn(false) };
+    })();
+
     function wireTables() {
       S.filters = S.filters || {};
       [...doc.querySelectorAll('.table-wrap > table')].forEach((table, ti) => {
@@ -2596,7 +2952,7 @@
     }
     async function showTab(i, fresh) {
       if (i < 0 || i >= S.tabs.length) return;
-      if (i !== S.tab) { stashActive(); CMP.close(); }
+      if (i !== S.tab) { stashActive(); CMP.close(); DR.close(); }
       S.tab = i; const t = S.tabs[i];
       S.path = t.path; S.saved = t.saved; S.filters = t.filters || {}; setText(t.text); setDirty(t.text !== t.saved);
       const d = dispOf(t);
@@ -2791,6 +3147,8 @@
       else if (k === 'y' && e.shiftKey) { e.preventDefault(); cycleTheme(); }
       else if (k === 'f' && e.shiftKey) { e.preventDefault(); formatDoc(e.altKey); }
       else if (k === 'd' && e.shiftKey) { e.preventDefault(); CMP.toggle(); }
+      else if (k === 'h' && e.shiftKey) { e.preventDefault(); TC.toggle(); }
+      else if (k === 'e' && e.shiftKey) { e.preventDefault(); DR.toggle(); }
       else if (k === 't' && e.shiftKey) { e.preventDefault(); reopenClosed(); } // standard "reopen closed tab"
       else if (k === 'arrowup' && e.altKey) { e.preventDefault(); treeUp(); }
       else if (k === 'w' && e.shiftKey) { e.preventDefault(); cycleWidth(); }
@@ -2975,7 +3333,7 @@
     doc.addEventListener('pointerdown', () => { if (F.pane !== 'doc') { F.pane = 'doc'; if (F.open) runFind(); } });
     addEventListener('resize', () => F.open && placeFind());
 
-    return { compare: () => CMP.toggle(), loadFile, newTab, closeTab, nextTab, showTab, setWidth, stepZoom, resetZoom, cycleWidth, reopenClosed, toggleRecent, treeUp,
+    return { draw: () => DR.toggle(), toggleTextColours: () => TC.toggle(), compare: () => CMP.toggle(), loadFile, newTab, closeTab, nextTab, showTab, setWidth, stepZoom, resetZoom, cycleWidth, reopenClosed, toggleRecent, treeUp,
       find: openFind, findNext: () => stepFind(1), findPrev: () => stepFind(-1),
       saveAll: async () => { stashActive(); for (const t of S.tabs) if (t.text !== t.saved) await writeTab(t); if (S.tabs[S.tab]) { S.saved = S.tabs[S.tab].saved; S.path = S.tabs[S.tab].path; setDirty(false); } notifyTabs(); },
       setText: (t, path) => { S.path = path || S.path; S.saved = t; setText(t); setDirty(false); const tb = S.tabs[S.tab]; if (tb) { tb.text = tb.saved = t; } paint(); }, setTheme, setMode, save, get state() { return S; } };

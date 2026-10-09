@@ -49,6 +49,10 @@
       if (text === escText(href) && /^https?:\/\//.test(href)) return href; // bare URL (GFM autolink)
       return `[${text}](${/[\s()]/.test(href) ? '<' + href + '>' : href})`;
     }
+    if (t === 'SPAN' && (c.dataset.c || c.dataset.hl)) { // a text colour / highlight picked in Write: kept as a span the file carries
+      const at = (c.dataset.c ? ` data-c="${c.dataset.c.replace(/[^a-z.]/g, '')}"` : '') + (c.dataset.hl ? ` data-hl="${c.dataset.hl.replace(/[^a-z.]/g, '')}"` : '');
+      const body = inl(c); return body ? `<span${at}>${body}</span>` : '';
+    }
     if (/^(SUP|SUB|KBD|MARK|U|SMALL|ABBR)$/.test(t)) return `<${t.toLowerCase()}>${inl(c)}</${t.toLowerCase()}>`;
     if (t === 'DIV' || t === 'P') return '\n\n' + inl(c); // Enter inside a block (browser-made line)
     return inl(c); // span / font the browser added while editing, the numbered-heading spans, ...

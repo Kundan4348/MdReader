@@ -70,6 +70,8 @@ api.onCmd(async (cmd) => {
   else if (cmd === 'reopen-closed') shell.reopenClosed();
   else if (cmd === 'find') shell.find();
   else if (cmd === 'compare') shell.compare();
+  else if (cmd === 'textcolours') shell.toggleTextColours();
+  else if (cmd === 'draw') shell.draw();
   else if (cmd === 'find:next') shell.findNext();
   else if (cmd === 'find:prev') shell.findPrev();
   else if (cmd === 'show-recent') { showEmpty(false); shell.toggleRecent(true); }

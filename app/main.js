@@ -202,6 +202,8 @@ function buildMenu() {
       { label: 'Find Previous', accelerator: 'CmdOrCtrl+Shift+G', click: () => send('find:prev') },
       { type: 'separator' },
       { label: 'Compare JSON…', accelerator: 'CmdOrCtrl+Shift+D', click: () => send('compare') },
+      { label: 'Show / Hide Text Colours', accelerator: 'CmdOrCtrl+Shift+H', click: () => send('textcolours') },
+      { label: 'Draw on the Page', accelerator: 'CmdOrCtrl+Shift+E', click: () => send('draw') },
       ...(isMac ? [{ type: 'separator' }, { role: 'startSpeaking' }, { role: 'stopSpeaking' }] : []),
     ] },
     { label: 'View', submenu: [
