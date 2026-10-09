@@ -42,6 +42,25 @@
   ];
   const statusOf = (t) => { const s = t.replace(/\s+/g, ' ').trim(); if (!s || s.length > 24) return null; for (const [k, re] of STATUS) if (re.test(s)) return k; return null; };
 
+  // Does a numeric column hold amounts a bar can compare? No for identifiers (header says id/tag/serial/code/..., or
+  // every value is a same-length digit string of 5+ digits), years, 1..n row numbers, and columns whose values barely
+  // differ (all bars would be full).
+  const ID_HEAD = /(^\s*#\s*$|^\s*(no|nr|s\.?\s*no|sl\.?\s*no|idx|index|rank)\.?\s*$|\b(ids?|tags?|serials?|sn|codes?|keys?|years?|dates?|times?|phones?|zip|pin|postcode|versions?|ver|rev|port|account|acct|ticket|po|wo|asin|sku|part|ipn|hash|sha)\b)/i;
+  function barWorthy(header, texts, vals) {
+    const good = vals.filter((v) => v !== null);
+    if (good.length < 3 || good.some((v) => v < 0)) return false;
+    if (ID_HEAD.test(header)) return false;
+    const plain = texts.filter((t) => /^\d+$/.test(t));
+    if (plain.length === texts.filter(Boolean).length && plain.length >= 3) {
+      if (plain.every((t) => t.length >= 5) && new Set(plain.map((t) => t.length)).size === 1) return false; // tags / serials
+      if (plain.every((t) => t.length === 4 && +t >= 1900 && +t <= 2100)) return false; // years
+      const n = plain.map(Number), sorted = [...n].sort((a, b) => a - b);
+      if (sorted.every((v, i) => v === sorted[0] + i) && sorted[0] <= 1) return false; // 1, 2, 3 ... row numbers
+    }
+    const max = Math.max(...good), min = Math.min(...good);
+    return max > 0 && (max - min) / max >= 0.1;
+  }
+
   // Post-process rendered tables in a detached DOM.
   function decorateTables(root) {
     root.querySelectorAll('table').forEach((table) => {
@@ -74,15 +93,17 @@
         const st = statusOf(td.textContent); if (!st) return;
         const chip = document.createElement('span'); chip.className = 'stc'; chip.append(...td.childNodes); td.append(chip); td.dataset.st = st;
       }));
-      // a light bar behind each number in a numeric column, as long as the value is against the column's largest
+      // Number bars are opt-in per column (the shell turns them on from the file's colour comment). Here we only work out
+      // each value's length against the column's largest, and only for columns that hold amounts -- not IDs, tags,
+      // serials, years or row numbers, where a bar means nothing (every 10-digit tag is "the largest").
       for (let c = 0; c < cols; c++) {
         if (!head[c].classList.contains('num')) continue;
         const cells = rows.map((r) => r.children[c]).filter((td) => td && !td.closest('tr.total'));
         const vals = cells.map((td) => { const m = /-?\d[\d,]*(\.\d+)?/.exec(td.textContent.replace(/[−–]/g, '-')); return m ? parseFloat(m[0].replace(/,/g, '')) : null; });
-        const good = vals.filter((v) => v !== null);
-        if (good.length < 3 || good.some((v) => v < 0)) continue;
-        const max = Math.max(...good); if (!(max > 0)) continue;
-        cells.forEach((td, i) => { if (vals[i] !== null) { td.classList.add('bar'); td.style.setProperty('--bar', (vals[i] / max).toFixed(3)); } });
+        if (!barWorthy(head[c].textContent, cells.map((td) => td.textContent.trim()), vals)) continue;
+        const max = Math.max(...vals.filter((v) => v !== null));
+        head[c].classList.add('barv');
+        cells.forEach((td, i) => { if (vals[i] !== null) { td.classList.add('barv'); td.style.setProperty('--bar', (vals[i] / max).toFixed(3)); } });
       }
       // wrap for horizontal scroll
       if (!table.parentElement.classList.contains('table-wrap')) {

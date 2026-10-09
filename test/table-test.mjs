@@ -45,14 +45,17 @@ const key = (k, code, vk, mods = 0) => send('Input.dispatchKeyEvent', { type: 'k
 const enter = () => key('Enter', 'Enter', 13);
 const blur = () => ev(`document.activeElement && document.activeElement.blur()`);
 
+// which columns may have number bars: amounts yes; IDs, tags, serials, years, row numbers and flat columns no
+report.barsMounted = await mount(base + '/test/fixtures/bars.md'); await sleep(600);
+report.barRule = await ev(`[...document.querySelectorAll('#app .doc thead th')].filter(th=>th.classList.contains('barv')).map(th=>th.textContent.trim())`);
 report.mounted = await mount(base + '/test/fixtures/table.md'); await sleep(800); // the shell's init (prefs) finishes after first paint
 // J. colour: status chips + numeric bars on a fresh Read of the full fixture (before any Write edits)
 report.colour = await ev(`(()=>{const a=document.querySelector('#app');
   const chips=[...a.querySelectorAll('.doc td .stc')].length;
   const states=[...new Set([...a.querySelectorAll('.doc td[data-st]')].map(td=>td.dataset.st))].sort();
-  const bars=[...a.querySelectorAll('.doc td.bar')].length;
-  const maxBar=[...a.querySelectorAll('.doc td.bar')].map(td=>+td.style.getPropertyValue('--bar')).sort((x,y)=>y-x)[0];
-  return {chips, states, bars, maxBar}})()`);
+  const bars=[...a.querySelectorAll('.doc td.bar')].length, barv=[...a.querySelectorAll('.doc tbody td.barv')].length;
+  const maxBar=[...a.querySelectorAll('.doc td.barv')].map(td=>+td.style.getPropertyValue('--bar')).sort((x,y)=>y-x)[0];
+  return {chips, states, bars, barv, maxBar, barvCols:[...a.querySelectorAll('.doc th.barv')].map(th=>th.textContent.trim())}})()`);
 await ev(`document.querySelector('#app .top [data-mode=write]').click()`); await sleep(400);
 const T = async () => { const l = (await SRC()).split('\n'); const i = l.findIndex((x) => x.startsWith('| Name')); return i < 0 ? [] : l.slice(i, l.findIndex((x, j) => j > i && !x.startsWith('|')) >>> 0 || undefined); };
 const tdWith = (t) => `[...document.querySelectorAll('#app .table-wrap td')].find(x=>x.textContent.trim()===${JSON.stringify(t)})`;
@@ -141,6 +144,21 @@ await rclick('95'); await scopeTab('cell'); await swatch('#app .wmenu', 'amber')
 S1.three = { comment: await COMMENT(), deployState: await ccOf('failed'), deployTask: await ccOf('Deploy'), cell: await ccOf('95'), buildTask: await ccOf('Build'), passed: await ccOf('passed') };
 await key('z', 'KeyZ', 90, 4); await sleep(400);
 S1.undoCell = await COMMENT();
+// text colour, dark shade, on one cell; then a dark fill (white text); both undone so later steps see the same file
+const segClick = (cls, k) => ev(`document.querySelector('#app .wmenu .${cls} [data-${cls === 'wshade' ? 'sh' : 'k'}=${k}]').click()`);
+await rclick('passed'); await scopeTab('cell'); await segClick('wkind', 'true'); await segClick('wshade', 'dark');
+S1.textMode = await ev(`document.querySelector('#app .wmenu .wcolours').dataset.ink+'/'+document.querySelector('#app .wmenu .wcolours').dataset.sh`);
+await swatch('#app .wmenu', 'red'); await sleep(400);
+S1.textCol = { comment: await COMMENT(), ...(await ev(`(()=>{const td=${tdWith('passed')}; const cs=getComputedStyle(td); return {tc:td.dataset.tc||null, tsh:td.dataset.tsh||null, cc:td.dataset.cc||null, fw:cs.fontWeight, color:cs.color}})()`)) };
+await key('z', 'KeyZ', 90, 4); await sleep(400);
+S1.textUndo = await COMMENT();
+await rclick('12'); await scopeTab('cell'); await segClick('wkind', 'false');
+await swatch('#app .wmenu', 'indigo'); await sleep(400);
+S1.darkFill = { comment: await COMMENT(), ...(await ev(`(()=>{const td=${tdWith('12')}; const cs=getComputedStyle(td); return {cc:td.dataset.cc||null, sh:td.dataset.sh||null, color:cs.color, bg:cs.backgroundColor}})()`)) };
+await shotF('table-dark-fill.png');
+await key('z', 'KeyZ', 90, 4); await sleep(400);
+S1.darkUndo = await COMMENT();
+await rclick('12'); await segClick('wshade', 'soft'); await key('Escape', 'Escape', 27); await sleep(150);
 // a whole row: click (no drag) the grip of the "Review" row
 const rv = await rect(tdWith('Review'));
 await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: rv[0] + 10, y: rv[1] + rv[3] / 2 }); await sleep(150);
@@ -160,6 +178,12 @@ S1.wholeCol = await ev(`({ring:document.querySelectorAll('#app .doc .wsel').leng
 await key('Delete', 'Delete', 46); await sleep(400);
 S1.colGone = (await SRC()).split('\n').find((l) => l.startsWith('| Task')) || null;
 S1.pillGone = await ev(`document.querySelector('#app .wpill').hidden`);
+// number bars are off until asked for: turn them on for the Count column from the menu
+S1.barsBefore = await ev(`document.querySelectorAll('#app .doc td.bar').length`);
+await rclick('7');
+S1.barItem = await ev(`(()=>{const b=[...document.querySelectorAll('#app .wmenu button')].find(x=>/number bars/.test(x.textContent)); const t=b.textContent+(b.disabled?' (disabled)':''); b.click(); return t})()`); await sleep(400);
+S1.barsOn = { comment: await COMMENT(), n: await ev(`document.querySelectorAll('#app .doc td.bar').length`), col: await ev(`[...document.querySelectorAll('#app .doc td.bar')].every(td=>/^\\d+$/.test(td.textContent.trim()))`) };
+await shotF('table-bars.png');
 // the off switch hides every colour, on this Mac only (the file keeps its comment)
 const srcK = await SRC();
 await ev(`document.querySelector('#app .table-wrap .tcol-btn').click()`); await sleep(300);
@@ -238,6 +262,11 @@ report.checks = {
   offSwitch: S1.off.cls && S1.off.chipBg === 'rgba(0, 0, 0, 0)' && S1.off.bar === 'none' && S1.off.ccBg === 'rgba(0, 0, 0, 0)' && /off/.test(S1.off.btn) && S1.off.pref === 'off'
     && !S1.onAgain.cls && S1.onAgain.pref === null && S1.onAgain.bar !== 'none' && S1.srcSameOff,
   barOneLine: S1.barH < 50,
+  textColour: S1.textMode === 'text/dark' && S1.textCol.comment === '<!-- mdr-colours {"cols":{"State":"teal"},"rows":{"Deploy":"rose"},"text":{"cells":{"Build|State":"red.dark"}}} -->'
+    && S1.textCol.tc === 'red' && S1.textCol.tsh === 'dark' && S1.textCol.cc === 'teal' && +S1.textCol.fw >= 600 && S1.textUndo === S1.undoCell,
+  darkFill: S1.darkFill.comment === '<!-- mdr-colours {"cols":{"State":"teal"},"rows":{"Deploy":"rose"},"cells":{"Deploy|Score":"indigo.dark"}} -->'
+    && S1.darkFill.cc === 'indigo' && S1.darkFill.sh === 'dark' && S1.darkFill.color === 'rgb(255, 255, 255)' && S1.darkUndo === S1.undoCell,
+  barsOptIn: S1.barsBefore === 0 && S1.barItem === 'Show number bars' && S1.barsOn.comment === '<!-- mdr-colours {"bars":["Count"]} -->' && S1.barsOn.n === 3 && S1.barsOn.col,
   undo: J(S1.undone) === E.afterDel2, redo: J(S1.redone) === E.afterMulti, colCaret: JSON.stringify(S1.colCaret) === '[1,2]',
   tab: JSON.stringify(S1.tabFirst) === '[3,2]' && JSON.stringify(S1.tabCaret) === '[4,0]',
   joined: S1.joined === 'Second section para.Third para here.' && S1.joinCaret === 'para.|Third',
@@ -245,6 +274,6 @@ report.checks = {
   newTable: /^column 1$/i.test(S1.newSel) && S1.final.replace(/\n+$/, '') === FINAL,
 };
 
-report.tableOk = report.mounted && !report.bad.length && Object.values(report.checks).every(Boolean) && report.colour.chips>=4 && JSON.stringify(report.colour.states)==='["bad","muted","ok","warn"]' && report.colour.bars>=3 && report.colour.maxBar===1 && !logs.length;
+report.tableOk = report.mounted && !report.bad.length && Object.values(report.checks).every(Boolean) && report.colour.chips>=4 && JSON.stringify(report.colour.states)==='["bad","muted","ok","warn"]' && report.colour.bars===0 && report.colour.barv===10 && report.colour.barvCols.join()==='Count,Score' && report.colour.maxBar===1 && JSON.stringify(report.barRule)==='["Qty","Cost"]' && !logs.length;
 console.log(JSON.stringify(report, null, 2));
 killChrome(); process.exit(report.tableOk ? 0 : 1);

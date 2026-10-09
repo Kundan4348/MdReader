@@ -537,23 +537,50 @@ html[data-dg-dark] .doc td .stc,html[data-theme=studio] .doc td .stc{background:
 .doc td[data-st=bad]{--chip:var(--danger,#d1493f)}
 .doc td[data-st=warn]{--chip:var(--warn,#c58a1a)}
 .doc td[data-st=muted]{--chip:var(--ink-3,var(--text-3,#9a9a9a))}
+/* Number bars: off unless turned on for a column (Show number bars); md.js only offers them for columns of amounts */
 .doc td.bar{position:relative;z-index:0}
-.doc td.bar::before{content:'';position:absolute;z-index:-1;top:4px;bottom:4px;right:0;width:calc(var(--bar,0)*100%);
-  background:color-mix(in srgb,var(--accent,#3b82f6) 15%,transparent);border-radius:3px}
-html[data-theme=studio] .doc td.bar::before,html[data-dg-dark] .doc td.bar::before{background:color-mix(in srgb,var(--accent,#7cc4ff) 22%,transparent)}
-/* Table colours: per-column colour (picked in Write's table menu), and the off switch */
-.app:not(.no-tcolour) .doc th[data-cc]{background-color:color-mix(in srgb,var(--cc) 16%,var(--panel,var(--paper-2,transparent)))!important;box-shadow:inset 0 3px 0 var(--cc);color:color-mix(in srgb,var(--cc) 55%,var(--ink,var(--text,#222)))!important}
-.app:not(.no-tcolour) .doc td[data-cc]{background-color:color-mix(in srgb,var(--cc) 7%,transparent)!important}
-html[data-theme=studio] .app:not(.no-tcolour) .doc td[data-cc]{background-color:color-mix(in srgb,var(--cc) 13%,transparent)!important}
+.doc td.bar::before{content:'';position:absolute;z-index:-1;left:0;bottom:3px;height:3px;width:calc(var(--bar,0)*100%);
+  background:color-mix(in srgb,var(--accent,#3b82f6) 55%,transparent);border-radius:2px}
+.doc td.bar.align-right::before,.doc td.bar.num::before{left:auto;right:0}
+.doc td.bar[data-cc]::before{background:color-mix(in srgb,var(--cc) 70%,transparent)}
+.doc td.bar[data-sh=dark]::before{background:rgba(255,255,255,.55)}
+/* Table colours: fill and text colours (column, row or cell), four shades each, and the off switch */
+.app:not(.no-tcolour) .doc th[data-cc]{box-shadow:inset 0 3px 0 var(--cc);
+  background-color:color-mix(in srgb,var(--cc) var(--thf,16%),var(--panel,var(--paper-2,transparent)))!important;color:color-mix(in srgb,var(--cc) 55%,var(--ink,var(--text,#222)))!important}
+.app:not(.no-tcolour) .doc td[data-cc]{background-color:color-mix(in srgb,var(--cc) var(--tdf,8%),transparent)!important}
+.doc [data-sh=light]{--thf:9%;--tdf:4%}
+.doc [data-sh=soft]{--thf:16%;--tdf:8%}
+.doc [data-sh=strong]{--thf:30%;--tdf:20%}
+html[data-theme=studio] .doc [data-sh=light]{--thf:12%;--tdf:7%}
+html[data-theme=studio] .doc [data-sh=soft]{--thf:20%;--tdf:13%}
+html[data-theme=studio] .doc [data-sh=strong]{--thf:34%;--tdf:26%}
 html[data-theme=studio] .app:not(.no-tcolour) .doc th[data-cc]{color:color-mix(in srgb,var(--cc) 55%,#fff)!important}
-.doc td.bar[data-cc]::before{background:color-mix(in srgb,var(--cc) 24%,transparent)}
+.app:not(.no-tcolour) .doc :is(td,th)[data-sh=dark]{background-color:color-mix(in srgb,var(--cc) 84%,#000)!important;color:#fff!important;box-shadow:none}
+html[data-theme=studio] .app:not(.no-tcolour) .doc :is(td,th)[data-sh=dark]{background-color:color-mix(in srgb,var(--cc) 66%,#000)!important}
+.app:not(.no-tcolour) .doc :is(td,th)[data-sh=dark] a{color:inherit;text-decoration-color:rgba(255,255,255,.6)}
+/* text colour: mixed with the theme's ink, so the light shade stays readable; dark is the full colour, a touch bolder */
+.app:not(.no-tcolour) .doc :is(td,th)[data-tc]{color:color-mix(in srgb,var(--tc) var(--tcm,78%),var(--ink,var(--text,#222)))!important}
+.doc [data-tsh=light]{--tcm:52%}
+.doc [data-tsh=soft]{--tcm:78%}
+.doc [data-tsh=strong]{--tcm:100%}
+.app:not(.no-tcolour) .doc :is(td,th)[data-tsh=dark]{color:color-mix(in srgb,var(--tc) 78%,#000)!important;font-weight:600}
+html[data-theme=studio] .app:not(.no-tcolour) .doc :is(td,th)[data-tc]{color:color-mix(in srgb,var(--tc) var(--tcm,78%),#fff)!important}
+html[data-theme=studio] .doc [data-tsh=light]{--tcm:45%}
+html[data-theme=studio] .doc [data-tsh=strong]{--tcm:92%}
+html[data-theme=studio] .app:not(.no-tcolour) .doc :is(td,th)[data-tsh=dark]{color:var(--tc)!important}
+.app:not(.no-tcolour) .doc :is(td,th)[data-sh=dark][data-tc]{color:color-mix(in srgb,var(--tc) 35%,#fff)!important}
 .app.no-tcolour .doc td .stc{background:none!important;color:inherit!important;padding:0;font-weight:inherit;font-size:inherit}
 .app.no-tcolour .doc td.bar::before{display:none}
 .table-wrap{position:relative}
-.table-wrap>.tcol-btn{position:absolute;top:6px;right:8px;z-index:3;opacity:0;pointer-events:none;transition:opacity .12s;border:1px solid var(--line-2,var(--line,rgba(0,0,0,.14)));border-radius:999px;
-  background:var(--panel,var(--card,var(--paper,#fff)));color:var(--ink-3,var(--text-3,#777));font:11.5px/1 var(--sans,system-ui,sans-serif);padding:4px 9px;cursor:pointer}
-.table-wrap:hover>.tcol-btn,.table-wrap>.tcol-btn:focus-visible{opacity:1;pointer-events:auto}
-.table-wrap>.tcol-btn:hover{color:var(--accent,#3b82f6)}
+/* the off switch: a 20px round button in the corner; it names itself only while the pointer is on it */
+.table-wrap>.tcol-btn{position:absolute;top:5px;right:5px;z-index:3;opacity:0;pointer-events:none;transition:opacity .12s;border:1px solid var(--line-2,var(--line,rgba(0,0,0,.14)));border-radius:999px;
+  background:var(--panel,var(--card,var(--paper,#fff)));color:var(--ink-3,var(--text-3,#777));font:11px/1 var(--sans,system-ui,sans-serif);height:20px;min-width:20px;padding:0 4px;cursor:pointer;
+  display:inline-flex;align-items:center;gap:4px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.table-wrap>.tcol-btn i{font-style:normal;font-size:11px}
+.table-wrap>.tcol-btn span{display:none}
+.table-wrap>.tcol-btn:hover{padding:0 8px 0 5px;color:var(--accent,#3b82f6)}
+.table-wrap>.tcol-btn:hover span{display:inline}
+.table-wrap:hover>.tcol-btn,.table-wrap>.tcol-btn:focus-visible{opacity:.85;pointer-events:auto}
 
 /* bottom bar: one line, compact */
 .app.writing .wbar{flex-wrap:nowrap;max-width:calc(100vw - 40px);overflow-x:auto;scrollbar-width:none}
@@ -564,15 +591,28 @@ html[data-theme=studio] .app:not(.no-tcolour) .doc th[data-cc]{color:color-mix(i
 
 /* colour picker (menu + pill): scope tabs, then 16 swatches in two rows */
 .wcolours{padding:6px 9px 8px}
-.wcolours .wch{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.wcolours .wch{display:flex;align-items:center;gap:8px;margin-bottom:6px}
 .wcolours .wch>span{flex:1;font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;opacity:.5}
-.wcolours .wscope{display:inline-flex;padding:2px;border-radius:7px;background:color-mix(in srgb,currentColor 7%,transparent)}
-.wmenu .wcolours .wscope button,.wpill .wcolours .wscope button{width:auto;padding:3px 8px;border-radius:5px;font-size:11.5px;opacity:.7}
-.wcolours .wscope button.on{opacity:1;background:var(--panel,var(--card,var(--paper,#fff)));box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.wcolours .wch2{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.wcolours .wseg{display:inline-flex;padding:2px;border-radius:7px;background:color-mix(in srgb,currentColor 7%,transparent)}
+.wmenu .wcolours .wseg button,.wpill .wcolours .wseg button{width:auto;padding:3px 8px;border-radius:5px;font-size:11.5px;opacity:.7}
+.wcolours .wseg button.on{opacity:1;background:var(--panel,var(--card,var(--paper,#fff)));box-shadow:0 1px 2px rgba(0,0,0,.12)}
+/* shade: four squares from pale to deep, in the accent colour */
+.wcolours .wshade{display:inline-flex;gap:4px;align-items:center}
+.wmenu .wcolours .wshade button.sh,.wpill .wcolours .wshade button.sh{width:16px!important;height:16px;padding:0!important;border-radius:4px;cursor:pointer;opacity:1;
+  border:1px solid color-mix(in srgb,currentColor 22%,transparent);background:color-mix(in srgb,var(--accent,#5d63c9) var(--m),var(--panel,#fff))!important}
+.wcolours .wshade .sh[data-sh=light]{--m:12%} .wcolours .wshade .sh[data-sh=soft]{--m:32%} .wcolours .wshade .sh[data-sh=strong]{--m:60%} .wcolours .wshade .sh[data-sh=dark]{--m:100%}
+.wcolours .wshade .sh.on{outline:2px solid var(--accent,#5d63c9);outline-offset:1px}
 .wcolours .wsw{display:grid;grid-template-columns:repeat(9,18px);gap:6px}
-.wcolours button.sw{width:18px!important;height:18px;padding:0!important;border-radius:50%;background:var(--cc)!important;border:2px solid color-mix(in srgb,var(--cc) 55%,#fff);cursor:pointer;transition:transform .08s}
+.wcolours button.sw{width:18px!important;height:18px;padding:0!important;border-radius:50%;cursor:pointer;transition:transform .08s;display:flex;align-items:center;justify-content:center;
+  --m:45%;background:color-mix(in srgb,var(--cc) var(--m),var(--panel,#fff))!important;border:1px solid color-mix(in srgb,var(--cc) 70%,transparent)}
+.wcolours button.sw b{font:700 10px/1 var(--sans,system-ui,sans-serif);color:transparent}
+.wcolours[data-sh=light] button.sw{--m:16%} .wcolours[data-sh=soft] button.sw{--m:40%} .wcolours[data-sh=strong] button.sw{--m:70%} .wcolours[data-sh=dark] button.sw{--m:100%;background:color-mix(in srgb,var(--cc) 84%,#000)!important}
+.wcolours[data-ink=text] button.sw{background:var(--panel,var(--card,#fff))!important}
+.wcolours[data-ink=text] button.sw b{color:color-mix(in srgb,var(--cc) var(--m),var(--ink,#333))}
+.wcolours[data-ink=text][data-sh=dark] button.sw b{color:color-mix(in srgb,var(--cc) 78%,#000)}
 .wcolours button.sw:hover{transform:scale(1.18)}
-.wcolours button.sw.none{background:transparent!important;border:1px dashed currentColor;font-size:9px;display:flex;align-items:center;justify-content:center;opacity:.55}
+.wcolours button.sw.none{background:transparent!important;border:1px dashed currentColor;font-size:9px;opacity:.55}
 /* whole row / column selection: a soft ring, not a spreadsheet fill */
 .app.writing .doc .wsel{background-color:color-mix(in srgb,var(--accent,#3b82f6) 7%,transparent)!important}
 .app.w-whole[data-whole=row] .doc .wsel{box-shadow:inset 0 1.5px 0 var(--accent,#3b82f6),inset 0 -1.5px 0 var(--accent,#3b82f6)}
@@ -591,6 +631,7 @@ html[data-theme=studio] .app:not(.no-tcolour) .doc th[data-cc]{color:color-mix(i
 .wpill>button{border:0;background:transparent;color:inherit;width:26px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:.8}
 .wpill>button:hover{opacity:1;background:color-mix(in srgb,var(--accent,#3b82f6) 12%,transparent)}
 .wpill>button.danger{color:#c2410c}
+.wpill>button.on{opacity:1;color:var(--accent,#3b82f6);background:color-mix(in srgb,var(--accent,#3b82f6) 12%,transparent)}
 html[data-theme=studio] .wpill>button.danger{color:#fb923c}
 .wpill>button.wpc::before{content:'';width:12px;height:12px;border-radius:50%;background:conic-gradient(#4f7bd9,#2a9d8f,#4c9a5a,#c9b22a,#d0703b,#c95a7a,#8a6fd0,#4f7bd9)}
 .wpill .wcolours{flex:1 0 100%;border-top:1px solid var(--line-2,var(--line,rgba(0,0,0,.1)));margin-top:3px;padding:8px 6px 5px}

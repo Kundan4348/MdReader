@@ -530,9 +530,9 @@
         if (scope === 'row') return [...new Set(cells.map((p) => p[0]).filter((i) => i > 0))].map((i) => ['rows', label(i)]);
         return cells.map(([i, c]) => (i === 0 ? ['cols', hs[c]] : ['cells', label(i) + '|' + hs[c]])); // a header cell colours its column
       }
-      function colourOp(b, sel, scope, name) {
+      function colourOp(b, sel, scope, name, ink) {
         commitAll();
-        const l0 = +b.dataset.l0, l1 = +b.dataset.l1, d = readColours(S.text.split('\n'), l0, l1).data;
+        const l0 = +b.dataset.l0, l1 = +b.dataset.l1, all = readColours(S.text.split('\n'), l0, l1).data, d = ink ? all.text : all;
         const ts = colourTargets(b, sel, scope);
         if (!ts.length) return flash(scope === 'row' ? 'The header row takes its colours from its columns' : 'Nothing to colour here');
         for (const [bag, key] of ts) {
@@ -540,8 +540,27 @@
           if (!name && bag === 'rows') for (const k of Object.keys(d.cells)) if (k.startsWith(key + '|')) delete d.cells[k]; // clearing a row clears its cells too
           if (!name && bag === 'cols') for (const k of Object.keys(d.cells)) if (k.endsWith('|' + key)) delete d.cells[k];
         }
-        applyText(writeColours(S.text, l0, l1, d), { l0, cell: [sel.r, sel.c] }, l0);
+        applyText(writeColours(S.text, l0, l1, all), { l0, cell: [sel.r, sel.c] }, l0);
         if (root.classList.contains('no-tcolour')) flash('Saved -- table colours are switched off on this Mac, the ◑ on the table turns them on', 3500);
+      }
+      // number bars for the selected column(s): only columns md.js judged to hold amounts can have them
+      function barColumns(b, sel) {
+        const rows = tableRows(b), hs = rows[0] ? [...rows[0].children] : [];
+        const cs = [...new Set((sel.cells.length ? sel.cells : [[sel.r, sel.c]]).map((p) => p[1]))];
+        return { all: cs.map((c) => hs[c]).filter(Boolean), ok: cs.map((c) => hs[c]).filter((th) => th && th.classList.contains('barv')).map(cellText) };
+      }
+      function barsOn(b, sel) {
+        const { ok } = barColumns(b, sel); if (!ok.length) return false;
+        const d = readColours(S.text.split('\n'), +b.dataset.l0, +b.dataset.l1).data;
+        return ok.every((k) => d.bars.includes(k));
+      }
+      function barOp(b, sel) {
+        commitAll();
+        const { ok } = barColumns(b, sel);
+        if (!ok.length) return flash('Number bars are for columns of amounts -- this one looks like IDs, codes or row numbers');
+        const l0 = +b.dataset.l0, l1 = +b.dataset.l1, d = readColours(S.text.split('\n'), l0, l1).data, on = ok.every((k) => d.bars.includes(k));
+        d.bars = on ? d.bars.filter((k) => !ok.includes(k)) : [...d.bars, ...ok];
+        applyText(writeColours(S.text, l0, l1, d), { l0, cell: [sel.r, sel.c] }, l0);
       }
       // the default scope from the selection: whole rows -> Row, whole columns -> Column, a header cell -> Column, else Cell
       let lastScope = null;
@@ -553,18 +572,37 @@
         if (sel.whole === 'col' || (cells.length > 1 && [...byCol.values()].every((x) => x === rows.length)) || cells.every(([i]) => i === 0)) return 'col';
         return cells.length === 1 && lastScope ? lastScope : 'cell';
       }
+      // the picker: Cell / Row / Column, Fill / Text, a shade (light .. dark) and 16 colours; ✕ removes the fill or text colour
+      let lastInk = false, lastShade = 'soft';
       function colourPicker(b, sel, done) {
-        let scope = scopeFor(b, sel);
-        const tabs = h('span', { class: 'wscope', role: 'tablist' });
-        const sync = () => tabs.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x.dataset.scope === scope));
-        [['cell', 'Cell'], ['row', 'Row'], ['col', 'Column']].forEach(([k, label]) => tabs.append(h('button', { type: 'button', 'data-scope': k, onmousedown: (e) => e.preventDefault(),
-          onclick: (e) => { e.stopPropagation(); scope = k; lastScope = k; sync(); } }, label)));
-        sync();
-        const pick = (name) => { done && done(); colourOp(b, sel, scope, name); };
-        return h('div', { class: 'wcolours' }, h('div', { class: 'wch' }, h('span', {}, 'Colour'), tabs),
+        let scope = scopeFor(b, sel), ink = lastInk, shade = lastShade;
+        const seg = (cls, items, get, set) => {
+          const el = h('span', { class: 'wseg ' + cls, role: 'tablist' });
+          items.forEach(([k, label, tip]) => el.append(h('button', { type: 'button', 'data-k': k, title: tip || '', onmousedown: (e) => e.preventDefault(),
+            onclick: (e) => { e.stopPropagation(); set(k); sync(); } }, label)));
+          el.sync = () => el.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x.dataset.k === String(get())));
+          return el;
+        };
+        const tabs = seg('wscope', [['cell', 'Cell'], ['row', 'Row'], ['col', 'Column']], () => scope, (k) => { scope = k; lastScope = k; });
+        tabs.querySelectorAll('button').forEach((x) => { x.dataset.scope = x.dataset.k; });
+        const kind = seg('wkind', [['false', 'Fill', 'Colour the background'], ['true', 'Text', 'Colour the text']], () => ink, (k) => { ink = lastInk = k === 'true'; });
+        const shades = h('span', { class: 'wshade', role: 'tablist' }, ...SHADES.map(([k, label]) => h('button', { type: 'button', class: 'sh', 'data-sh': k, title: label, 'aria-label': label + ' shade',
+          onmousedown: (e) => e.preventDefault(), onclick: (e) => { e.stopPropagation(); shade = lastShade = k; sync(); } })));
+        const box = h('div', { class: 'wcolours' });
+        function sync() {
+          tabs.sync(); kind.sync();
+          shades.querySelectorAll('.sh').forEach((x) => x.classList.toggle('on', x.dataset.sh === shade));
+          box.dataset.sh = shade; box.dataset.ink = ink ? 'text' : 'fill';
+          box.querySelector('.sw.none').title = ink ? 'Remove text colour' : 'Remove fill colour';
+        }
+        const pick = (name) => { done && done(); colourOp(b, sel, scope, name && joinColour(name, shade), ink); };
+        box.append(h('div', { class: 'wch' }, h('span', {}, 'Colour'), tabs),
+          h('div', { class: 'wch2' }, kind, shades),
           h('div', { class: 'wsw' }, ...COL_COLOURS.map(([name, hex]) => h('button', { type: 'button', class: 'sw', title: name[0].toUpperCase() + name.slice(1), style: '--cc:' + hex, 'data-cc': name,
-            onmousedown: (e) => e.preventDefault(), onclick: () => pick(name) })),
-          h('button', { type: 'button', class: 'sw none', title: 'Remove colour', html: '&#x2715;', onmousedown: (e) => e.preventDefault(), onclick: () => pick(null) })));
+            onmousedown: (e) => e.preventDefault(), onclick: () => pick(name) }, h('b', {}, 'A'))),
+          h('button', { type: 'button', class: 'sw none', html: '&#x2715;', onmousedown: (e) => e.preventDefault(), onclick: () => pick(null) })));
+        sync();
+        return box;
       }
       // ---- the menu ----
       const menu = h('div', { class: 'wmenu', role: 'menu', hidden: '' });
@@ -579,6 +617,9 @@
         const grp = (name) => h('div', { class: 'wmh' }, name);
         const aligned = (op, glyph, tip) => h('button', { type: 'button', class: 'wal', title: tip, onmousedown: (e) => e.preventDefault(), onclick: () => { hideMenu(); tableOp(b, op, sel); } , html: glyph });
         const hdr = lo === 0;
+        const barItem = (bb, ss) => { const { ok, all } = barColumns(bb, ss), on = barsOn(bb, ss);
+          return h('button', { type: 'button', role: 'menuitem', disabled: ok.length ? null : '', title: ok.length ? '' : (all.some((th) => th.classList.contains('num')) ? 'These numbers look like IDs, codes or row numbers, so a bar would mean nothing' : 'Only for columns of numbers'),
+            onmousedown: (e) => e.preventDefault(), onclick: () => { hideMenu(); barOp(bb, ss); } }, h('span', {}, on ? 'Hide number bars' : 'Show number bars')); };
         menu.replaceChildren(
           colourPicker(b, sel, hideMenu),
           grp(nr > 1 ? `${nr} rows` : hdr ? 'Header row' : 'Row'),
@@ -594,6 +635,7 @@
             aligned('alignCenter', '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 4h12M4 8h8M3 12h10" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>', 'Align centre'),
             aligned('alignRight', '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M2 4h12M6 8h8M3 12h11" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>', 'Align right')),
           item('sortAsc', 'Sort by this column, A → Z'), item('sortDesc', 'Sort by this column, Z → A'),
+          barItem(b, sel),
           item('delCols', nc > 1 ? `Delete ${nc} columns` : 'Delete column', '', false, true),
           grp('Table'),
           h('button', { type: 'button', role: 'menuitem', onmousedown: (e) => e.preventDefault(), onclick: () => { hideMenu(); toggleTableColours(); } }, h('span', {}, root.classList.contains('no-tcolour') ? 'Turn table colours on' : 'Turn table colours off')),
@@ -760,9 +802,10 @@
             i > 0 ? btn('Make this the header row', ico('<path d="M3 4h10M3 8h10M3 12h6"/>'), op('makeHeader')) : btn('Turn the header into a normal row', ico('<path d="M3 4h10M3 8h10M3 12h6"/>'), op('headerToRow')),
             btn('Delete row', ico('<path d="M3 5h10M6.5 5V3.5h3V5M5 5l.6 8h4.8L11 5"/>'), op('delRows'), 'danger')]
           : [label, swatch, btn('Insert a column left', ico('<path d="M9 8H3M6 5v6M13 3v10"/>'), op('colLeft')), btn('Insert a column right', ico('<path d="M7 8h6M10 5v6M3 3v10"/>'), op('colRight')),
+            rows[0].children[i] && rows[0].children[i].classList.contains('barv') ? btn(barsOn(b, sel) ? 'Hide number bars' : 'Show number bars', ico('<path d="M3 4h7M3 8h10M3 12h4"/>'), () => { clearWhole(); barOp(b, sel); }, barsOn(b, sel) ? 'on' : '') : null,
             btn('Sort A → Z', ico('<path d="M4 3v10M2 11l2 2 2-2M9 4h5M9 8h3.5M9 12h2"/>'), op('sortAsc')), btn('Sort Z → A', ico('<path d="M4 13V3M2 5l2-2 2 2M9 4h2M9 8h3.5M9 12h5"/>'), op('sortDesc')),
             btn('Delete column', ico('<path d="M3 5h10M6.5 5V3.5h3V5M5 5l.6 8h4.8L11 5"/>'), op('delCols'), 'danger')];
-        pill.replaceChildren(...parts);
+        pill.replaceChildren(...parts.filter(Boolean));
         pill.hidden = false;
         const first = cells[0].getBoundingClientRect(), last = cells[cells.length - 1].getBoundingClientRect(), pw = pill.offsetWidth, ph = pill.offsetHeight;
         let x, y;
@@ -1135,52 +1178,69 @@
       }));
     }
     // ---------- table colours ----------
-    // Status chips and number bars come from md.js. On top of that a column, a row or a single cell can be given a colour.
+    // Status chips come from md.js. On top of that a column, a row or a single cell can be given a fill colour and/or a
+    // text colour, each in one of four shades, and a column of amounts can show number bars (off unless turned on).
     // The choice is saved IN THE FILE, as one HTML comment right under the table, so anyone opening the file in MdReader
     // sees it, and other markdown viewers (GitHub, code.amazon.com) hide it:
-    //   <!-- mdr-colours {"cols":{"State":"teal"},"rows":{"Deploy":"rose"},"cells":{"Build|Score":"amber"}} -->
-    // Columns are keyed by header text, rows by their first cell, cells by both -- so a colour follows its column or row
-    // when it is moved or sorted. The on/off switch is a personal view setting (this machine only).
+    //   <!-- mdr-colours {"cols":{"State":"teal"},"rows":{"Deploy":"rose.dark"},"text":{"cells":{"Build|Score":"red"}},"bars":["Count"]} -->
+    // A value is "<colour>" (the soft shade) or "<colour>.light|.strong|.dark". Columns are keyed by header text, rows
+    // by their first cell, cells by both -- so a colour follows its column or row when it is moved or sorted. The on/off
+    // switch is a personal view setting (this machine only).
     const COL_COLOURS = [['blue', '#4f7bd9'], ['sky', '#3a9fd6'], ['teal', '#2a9d8f'], ['mint', '#3fae8c'], ['green', '#4c9a5a'], ['lime', '#86a83a'],
       ['yellow', '#c9b22a'], ['amber', '#c9942a'], ['orange', '#d0703b'], ['red', '#c9473f'], ['rose', '#c95a7a'], ['pink', '#c867b4'],
       ['violet', '#8a6fd0'], ['indigo', '#5d63c9'], ['brown', '#9a6b4b'], ['grey', '#8a8f98']];
+    const SHADES = [['light', 'Light'], ['soft', 'Soft'], ['strong', 'Strong'], ['dark', 'Dark']];
     const COLOUR_RE = /^\s*<!--\s*mdr-colours\s+(\{.*\})\s*-->\s*$/;
     const hexOf = (name) => (COL_COLOURS.find((x) => x[0] === name) || [])[1];
+    const splitColour = (v) => { const m = /^([a-z]+)(?:\.(light|soft|strong|dark))?$/.exec(v || ''); return m && hexOf(m[1]) ? [m[1], m[2] || 'soft'] : null; };
+    const joinColour = (name, shade) => (shade && shade !== 'soft' ? name + '.' + shade : name);
     const cellText = (c) => (c ? [...c.childNodes].filter((n) => !(n.nodeType === 1 && n.tagName === 'BUTTON')).map((n) => n.textContent).join('').replace(/\s+/g, ' ').trim() : '');
+    const BAGS = ['cols', 'rows', 'cells'];
+    const emptyColours = () => ({ cols: {}, rows: {}, cells: {}, text: { cols: {}, rows: {}, cells: {} }, bars: [] });
     // the line right under the table's last row, where its colour comment lives (or would be inserted)
     function colourSlot(lines, l0, l1) { let end = l1; while (end > l0 && !(lines[end - 1] || '').trim()) end--; return end; }
     function readColours(lines, l0, l1) {
       const at = colourSlot(lines, l0, l1), m = COLOUR_RE.exec(lines[at] || '');
-      const data = { cols: {}, rows: {}, cells: {} };
-      if (m) try { const d = JSON.parse(m[1]); for (const k of ['cols', 'rows', 'cells']) if (d[k] && typeof d[k] === 'object') data[k] = d[k]; } catch { /* a hand-broken comment: start fresh */ }
+      const data = emptyColours();
+      const bags = (src, dst) => { for (const k of BAGS) if (src && src[k] && typeof src[k] === 'object') dst[k] = { ...src[k] }; };
+      if (m) try { const d = JSON.parse(m[1]); bags(d, data); bags(d.text, data.text); if (Array.isArray(d.bars)) data.bars = d.bars.filter((x) => typeof x === 'string'); } catch { /* a hand-broken comment: start fresh */ }
       return { at, has: !!m, data };
     }
     function writeColours(text, l0, l1, data) {
       const lines = text.split('\n'), r = readColours(lines, l0, l1);
-      for (const k of ['cols', 'rows', 'cells']) for (const [key, v] of Object.entries(data[k])) if (!hexOf(v)) delete data[k][key];
-      const empty = !Object.keys(data.cols).length && !Object.keys(data.rows).length && !Object.keys(data.cells).length;
-      const line = '<!-- mdr-colours ' + JSON.stringify(empty ? {} : Object.fromEntries(['cols', 'rows', 'cells'].filter((k) => Object.keys(data[k]).length).map((k) => [k, data[k]]))) + ' -->';
+      const clean = (src) => Object.fromEntries(BAGS.map((k) => [k, Object.fromEntries(Object.entries(src[k] || {}).filter(([, v]) => splitColour(v)))]).filter(([, v]) => Object.keys(v).length));
+      const out = clean(data), txt = clean(data.text || {}), bars = [...new Set(data.bars || [])];
+      if (Object.keys(txt).length) out.text = txt;
+      if (bars.length) out.bars = bars;
+      const empty = !Object.keys(out).length;
+      const line = '<!-- mdr-colours ' + JSON.stringify(out) + ' -->';
       if (r.has) { if (empty) lines.splice(r.at, 1); else lines[r.at] = line; }
       else if (!empty) lines.splice(r.at, 0, line);
       return lines.join('\n');
     }
-    function paintCell(x, name) { const hex = hexOf(name); if (hex) { x.dataset.cc = name; x.style.setProperty('--cc', hex); } else { delete x.dataset.cc; x.style.removeProperty('--cc'); } }
+    function paintCell(x, fill, ink) {
+      const f = splitColour(fill), t = splitColour(ink);
+      if (f) { x.dataset.cc = f[0]; x.dataset.sh = f[1]; x.style.setProperty('--cc', hexOf(f[0])); } else { delete x.dataset.cc; delete x.dataset.sh; x.style.removeProperty('--cc'); }
+      if (t) { x.dataset.tc = t[0]; x.dataset.tsh = t[1]; x.style.setProperty('--tc', hexOf(t[0])); } else { delete x.dataset.tc; delete x.dataset.tsh; x.style.removeProperty('--tc'); }
+    }
     function applyColColours() {
       root.classList.toggle('no-tcolour', localStorage.getItem('mdr-tcolour') === 'off');
       const lines = S.text.split('\n');
       doc.querySelectorAll('.table-wrap').forEach((wrap) => {
         const table = wrap.querySelector(':scope > table'); if (!table) return;
-        const d = wrap.dataset.l0 !== undefined ? readColours(lines, +wrap.dataset.l0, +wrap.dataset.l1).data : { cols: {}, rows: {}, cells: {} };
+        const d = wrap.dataset.l0 !== undefined ? readColours(lines, +wrap.dataset.l0, +wrap.dataset.l1).data : emptyColours();
         const head = table.querySelector('thead > tr:not(.filters)'), hs = head ? [...head.children].map(cellText) : [];
-        if (head) [...head.children].forEach((th, c) => paintCell(th, d.cols[hs[c]]));
+        const pick = (bag, label, c) => bag.cells[label + '|' + hs[c]] || bag.rows[label] || bag.cols[hs[c]]; // cell beats row beats column
+        if (head) [...head.children].forEach((th, c) => { paintCell(th, d.cols[hs[c]], d.text.cols[hs[c]]); th.classList.toggle('bar', th.classList.contains('barv') && d.bars.includes(hs[c])); });
         table.querySelectorAll('tbody > tr').forEach((tr) => {
           const label = cellText(tr.children[0]);
-          [...tr.children].forEach((td, c) => paintCell(td, d.cells[label + '|' + hs[c]] || d.rows[label] || d.cols[hs[c]])); // cell beats row beats column
+          [...tr.children].forEach((td, c) => { paintCell(td, pick(d, label, c), pick(d.text, label, c)); td.classList.toggle('bar', td.classList.contains('barv') && d.bars.includes(hs[c])); });
         });
-        // the on/off switch, shown on hover at the table's top right
-        if (!wrap.querySelector(':scope > .tcol-btn')) wrap.append(h('button', { type: 'button', class: 'tcol-btn', contenteditable: 'false', onmousedown: (e) => e.preventDefault(), onclick: toggleTableColours }));
+        // the on/off switch: a small round button at the table's top right, shown on hover, which only names itself
+        // while the pointer is on it (so it never sits over a header)
+        if (!wrap.querySelector(':scope > .tcol-btn')) wrap.append(h('button', { type: 'button', class: 'tcol-btn', contenteditable: 'false', onmousedown: (e) => e.preventDefault(), onclick: toggleTableColours }, h('i', {}, '◐'), h('span', {})));
         const on = !root.classList.contains('no-tcolour');
-        wrap.querySelectorAll(':scope > .tcol-btn').forEach((b) => { b.textContent = on ? '◐ Colours on' : '◑ Colours off'; b.title = on ? 'Turn table colours off (status chips, number bars, your colours) -- only on this Mac, the file is not changed' : 'Turn table colours back on'; });
+        wrap.querySelectorAll(':scope > .tcol-btn').forEach((b) => { b.querySelector('i').textContent = on ? '◐' : '◑'; b.querySelector('span').textContent = on ? 'Colours on' : 'Colours off'; b.title = on ? 'Turn table colours off (status chips, number bars, your colours) -- only on this Mac, the file is not changed' : 'Turn table colours back on'; });
       });
     }
     function toggleTableColours() {
