@@ -58,7 +58,9 @@
     const view = h('div', { class: 'view' }, zoomOut, zoomPct, zoomIn, widthBtn);
     // JSON / SQL only: pretty-print JSON (⌥-click minifies) or re-indent SQL. Hidden for markdown (CSS on data-kind).
     const fmtBtn = h('button', { class: 'fmt', title: 'Format JSON (⌘⇧F) · ⌥-click to minify', onclick: (e) => formatDoc(e.altKey) }, 'Format');
-    const top = h('header', { class: 'top' }, filesBtn, crumbs, h('span', { class: 'spacer' }), seg, saveBtn, fmtBtn, view, themeSel, openBtn, outlineBtn);
+    // JSON only: compare this JSON with another one (⌘⇧D)
+    const cmpBtn = h('button', { class: 'cmpb', title: 'Compare with another JSON (⌘⇧D)', onclick: () => CMP.toggle() }, 'Compare');
+    const top = h('header', { class: 'top' }, filesBtn, crumbs, h('span', { class: 'spacer' }), seg, saveBtn, fmtBtn, cmpBtn, view, themeSel, openBtn, outlineBtn);
 
     const tree = h('div', { class: 'tree' });
     // Files pane header: ↑ re-roots the tree one folder up (so there is always a way back), ⌂ returns to the home
@@ -1579,6 +1581,146 @@
       return { enable, commitAll, undo };
     })();
 
+    // ---------- Compare two JSONs ----------
+    // A panel over the page (the page and the file are untouched). Each side is a JSON from an open tab -- one entry per
+    // document when a file holds several, so a "before ... after" paste compares with one click -- a pasted JSON, or
+    // (in the app) a file. The result is a summary in plain words, then the differences as a tree (unchanged parts
+    // folded away) or as a list, with next / previous, and Copy for a text report.
+    const CMP = (() => {
+      const st = { open: false, left: null, right: null, only: true, ignoreOrder: false, match: 'auto', view: 'tree', paste: { left: '', right: '' }, files: [], at: -1 };
+      const sel = (side) => h('select', { class: 'cmp-src', 'aria-label': side === 'left' ? 'Left side' : 'Right side', onchange: (e) => { st[side] = e.target.value; if (st[side] === 'file') return pickFile(side); run(); } });
+      const L = sel('left'), R = sel('right');
+      const chk = (label, key, tip) => { const i = h('input', { type: 'checkbox' }); i.checked = st[key]; i.onchange = () => { st[key] = i.checked; run(); }; return h('label', { class: 'cmp-opt', title: tip }, i, ' ' + label); };
+      const matchSel = h('select', { class: 'cmp-match', title: 'How items of a list are paired up', onchange: (e) => { st.match = e.target.value; run(); } },
+        h('option', { value: 'auto' }, 'Match list items by id'), h('option', { value: 'position' }, 'Match list items by position'));
+      const viewSeg = h('span', { class: 'cmp-seg' }, ...['tree', 'list'].map((v) => h('button', { type: 'button', 'data-v': v, onclick: () => { st.view = v; run(); } }, v === 'tree' ? 'Tree' : 'List')));
+      const pos = h('span', { class: 'cmp-pos' });
+      const prevB = h('button', { type: 'button', class: 'cmp-nav', title: 'Previous difference (p)', onclick: () => go(-1) }, '↑');
+      const nextB = h('button', { type: 'button', class: 'cmp-nav', title: 'Next difference (n)', onclick: () => go(1) }, '↓');
+      const copyB = h('button', { type: 'button', class: 'cmp-copy', title: 'Copy the differences as text', onclick: copyReport }, 'Copy');
+      const closeB = h('button', { type: 'button', class: 'cmp-x', title: 'Close (Esc)', onclick: () => close() }, '✕');
+      const swapB = h('button', { type: 'button', class: 'cmp-swap', title: 'Swap sides', onclick: () => { [st.left, st.right] = [st.right, st.left]; [st.paste.left, st.paste.right] = [st.paste.right, st.paste.left]; run(); } }, '⇄');
+      const pasteBox = (side) => { const t = h('textarea', { class: 'cmp-paste', spellcheck: 'false', placeholder: `Paste the ${side} JSON here` }); let tm = 0; t.oninput = () => { st.paste[side] = t.value; clearTimeout(tm); tm = setTimeout(run, 250); }; return t; };
+      const PL = pasteBox('left'), PR = pasteBox('right');
+      const pastes = h('div', { class: 'cmp-pastes' }, PL, PR);
+      const body = h('div', { class: 'cmp-body' });
+      const panel = h('section', { class: 'cmp', hidden: '', 'aria-label': 'Compare JSON' },
+        h('div', { class: 'cmp-bar' }, h('span', { class: 'cmp-t' }, 'Compare'), L, swapB, R, h('span', { class: 'cmp-sp' }),
+          chk('Only differences', 'only', 'Fold away the parts that are the same'), chk('Ignore list order', 'ignoreOrder', 'Treat lists as sets: an item in a different place is not a difference'), matchSel,
+          viewSeg, h('span', { class: 'cmp-navs' }, prevB, pos, nextB), copyB, closeB),
+        pastes, body);
+      content.append(panel); // after the page and the editor: it is only shown while they are hidden
+
+      // ---- the sources ----
+      const isJsonTab = (t) => IS_JSON((isUntitled(t) ? t.name : dispOf(t).name) || '') || (global.JV && JV.looksLikeJson(t.text || ''));
+      function sources() {
+        const out = [];
+        S.tabs.forEach((t, i) => {
+          const text = i === S.tab ? S.text : t.text || '';
+          if (!isJsonTab(Object.assign({}, t, { text }))) return;
+          const name = isUntitled(t) ? t.name : dispOf(t).name, r = JV.parse(text);
+          if (r.error) { out.push({ id: `t${i}`, label: `${name} (has an error)`, name, error: r.error }); return; }
+          if (r.docs.length > 1) r.docs.forEach((d, k) => out.push({ id: `t${i}d${k}`, label: `${name} · ${d.lead[0] || 'document ' + (k + 1)}`, name: d.lead[0] || `${name} #${k + 1}`, value: d.value, tab: i }));
+          else out.push({ id: `t${i}`, label: name + (i === S.tab ? ' (this tab)' : ''), name, value: r.docs[0].value, tab: i });
+        });
+        st.files.forEach((f, k) => { const r = JV.parse(f.text); out.push(r.error ? { id: `f${k}`, label: f.name + ' (has an error)', name: f.name, error: r.error } : { id: `f${k}`, label: f.name, name: f.name, value: r.docs[0].value }); });
+        return out;
+      }
+      function fill(select, list, value) {
+        select.replaceChildren(...list.map((s) => h('option', { value: s.id }, s.label)), h('option', { value: 'paste' }, 'Paste JSON…'),
+          adapter.openDialog && adapter.readFile ? h('option', { value: 'file' }, 'Open a file…') : null);
+        select.value = value;
+      }
+      async function pickFile(side) {
+        let p = null; try { p = await adapter.openDialog(); } catch { /* cancelled */ }
+        if (!p) { st[side] = st[side + 'Was'] || 'paste'; return run(); }
+        try { const text = await adapter.readFile(p); st.files.push({ name: String(p).split('/').pop(), text }); st[side] = `f${st.files.length - 1}`; } catch { flash('Could not read that file'); st[side] = 'paste'; }
+        run();
+      }
+      // the first time: this tab's documents 1 and 2, or this tab and the JSON tab used most recently, or a paste box
+      function defaults(list) {
+        const mine = list.filter((s) => s.tab === S.tab), others = list.filter((s) => s.tab !== S.tab && !s.error);
+        if (mine.length > 1) return [mine[0].id, mine[1].id];
+        return [mine[0] ? mine[0].id : 'paste', others.length ? others[others.length - 1].id : 'paste'];
+      }
+
+      // ---- compare ----
+      let last = null;
+      function run() {
+        const list = sources();
+        const has = (id) => id === 'paste' || list.some((s) => s.id === id);
+        if (!has(st.left) || !has(st.right)) { const d = defaults(list); if (!has(st.left)) st.left = d[0]; if (!has(st.right)) st.right = d[1]; }
+        st.leftWas = st.left; st.rightWas = st.right;
+        fill(L, list, st.left); fill(R, list, st.right);
+        viewSeg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === st.view));
+        PL.hidden = st.left !== 'paste'; PR.hidden = st.right !== 'paste'; pastes.hidden = PL.hidden && PR.hidden;
+        pastes.classList.toggle('one', PL.hidden !== PR.hidden);
+        const side = (id, which) => {
+          if (id === 'paste') { const t = st.paste[which]; if (!t.trim()) return { wait: `Paste the ${which} JSON above` }; const r = JV.parse(t); return r.error ? { error: r.error, name: `pasted (${which})` } : { value: r.docs.length > 1 ? r.docs.map((d) => d.value) : r.docs[0].value, name: `pasted ${which}` }; }
+          const s = list.find((x) => x.id === id); return s ? s : { wait: 'Pick something to compare' };
+        };
+        const a = side(st.left, 'left'), b = side(st.right, 'right');
+        last = null; st.at = -1;
+        const msg = (x, which) => (x.wait ? x.wait : `The ${which} side is not valid JSON${x.error.line ? ` (line ${x.error.line}${x.error.col ? `, column ${x.error.col}` : ''})` : ''}: ${x.error.message}`);
+        if (a.wait || a.error || b.wait || b.error) {
+          body.replaceChildren(h('div', { class: 'cmp-msg' }, ...[a.wait || a.error ? msg(a, 'left') : null, b.wait || b.error ? msg(b, 'right') : null].filter(Boolean).map((t) => h('p', {}, t))));
+          return syncNav();
+        }
+        const names = a.name === b.name ? [a.name + ' (left)', b.name + ' (right)'] : [a.name, b.name];
+        const t0 = performance.now();
+        const root = JD.diff(a.value, b.value, { ignoreOrder: st.ignoreOrder, match: st.match });
+        last = { root, names };
+        const view = st.view === 'list' ? JD.table(root, names) : JD.render(root, { onlyChanges: st.only });
+        body.replaceChildren(JD.summary(root, names), view);
+        body.dataset.ms = Math.round(performance.now() - t0);
+        syncNav();
+      }
+      const marks = () => [...body.querySelectorAll('.jd-c')].filter((x) => x.getClientRects().length);
+      function syncNav() {
+        const n = marks().length;
+        pos.textContent = n ? (st.at >= 0 ? `${st.at + 1} of ${n}` : `${n}`) : '0';
+        prevB.disabled = nextB.disabled = !n; copyB.disabled = !last;
+      }
+      function go(d) {
+        const ms = marks(); if (!ms.length) return;
+        st.at = st.at < 0 ? (d > 0 ? 0 : ms.length - 1) : (st.at + d + ms.length) % ms.length;
+        body.querySelectorAll('.jd-cur').forEach((x) => x.classList.remove('jd-cur'));
+        const el = ms[st.at]; el.classList.add('jd-cur');
+        for (let p = el.parentElement && el.parentElement.closest('details'); p; p = p.parentElement && p.parentElement.closest('details')) p.open = true;
+        const br = el.getBoundingClientRect(), cr = content.getBoundingClientRect();
+        content.scrollTop += br.top - cr.top - content.clientHeight / 3;
+        syncNav();
+      }
+      function copyReport() {
+        if (!last) return;
+        const t = JD.report(last.root, last.names);
+        const done = () => flash('Differences copied as text');
+        (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(done, () => { const x = h('textarea'); x.value = t; document.body.append(x); x.select(); try { document.execCommand('copy'); done(); } catch { flash('Copy failed'); } x.remove(); });
+      }
+      function open() {
+        if (!global.JD || !global.JV) return;
+        W.commitAll(); WD.commitAll();
+        st.open = true; panel.hidden = false; root.classList.add('comparing');
+        st.scroll = content.scrollTop; content.scrollTop = 0;
+        run();
+      }
+      function close() {
+        if (!st.open) return;
+        st.open = false; panel.hidden = true; root.classList.remove('comparing');
+        content.scrollTop = st.scroll || 0;
+      }
+      document.addEventListener('keydown', (e) => {
+        if (!st.open) return;
+        const typing = /^(TEXTAREA|INPUT|SELECT)$/.test(e.target.tagName);
+        if (e.key === 'Escape' && !e.defaultPrevented) { if (typing && e.target.value) return; e.preventDefault(); close(); return; }
+        if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+        if (e.key === 'n' || e.key === 'j') { e.preventDefault(); go(1); } else if (e.key === 'p' || e.key === 'k') { e.preventDefault(); go(-1); }
+      });
+      body.addEventListener('toggle', syncNav, true);
+      body.addEventListener('click', (e) => { if (e.target.closest('.jd-gap')) setTimeout(syncNav, 0); });
+      return { open, close, toggle: () => (st.open ? close() : open()), get isOpen() { return st.open; }, run };
+    })();
+
     // ---------- rendering ----------
     // URL the current document lives at, for resolving relative image paths. The app hands over absolute file-system
     // paths; the extension hands over the page's own URL (http(s)/file), which is already a URL.
@@ -2392,7 +2534,7 @@
     }
     async function showTab(i, fresh) {
       if (i < 0 || i >= S.tabs.length) return;
-      if (i !== S.tab) stashActive();
+      if (i !== S.tab) { stashActive(); CMP.close(); }
       S.tab = i; const t = S.tabs[i];
       S.path = t.path; S.saved = t.saved; S.filters = t.filters || {}; setText(t.text); setDirty(t.text !== t.saved);
       const d = dispOf(t);
@@ -2586,6 +2728,7 @@
       else if (k === '/') { e.preventDefault(); togglePanel('outline'); }
       else if (k === 'y' && e.shiftKey) { e.preventDefault(); cycleTheme(); }
       else if (k === 'f' && e.shiftKey) { e.preventDefault(); formatDoc(e.altKey); }
+      else if (k === 'd' && e.shiftKey) { e.preventDefault(); CMP.toggle(); }
       else if (k === 't' && e.shiftKey) { e.preventDefault(); reopenClosed(); } // standard "reopen closed tab"
       else if (k === 'arrowup' && e.altKey) { e.preventDefault(); treeUp(); }
       else if (k === 'w' && e.shiftKey) { e.preventDefault(); cycleWidth(); }
@@ -2770,7 +2913,7 @@
     doc.addEventListener('pointerdown', () => { if (F.pane !== 'doc') { F.pane = 'doc'; if (F.open) runFind(); } });
     addEventListener('resize', () => F.open && placeFind());
 
-    return { loadFile, newTab, closeTab, nextTab, showTab, setWidth, stepZoom, resetZoom, cycleWidth, reopenClosed, toggleRecent, treeUp,
+    return { compare: () => CMP.toggle(), loadFile, newTab, closeTab, nextTab, showTab, setWidth, stepZoom, resetZoom, cycleWidth, reopenClosed, toggleRecent, treeUp,
       find: openFind, findNext: () => stepFind(1), findPrev: () => stepFind(-1),
       saveAll: async () => { stashActive(); for (const t of S.tabs) if (t.text !== t.saved) await writeTab(t); if (S.tabs[S.tab]) { S.saved = S.tabs[S.tab].saved; S.path = S.tabs[S.tab].path; setDirty(false); } notifyTabs(); },
       setText: (t, path) => { S.path = path || S.path; S.saved = t; setText(t); setDirty(false); const tb = S.tabs[S.tab]; if (tb) { tb.text = tb.saved = t; } paint(); }, setTheme, setMode, save, get state() { return S; } };

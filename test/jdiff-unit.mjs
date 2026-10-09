@@ -1,0 +1,23 @@
+// Unit checks for JD.diff / JD.report (core/jdiff.js).
+import fs from 'fs'; import vm from 'vm';
+const g = {}; vm.runInNewContext(fs.readFileSync(new URL('../core/jdiff.js', import.meta.url), 'utf8'), { window: g });
+const JD = g.JD; let fails = 0;
+const eq = (name, got, want) => { const ok = JSON.stringify(got) === JSON.stringify(want); if (!ok) { fails++; console.log('FAIL', name, '\n got ', JSON.stringify(got), '\n want', JSON.stringify(want)); } else console.log('ok  ', name); };
+const R = (a, b, o) => JD.report(JD.diff(a, b, o || {}), ['A', 'B']).split('\n').slice(2);
+eq('same', JD.report(JD.diff({ a: 1, b: [1, 2] }, { b: [1, 2], a: 1 }), ['A', 'B']), 'No differences between A and B.');
+eq('scalar change + add + remove', R({ a: 1, b: 'x', c: true }, { a: 2, b: 'x', d: null }), ['~ $.a: 1 → 2', '- $.c: true', '+ $.d: null']);
+eq('type change', R({ n: 12 }, { n: '12' }), ['~ $.n: 12 → "12"']);
+eq('nested', R({ o: { p: { q: 1 } } }, { o: { p: { q: 2, r: 3 } } }), ['~ $.o.p.q: 1 → 2', '+ $.o.p.r: 3']);
+eq('insert in list = one add', R([1, 2, 3, 4], [1, 2, 9, 3, 4]), ['+ $[2]: 9']);
+eq('remove in list = one remove', R(['a', 'b', 'c'], ['a', 'c']), ['- $[was 1]: "b"']);
+eq('changed item in list', R([1, 2, 3], [1, 5, 3]), ['~ $[1]: 2 → 5']);
+const A = [{ id: 1, s: 'ok' }, { id: 2, s: 'ok' }, { id: 3, s: 'ok' }];
+eq('by id: field change', R(A, [{ id: 1, s: 'ok' }, { id: 2, s: 'bad' }, { id: 3, s: 'ok' }]), ['~ $[id=2].s: "ok" → "bad"']);
+eq('by id: insert at top is one add', R(A, [{ id: 0, s: 'new' }, ...A]), ['+ $[id=0]: {"id":0,"s":"new"}']);
+eq('by id: real move', R(A, [A[2], A[0], A[1]]), ['↕ $[id=3]: moved from position 2 to 0']);
+eq('by id: ignore order', R(A, [A[2], A[0], A[1]], { ignoreOrder: true }), []);
+eq('ignore order scalars', R([1, 2, 3], [3, 1, 2], { ignoreOrder: true }), []);
+eq('by position', R(A, [{ id: 0, s: 'new' }, ...A], { match: 'position' }).length, 5);
+eq('idKey picks shipmentId', JD.idKey([{ shipmentId: 'a', n: 1 }], [{ shipmentId: 'b', n: 1 }]), 'shipmentId');
+eq('counts', JD.diff({ a: 1, l: [1, 2] }, { a: 2, l: [1, 2, 3], z: 0 }).n, { changed: 1, added: 2, removed: 0 });
+console.log(fails ? `${fails} FAILED` : 'ALL OK'); process.exit(fails ? 1 : 0);

@@ -1,0 +1,18 @@
+{
+  "shipmentId": "SHP-20391",
+  "status": "IN_TRANSIT",
+  "carrier": { "name": "Blue Dart", "tracking": "BD7781234" },
+  "weightKg": 412.5,
+  "hazmat": false,
+  "notes": "Handle with care",
+  "items": [
+    { "sku": "SW-48P", "qty": 4, "serial": ["A1", "A2", "A3", "A4"] },
+    { "sku": "PSU-1100", "qty": 8 },
+    { "sku": "RACK-42U", "qty": 1 }
+  ],
+  "tags": ["urgent", "rack"],
+  "history": [
+    { "at": "2026-10-01T08:00:00Z", "event": "CREATED" },
+    { "at": "2026-10-02T10:30:00Z", "event": "PICKED" }
+  ]
+}

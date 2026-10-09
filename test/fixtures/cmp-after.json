@@ -1,0 +1,19 @@
+{
+  "shipmentId": "SHP-20391",
+  "status": "DELIVERED",
+  "carrier": { "name": "Blue Dart", "tracking": "BD7781235" },
+  "weightKg": "412.5",
+  "hazmat": false,
+  "items": [
+    { "sku": "CBL-QSFP", "qty": 20 },
+    { "sku": "SW-48P", "qty": 4, "serial": ["A1", "A2", "A3", "A4"] },
+    { "sku": "PSU-1100", "qty": 6 }
+  ],
+  "tags": ["urgent", "rack"],
+  "history": [
+    { "at": "2026-10-01T08:00:00Z", "event": "CREATED" },
+    { "at": "2026-10-02T10:30:00Z", "event": "PICKED" },
+    { "at": "2026-10-04T16:05:00Z", "event": "DELIVERED" }
+  ],
+  "deliveredTo": "Dock 3"
+}

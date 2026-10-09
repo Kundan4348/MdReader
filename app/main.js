@@ -200,6 +200,8 @@ function buildMenu() {
       { label: 'Find…', accelerator: 'CmdOrCtrl+F', click: () => send('find') },
       { label: 'Find Next', accelerator: 'CmdOrCtrl+G', click: () => send('find:next') },
       { label: 'Find Previous', accelerator: 'CmdOrCtrl+Shift+G', click: () => send('find:prev') },
+      { type: 'separator' },
+      { label: 'Compare JSON…', accelerator: 'CmdOrCtrl+Shift+D', click: () => send('compare') },
       ...(isMac ? [{ type: 'separator' }, { role: 'startSpeaking' }, { role: 'stopSpeaking' }] : []),
     ] },
     { label: 'View', submenu: [
