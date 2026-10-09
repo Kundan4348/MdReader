@@ -811,14 +811,9 @@ html[data-theme=studio] .cmp{--add:#6cc28a;--del:#ee8277;--chg:#e2b45a;--mv:#9ea
 .jd-id + .jc{margin-left:-6px}
 .jd-n > summary{cursor:pointer;list-style:none}
 .jd-n > summary::-webkit-details-marker{display:none}
-.jd-n > summary::before{content:'▾';position:absolute;left:6px;opacity:.5}
-.jd-n:not([open]) > summary::before{content:'▸'}
 .jd-n > summary .jd-b{margin-left:4px}
 .jd-gap{display:block;margin:1px 0 1px 22px;padding:0 6px;border:0;background:transparent;color:inherit;font:12px/1.7 var(--mono,ui-monospace,monospace);opacity:.45;cursor:pointer;border-radius:4px}
 .jd-gap:hover{opacity:.85;background:color-mix(in srgb,currentColor 6%,transparent)}
-.jd-val{display:inline-block;vertical-align:top}
-.jd-val > summary{cursor:pointer}
-.jd-val pre{margin:4px 0 6px;padding:8px 10px;border-radius:7px;background:color-mix(in srgb,currentColor 5%,transparent);font-size:12px;line-height:1.5;max-height:340px;overflow:auto}
 .jd-cur{outline:2px solid var(--accent,#3b82f6);outline-offset:1px}
 .jd-tw{margin-top:4px}
 .jd-table{font-size:12.5px}
@@ -838,5 +833,48 @@ html[data-theme=studio] .cmp{--add:#6cc28a;--del:#ee8277;--chg:#e2b45a;--mv:#9ea
 .cmp-hint.on{border-style:dashed}
 /* a long value never runs past the card */
 .cmp .jd-l{max-width:100%;box-sizing:border-box}
-.jd-val{display:inline-block;vertical-align:top;max-width:calc(100% - 140px)}
-.jd-val pre{max-width:100%;box-sizing:border-box;white-space:pre-wrap;overflow-wrap:anywhere}
+
+/* folds: one quiet chevron everywhere (no browser triangles) */
+.cmp details > summary{list-style:none}
+.cmp details > summary::-webkit-details-marker{display:none}
+.jd-chev{display:inline-block;width:12px;height:12px;flex:none;vertical-align:-1px;background:currentColor;opacity:.5;transition:transform .12s;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M4.5 2.5 8 6l-3.5 3.5' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/12px no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M4.5 2.5 8 6l-3.5 3.5' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/12px no-repeat}
+details[open] > summary .jd-chev{transform:rotate(90deg)}
+.jd-n > summary .jd-s{top:1px}
+.jd-n > summary:hover .jd-chev,.jd-val > summary:hover .jd-chev{opacity:.9}
+/* a folded value: chevron, size, one-line preview; open, the whole JSON in a soft box */
+.jd-val{display:inline-flex;flex-direction:column;vertical-align:top;min-width:0;max-width:100%}
+.jd-l > .jd-val{max-width:calc(100% - 9em)}
+.jd-val > summary{display:inline-flex;align-items:center;gap:7px;min-width:0;max-width:100%;cursor:pointer;border-radius:5px;padding:0 4px 0 2px}
+.jd-val > summary:hover{background:color-mix(in srgb,currentColor 6%,transparent)}
+.jd-cnt{flex:none;font:600 10.5px/1.5 var(--sans,system-ui,sans-serif);padding:0 6px;border-radius:5px;background:color-mix(in srgb,currentColor 8%,transparent);opacity:.8}
+.jd-pv{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.7}
+.jd-val[open] > summary .jd-pv{display:none}
+.jd-val pre{margin:5px 0 7px;padding:9px 12px;border-radius:8px;background:color-mix(in srgb,currentColor 4.5%,transparent);border:1px solid color-mix(in srgb,currentColor 8%,transparent);
+  font:12px/1.55 var(--mono,ui-monospace,monospace);max-height:360px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;text-decoration:none!important}
+.jd-del > .jd-val > summary .jd-pv{text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--del) 55%,transparent)}
+.jd-del > .jd-val > summary{text-decoration:none!important}
+/* list view: steady columns, values never squeeze a column to one letter */
+.cmp .jd-table{table-layout:fixed;width:100%;border-collapse:collapse;font-size:12.5px}
+.cmp .jd-table col.w{width:30%}
+.cmp .jd-table col.k{width:118px}
+.cmp .jd-table th{text-transform:none;letter-spacing:0;font:600 11.5px/1.2 var(--sans,system-ui,sans-serif);padding:9px 12px!important;text-align:left}
+.cmp .jd-table td{padding:8px 12px!important;vertical-align:top;border-top:1px solid var(--cl)}
+.cmp .jd-table td .jd-val,.cmp .jd-table td .jd-l > .jd-val{max-width:100%}
+.cmp .jd-table .jd-p{white-space:normal;overflow-wrap:anywhere;font-weight:600}
+.cmp .jd-table td:nth-child(2){white-space:normal}
+.cmp .jd-table td:nth-child(2) .jd-kind{display:block;margin:4px 0 0}
+.cmp .jd-table tr.jd-c:hover td{background:color-mix(in srgb,currentColor 3%,transparent)}
+.cmp .jd-tw{border:1px solid var(--cl);border-radius:10px;overflow:hidden;margin-top:2px}
+.cmp .jd-tw table{margin:0}
+/* side by side: code font in every theme, wrapped lines hang under their own start */
+.cmp .jd-sbs td.tx{font-family:var(--mono,ui-monospace,Menlo,monospace)!important;font-size:12.5px;padding-left:calc(10px + (var(--ind,0) + 2) * 1ch)!important;text-indent:-2ch}
+.cmp .jd-sbs td.ln{font-family:var(--mono,ui-monospace,Menlo,monospace)!important}
+.cmp .jd-sbs tbody tr:nth-child(even) td:not(.jd-fill){background-color:transparent}
+.cmp .jd-sbs tr.jd-r-chg td.tx{background:color-mix(in srgb,var(--chg) 10%,transparent)!important}
+.cmp .jd-sbs tr.jd-r-add td:nth-child(4){background:color-mix(in srgb,var(--add) 12%,transparent)!important}
+.cmp .jd-sbs tr.jd-r-del td:nth-child(2){background:color-mix(in srgb,var(--del) 11%,transparent)!important}
+.cmp .jd-sbs tr.jd-r-mv td.tx{background:color-mix(in srgb,var(--mv) 9%,transparent)!important}
+.cmp .jd-table td{font-family:var(--sans,system-ui,sans-serif)}
+.cmp .jd-table td.jd-p,.cmp .jd-table td.jd-v{font-family:var(--mono,ui-monospace,Menlo,monospace)!important;font-size:12px}

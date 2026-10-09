@@ -134,6 +134,15 @@ await ev(`document.querySelector('#app .cmp-hint button').click()`); await sleep
 checks.shapeHint = report.shape.big === '8' && /parts that match best are \$\.event and \$\.entity/.test(report.shapeHint || '')
   && report.inner.big === '3' && JSON.stringify(report.inner.marks) === JSON.stringify(['$.serializationToken', '$.serializedObject.ownerSupplyChain', '$.serializedObject.currentOwnerArn'])
   && /Comparing \$\.event with \$\.entity/.test(report.innerHint || '') && /› event/.test(report.inner.sub) && report.back.big === '8';
+// the same pair in Lumen, every view (screenshots), and a folded value opens
+await ev(`document.documentElement.dataset.theme='lumen'`); await sleep(200);
+for (const v of ['tree', 'list', 'side']) { await ev(`document.querySelector('#app .cmp-seg [data-v=${v}]').click()`); await sleep(250); await ev(`scrollTo(0,0); document.querySelector('#app .content').scrollTop=0`); await shot(`lumen-${v}.png`); }
+await ev(`document.querySelector('#app .cmp-seg [data-v=list]').click()`); await sleep(200);
+report.listCols = await ev(`[...document.querySelectorAll('#app .jd-table tbody tr:first-child td')].map(td=>Math.round(td.getBoundingClientRect().width))`);
+await ev(`document.querySelector('#app .cmp-seg [data-v=tree]').click()`); await sleep(200);
+report.fold = await ev(`(()=>{const d=document.querySelector('#app .jd-val'); const s=d.querySelector('summary'); const before=d.open; s.click(); return {before, after:d.open, cnt:s.querySelector('.jd-cnt').textContent, marker:getComputedStyle(s).listStyleType}})()`);
+await shot('lumen-tree-open.png');
+checks.lumen = report.listCols.length === 4 && report.listCols.every((w) => w > 90) && report.fold.before === false && report.fold.after === true && report.fold.marker === 'none';
 await ev(`document.documentElement.dataset.theme='studio'`); await sleep(200); await shot('compare-studio.png');
 
 report.checks = checks;

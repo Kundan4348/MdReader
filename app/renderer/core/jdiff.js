@@ -175,11 +175,15 @@
   };
   const scal = (v) => h('span', { class: 'jv ' + (v === null ? 'jnull' : typeof v === 'boolean' ? 'jbool' : typeof v === 'number' ? 'jnum' : 'jstr') }, v === null ? 'null' : typeof v === 'string' ? JSON.stringify(v) : String(v));
   // a whole value: a scalar as itself, a container as its size with the full JSON under a fold
+  // a larger object or list folds: a chevron, a one-line preview and its size; open, the full JSON below it
   function valEl(v, open) {
     if (!isCont(v)) return scal(v);
-    const s = JSON.stringify(v, null, 2);
-    if (s.length <= 60 && !s.includes('\n  {')) return h('span', { class: 'jv jd-inline' }, spaced(JSON.stringify(v)));
-    return h('details', { class: 'jd-val', open: open ? '' : null }, h('summary', {}, h('span', { class: 'jsum' }, short(v))), h('pre', {}, s));
+    const one = spaced(JSON.stringify(v));
+    if (one.length <= 64) return h('span', { class: 'jv jd-inline' }, one);
+    const n = Array.isArray(v) ? v.length : Object.keys(v).length, size = `${n} ${Array.isArray(v) ? 'item' : 'key'}${n === 1 ? '' : 's'}`;
+    return h('details', { class: 'jd-val', open: open ? '' : null },
+      h('summary', { title: 'Show the whole value' }, h('span', { class: 'jd-chev', 'aria-hidden': 'true' }), h('span', { class: 'jd-cnt' }, size), h('span', { class: 'jd-pv' }, one.length > 120 ? one.slice(0, 119) + '…' : one)),
+      h('pre', {}, ...tint(JSON.stringify(v, null, 2))));
   }
   // one-line JSON with a space after each , and : -- but never inside a string ("16:05:00Z" stays as it is)
   function spaced(j) {
@@ -248,8 +252,8 @@
       const one = spaced(JSON.stringify(c.b)); // an unchanged object or list: one quiet line, shortened
       return [line('jd-same', '', h('span', { class: 'jv jd-one', title: one.length > 90 ? one.slice(0, 2000) : null }, one.length > 90 ? one.slice(0, 89) + '…' : one))];
     }
-    if (c.st === 'added') return [line('jd-add', '+', valEl(c.b, true))];
-    if (c.st === 'removed') return [line('jd-del', '−', valEl(c.a, true))];
+    if (c.st === 'added') return [line('jd-add', '+', valEl(c.b))];
+    if (c.st === 'removed') return [line('jd-del', '−', valEl(c.a))];
     if (c.st === 'changed') {
       const ka = kindOf(c.a), kb = kindOf(c.b);
       if (ka === 'text' && kb === 'text') return [line('jd-chg', '~', ...strPair(c.a, c.b))];
@@ -257,14 +261,14 @@
     }
     // inner: a fold with what changed inside it
     const by = c.by ? h('span', { class: 'jd-by', title: `List items were matched by their "${c.by}" field, not by position` }, `matched by ${c.by}`) : null;
-    const sum = h('summary', { class: 'jd-l jd-in' + (mv ? ' jd-c jd-moved' : ''), 'data-path': ps, title: ps }, h('span', { class: 'jd-s' }, ''), ...k, h('span', { class: 'jsum' }, Array.isArray(c.b) ? `[ ${c.a.length} → ${c.b.length} items ]` : `{ ${Object.keys(c.b).length} keys }`), ' ', ...counts(c.n, movedIn(c)), by, mv);
+    const sum = h('summary', { class: 'jd-l jd-in' + (mv ? ' jd-c jd-moved' : ''), 'data-path': ps, title: ps }, h('span', { class: 'jd-s' }, h('span', { class: 'jd-chev' })), ...k, h('span', { class: 'jsum' }, Array.isArray(c.b) ? `[ ${c.a.length} → ${c.b.length} items ]` : `{ ${Object.keys(c.b).length} keys }`), ' ', ...counts(c.n, movedIn(c)), by, mv);
     const d = h('details', { class: 'jn jd-n', open: '' }, sum, h('div', { class: 'jt' }, ...lines(c.kids, p, c, opts)));
     return [d];
   }
   // the list view: one row per difference
   function table(root, names) {
     const rows = changes(root);
-    const t = h('table', { class: 'jd-table' }, h('thead', {}, h('tr', {}, h('th', {}, 'Where'), h('th', {}, 'What'), h('th', {}, names[0]), h('th', {}, names[1]))));
+    const t = h('table', { class: 'jd-table' }, h('colgroup', {}, h('col', { class: 'w' }), h('col', { class: 'k' }), h('col', {}), h('col', {})), h('thead', {}, h('tr', {}, h('th', {}, 'Where'), h('th', {}, 'What'), h('th', {}, names[0]), h('th', {}, names[1]))));
     const body = h('tbody', {});
     const WHAT = { changed: 'changed', added: 'added', removed: 'removed', moved: 'moved' };
     for (const c of rows) {
@@ -358,10 +362,15 @@
       h('thead', {}, h('tr', {}, h('th', { colspan: '2' }, names[0]), h('th', { colspan: '2' }, names[1]))));
     const body = h('tbody', {});
     const rowEl = (x) => {
+      // the indent is a padding, not spaces, so a long line that wraps carries on under its own start (a hanging indent)
       const cell = (txt, mine, other) => {
         if (txt === null) return h('td', { class: 'tx jd-fill' });
-        if (x.st === 'chg' && other !== null) { const [a, b] = linePair(mine === 'l' ? txt : other, mine === 'l' ? other : txt); return h('td', { class: 'tx' }, ...(mine === 'l' ? a : b)); }
-        return h('td', { class: 'tx' }, ...tint(txt));
+        const ind = /^ */.exec(txt)[0].length, td = h('td', { class: 'tx', style: `--ind:${ind}` });
+        if (x.st === 'chg' && other !== null) {
+          const oi = /^ */.exec(other)[0].length, [a, b] = linePair((mine === 'l' ? txt : other).slice(mine === 'l' ? ind : oi), (mine === 'l' ? other : txt).slice(mine === 'l' ? oi : ind));
+          td.append(...(mine === 'l' ? a : b).flat()); return td;
+        }
+        td.append(...tint(txt.slice(ind))); return td;
       };
       return h('tr', { class: 'jd-r jd-r-' + x.st + (x.mark ? ' jd-c' : '') },
         h('td', { class: 'ln' }, x.ln === null ? '' : String(x.ln)), cell(x.l, 'l', x.r), h('td', { class: 'ln' }, x.rn === null ? '' : String(x.rn)), cell(x.r, 'r', x.l));
