@@ -11,10 +11,11 @@ echo "== json"; MDR_CHROME="$CFT" node test/json-test.mjs http://127.0.0.1:8477 
 echo "== find"; MDR_CHROME="$CFT" node test/find-test.mjs http://127.0.0.1:8477 "$OUT/find" | grep -E '"(mdOk|jsonOk|sqlOk|findOk)"|EXC'; FD=${PIPESTATUS[0]}
 echo "== write"; MDR_CHROME="$CFT" node test/write-test.mjs http://127.0.0.1:8477 "$OUT/write" | grep -E '"(mounted|exact|writeOk)"|EXC'; WT=${PIPESTATUS[0]}
 echo "== table"; MDR_CHROME="$CFT" node test/table-test.mjs http://127.0.0.1:8477 "$OUT/table" | grep -E '"(mounted|bad|tableOk)"|EXC'; TT=${PIPESTATUS[0]}
+echo "== write-data"; node test/json-edit-unit.mjs | tail -1; JU=${PIPESTATUS[0]}; MDR_CHROME="$CFT" node test/write-data-test.mjs http://127.0.0.1:8477 "$OUT/write-data" 2>/dev/null | grep -E '"writeDataOk"|EXC' | cut -c1-200; WD=${PIPESTATUS[0]}; [ $JU -eq 0 ] || WD=1
 echo "== code"; MDR_CHROME="$CFT" node test/code-test.mjs http://127.0.0.1:8477 "$OUT/code" | grep -E '"(mounted|copyOk|codeOk)"|EXC'; C=${PIPESTATUS[0]}
 echo "== diagram"; MDR_CHROME="$CFT" node test/diagram-test.mjs http://127.0.0.1:8477 "$OUT/diagram" | grep -E '"(mounted|flowOk|seqOk|othersOk|hoverOk|sourceOk|brokenOk|largeOk|legendOk|themesOk|mmdOk|awsOk|diagramOk)"|EXC'; D=${PIPESTATUS[0]}
 echo "== sql"; MDR_CHROME="$CFT" node test/sql-test.mjs http://127.0.0.1:8477 "$OUT/sql" | grep -E '"(mounted|kind|mdKind|legendPersist|fmtAgain|sqlOk)"|EXC'; Q=${PIPESTATUS[0]}
 kill $SRV 2>/dev/null
 echo "== app"; node test/app-test.mjs "$OUT/app" | grep -E '"(mounted|defaultTheme|stillMounted|outlineToggleOk|tabsOk|newTabOk|dragOk|filesNavOk|diagramsOk|secEditOk|pathLinksOk|imageOk|pinchAnchorOk|windows|secondFileUntouched|filesPanelVisible|savedToDisk|dirtyAfterSave|reloadedFromDisk)"|EXC'; A=${PIPESTATUS[0]}
 echo "== session"; node test/session-test.mjs "$OUT/session" | grep -E '"(sessionOk|restored|restoredPlusArg)"'; S=${PIPESTATUS[0]}
-echo "ext rc=$E  json rc=$J  find rc=$FD  write rc=$WT  table rc=$TT  code rc=$C  diagram rc=$D  sql rc=$Q  app rc=$A  session rc=$S  screenshots: $OUT"; [ $E -eq 0 ] && [ $J -eq 0 ] && [ $FD -eq 0 ] && [ $WT -eq 0 ] && [ $TT -eq 0 ] && [ $C -eq 0 ] && [ $D -eq 0 ] && [ $Q -eq 0 ] && [ $A -eq 0 ] && [ $S -eq 0 ]
+echo "ext rc=$E  json rc=$J  find rc=$FD  write rc=$WT  table rc=$TT  write-data rc=$WD  code rc=$C  diagram rc=$D  sql rc=$Q  app rc=$A  session rc=$S  screenshots: $OUT"; [ $E -eq 0 ] && [ $J -eq 0 ] && [ $FD -eq 0 ] && [ $WT -eq 0 ] && [ $TT -eq 0 ] && [ $WD -eq 0 ] && [ $C -eq 0 ] && [ $D -eq 0 ] && [ $Q -eq 0 ] && [ $A -eq 0 ] && [ $S -eq 0 ]

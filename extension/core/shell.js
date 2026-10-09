@@ -574,7 +574,7 @@
       }
       // the picker: Cell / Row / Column, Fill / Text, a shade (light .. dark) and 16 colours; ✕ removes the fill or text colour
       let lastInk = false, lastShade = 'soft';
-      function colourPicker(b, sel, done) {
+      function colourPicker(b, sel, done, onPick) {
         let scope = scopeFor(b, sel), ink = lastInk, shade = lastShade;
         const seg = (cls, items, get, set) => {
           const el = h('span', { class: 'wseg ' + cls, role: 'tablist' });
@@ -595,7 +595,7 @@
           box.dataset.sh = shade; box.dataset.ink = ink ? 'text' : 'fill';
           box.querySelector('.sw.none').title = ink ? 'Remove text colour' : 'Remove fill colour';
         }
-        const pick = (name) => { done && done(); colourOp(b, sel, scope, name && joinColour(name, shade), ink); };
+        const pick = (name) => { done && done(); (onPick || ((sc, v, k) => colourOp(b, sel, sc, v, k)))(scope, name && joinColour(name, shade), ink); };
         box.append(h('div', { class: 'wch' }, h('span', {}, 'Colour'), tabs),
           h('div', { class: 'wch2' }, kind, shades),
           h('div', { class: 'wsw' }, ...COL_COLOURS.map(([name, hex]) => h('button', { type: 'button', class: 'sw', title: name[0].toUpperCase() + name.slice(1), style: '--cc:' + hex, 'data-cc': name,
@@ -1036,7 +1036,547 @@
         }
       });
       doc.addEventListener('change', (e) => { if (ok() && e.target.type === 'checkbox') { const b = blockOf(e.target); if (b) { dirty.add(b); commit(b); } } });
-      return { enable, reset, commitAll };
+      return { enable, reset, commitAll, colourPicker };
+    })();
+
+    // ---------- Write mode for JSON and SQL ----------
+    // The same page as Read, changed in place. JSON: click a value or a key to change it; a table (an array of objects)
+    // takes the same actions as a markdown table -- insert, duplicate, move, drag, sort and delete rows and columns,
+    // rename a column from its header, colours and number bars. SQL: the query text itself is editable and is
+    // re-coloured when you pause; a query's title (the comment above it) is editable too, and a query can be added,
+    // duplicated, moved or deleted. Every change is a splice of the source that core/json.js / core/sql.js work out, so
+    // the rest of the file keeps its own layout, and ⌘Z undoes it.
+    const WD = (() => {
+      const kind = () => docKind();
+      const on = () => S.mode === 'write' && (kind() === 'json' || kind() === 'sql') && root.classList.contains('writing-data');
+      const hist = [], redo = [];
+      let ed = null, busy = 0, cur = null, sqlTimer = 0, jsel = null, dg = null, built = '';
+      const bar = h('div', { class: 'wbar wdbar', role: 'toolbar', 'aria-label': 'Write' });
+      const menu = h('div', { class: 'wmenu wdmenu', role: 'menu', hidden: '' });
+      const dropLine = h('div', { class: 'wdrop', hidden: '' });
+      root.append(bar, menu, dropLine);
+      const q = (sel, el) => [...(el || doc).querySelectorAll(sel)];
+      const vis = (els) => els.find((x) => x.getClientRects().length) || els[0] || null;
+      const E = (v) => CSS.escape(String(v));
+      const wrapOf = (jp) => doc.querySelector(`.table-wrap[data-jp="${E(jp)}"]`);
+      const colsOf = (w) => { try { return JSON.parse(w.dataset.cols || '[]'); } catch { return []; } };
+
+      // ---- where things are: a small description of an element that can be found again after a re-render ----
+      function find(d) {
+        if (!d) return null;
+        if (d.wk === 'v' || d.wk === 'k') return vis(q(`[data-wk="${d.wk}"][data-p="${E(d.p)}"]`));
+        if (d.wk === 'row') return vis(q(`.jl[data-p="${E(d.p)}"], summary[data-p="${E(d.p)}"], .jroot[data-p="${E(d.p)}"]`));
+        if (d.wk === 'sql') return doc.querySelector(`.sqlb[data-st="${d.st}"] pre > code`);
+        if (d.wk === 'stmt') return doc.querySelector(`.sqlb[data-st="${d.st}"]`);
+        const w = d.jp !== undefined ? wrapOf(d.jp) : null; if (!w) return null;
+        if (d.wk === 'cell') return w.querySelector(`tbody tr[data-i="${d.i}"] td[data-col="${E(d.col)}"]`);
+        if (d.wk === 'th') return w.querySelector(`thead th[data-col="${E(d.col)}"]`);
+        if (d.wk === 'tr') return w.querySelector(`tbody tr[data-i="${d.i}"]`);
+        return w; // 'table'
+      }
+      function describe(el) {
+        if (!el || el.nodeType !== 1) return null;
+        const wk = el.dataset.wk;
+        if (wk === 'v' || wk === 'k') return { wk, p: el.dataset.p };
+        const w = el.closest('.table-wrap[data-jp]');
+        if (w) {
+          const c = el.closest('td[data-col], th[data-col]');
+          if (c) return c.tagName === 'TH' ? { wk: 'th', jp: w.dataset.jp, col: c.dataset.col } : { wk: 'cell', jp: w.dataset.jp, i: +c.parentElement.dataset.i, col: c.dataset.col };
+          const tr = el.closest('tr[data-i]'); if (tr) return { wk: 'tr', jp: w.dataset.jp, i: +tr.dataset.i };
+          return { wk: 'table', jp: w.dataset.jp };
+        }
+        if (kind() === 'sql') { // a query: its code block, or anything in its section (title, summary rows)
+          const sb = el.closest('.sqlb[data-st]'); if (sb) return { wk: 'sql', st: +sb.dataset.st };
+          const st = el.closest('.sqlst, .sec'); const b = st && st.querySelector('.sqlb[data-st]'); if (b) return { wk: 'sql', st: +b.dataset.st };
+          return null;
+        }
+        const r = el.closest('.jl[data-p], summary[data-p], .jroot[data-p]'); if (r) return { wk: 'row', p: r.dataset.p };
+        return null;
+      }
+      const textNodesOf = (el) => { const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.parentElement.closest('button') ? 2 : 1) }); const o = []; while (w.nextNode()) o.push(w.currentNode); return o; };
+      function caretOffset(el) {
+        const s = getSelection(); if (!s.rangeCount || !el.contains(s.anchorNode)) return null;
+        const r = document.createRange(); r.setStart(el, 0); r.setEnd(s.anchorNode, s.anchorOffset); return r.toString().length;
+      }
+      function placeAt(el, how) {
+        const ns = textNodesOf(el), s = getSelection(), r = document.createRange();
+        if (!ns.length) { r.selectNodeContents(el); r.collapse(false); }
+        else if (how === 'all') { r.setStart(ns[0], 0); const l = ns[ns.length - 1]; r.setEnd(l, l.length); }
+        else if (typeof how === 'number') {
+          let left = how, done = false;
+          for (const n of ns) { if (left <= n.length) { r.setStart(n, left); done = true; break; } left -= n.length; }
+          if (!done) { const l = ns[ns.length - 1]; r.setStart(l, l.length); }
+          r.collapse(true);
+        } else { const l = ns[ns.length - 1]; r.setStart(l, l.length); r.collapse(true); }
+        s.removeAllRanges(); s.addRange(r);
+      }
+      // put the cursor on d: opens the folds above it, keeps it in view
+      function focusTo(d, how) {
+        let el = typeof d === 'function' ? d() : find(d); if (!el) return false;
+        for (let p = el.closest('details'); p; p = p.parentElement && p.parentElement.closest('details')) p.open = true;
+        if (!el.classList.contains('wed')) { const inner = el.querySelector('.wed'); if (!inner) { el.scrollIntoView({ block: 'nearest' }); cur = describe(el); syncBar(); return true; } el = inner; }
+        el.focus({ preventScroll: true }); placeAt(el, how);
+        const br = el.getBoundingClientRect(), cr = content.getBoundingClientRect();
+        if (br.bottom > cr.bottom - 90 || br.top < cr.top) content.scrollTop += br.top - cr.top - content.clientHeight / 3;
+        return true;
+      }
+
+      // ---- text changes: one undo step each; the page is re-rendered and the anchor kept where it was on screen ----
+      const foldState = () => new Map(q('details').map((d) => [d.dataset.p ? 'p' + d.dataset.p : d.dataset.raw ? 'r' + d.dataset.raw : null, d.open]).filter((x) => x[0]));
+      const refold = (m) => q('details').forEach((d) => { const k = d.dataset.p ? 'p' + d.dataset.p : d.dataset.raw ? 'r' + d.dataset.raw : null; if (k && m.has(k)) d.open = m.get(k); });
+      function show(next, anchor, focus, how) {
+        const t = curTab(), folds = foldState();
+        busy++;
+        try { setText(next); if (t) t.text = next; keepInPlace(() => find(anchor), () => { paint(); refold(folds); }); } finally { busy--; }
+        notifyTabs();
+        if (focus) focusTo(focus, how === undefined ? 'all' : how);
+      }
+      function mutate(next, anchor, focus, how) {
+        if (next === S.text) return false;
+        hist.push({ before: S.text, after: next }); if (hist.length > 80) hist.shift(); redo.length = 0;
+        show(next, anchor, focus, how);
+        return true;
+      }
+      function undo(again) {
+        if (ed) { if (readOf(ed) !== ed.shown) finish('blur'); else { restore(ed); ed = null; } }
+        const from = again ? redo : hist, top = from[from.length - 1];
+        if (!top || S.text !== (again ? top.before : top.after)) { if (from.length) from.length = 0; flash(again ? 'Nothing to redo' : 'Nothing to undo'); return false; }
+        from.pop(); (again ? hist : redo).push(top);
+        const y = content.scrollTop; show(again ? top.after : top.before, null, null); content.scrollTop = y;
+        flash(again ? 'Redone' : 'Undone');
+        return true;
+      }
+
+      // ---- one field being edited ----
+      function readOf(e) {
+        if (e.wk === 'cell' || e.wk === 'th') return cellText(e.el);
+        if (e.wk === 'title' || e.wk === 'k') return e.el.textContent.replace(/\n/g, ' ');
+        return e.el.textContent;
+      }
+      function restore(e) { if (e.el.isConnected) e.el.replaceChildren(...e.orig); }
+      function begin(el) {
+        const wk = el.dataset.wk;
+        const e = { el, wk, d: describe(el), orig: [...el.childNodes].map((n) => n.cloneNode(true)) };
+        if (wk === 'v') {
+          e.p = el.dataset.p; e.t = el.dataset.t;
+          const lit = JV.literalAt(S.text, e.p); if (lit === null) return;
+          const raw = e.t === 'string' ? JSON.parse(lit) : lit;
+          if (el.textContent !== raw) { const at = caretOffset(el); el.textContent = raw; placeAt(el, at === null ? 'end' : Math.max(0, at - (e.t === 'string' ? 1 : 0))); }
+          e.shown = raw;
+        } else if (wk === 'k') {
+          e.p = el.dataset.p; let raw; try { raw = JSON.parse(el.textContent); } catch { raw = el.textContent; }
+          if (el.textContent !== raw) { const at = caretOffset(el); el.textContent = raw; placeAt(el, at === null ? 'end' : Math.max(0, at - 1)); }
+          e.shown = raw;
+        } else if (wk === 'cell' || wk === 'th') {
+          const w = el.closest('.table-wrap[data-jp]'); e.jp = w.dataset.jp; e.cols = colsOf(w); e.col = el.dataset.col;
+          if (wk === 'cell') e.i = +el.parentElement.dataset.i;
+          e.shown = cellText(el);
+        } else if (wk === 'sql') {
+          const b = el.closest('.sqlb'); e.s = +b.dataset.s; e.st = +b.dataset.st; e.shown = el.textContent;
+        } else if (wk === 'title') { const sc = el.closest('.sqlst, .sec'), b = sc && sc.querySelector('.sqlb[data-st]'); e.l0 = +el.closest('h2').dataset.l0; e.st = b ? +b.dataset.st : 0; e.shown = el.textContent; }
+        ed = e; cur = e.d; syncBar();
+      }
+      function retitle(l0, t) {
+        const lines = S.text.split('\n'), m = /^(\s*(?:--+|#+|\/\*+)\s*)(.*?)(\s*\*+\/\s*)?$/.exec(lines[l0] || '');
+        if (!m) throw new Error('Could not find this title in the file');
+        lines[l0] = m[1] + t.trim() + (m[3] || ''); return lines.join('\n');
+      }
+      // finish the field: 'cancel' puts it back, anything else writes it. `next` (a description, or a function of the
+      // edit's result giving one) is where the cursor goes afterwards.
+      function finish(how, next, nextHow) {
+        const e = ed; if (!e) return false;
+        ed = null; clearTimeout(sqlTimer);
+        const now = readOf(e), go = (r) => (typeof next === 'function' ? next(r) : next);
+        if (how === 'cancel' || now === e.shown) { restore(e); if (next) focusTo(go(null), nextHow); return false; }
+        let r = null;
+        try {
+          if (e.wk === 'v') r = JV.edit(S.text, 'set', { pk: e.p, raw: now, was: e.t });
+          else if (e.wk === 'k') r = JV.edit(S.text, 'rename', { pk: e.p, key: now });
+          else if (e.wk === 'cell') r = JV.edit(S.text, 'cell', { pk: e.jp, i: e.i, col: e.col, raw: now, cols: e.cols });
+          else if (e.wk === 'th') r = JV.edit(S.text, 'colRename', { pk: e.jp, from: e.col, to: now.trim() });
+          else if (e.wk === 'sql') r = { text: S.text.slice(0, e.s) + now + S.text.slice(e.s + e.shown.length) };
+          else if (e.wk === 'title') { if (!now.trim()) throw new Error('A title needs some words -- or delete the comment in Edit mode'); r = { text: retitle(e.l0, now) }; }
+        } catch (err) { restore(e); flash(err.message, 3200); return false; }
+        if (!r || r.text === S.text) { restore(e); if (next) focusTo(go(null), nextHow); return false; }
+        const anchor = e.wk === 'k' && r.focus ? { wk: 'row', p: r.focus } : e.wk === 'th' ? { wk: 'table', jp: e.jp } : e.wk === 'sql' || e.wk === 'title' ? { wk: 'stmt', st: e.st === undefined ? 0 : e.st } : e.d;
+        mutate(r.text, anchor, next ? go(r) : null, nextHow);
+        if (e.wk === 'v' && e.t !== 'string' && r.text && /^"/.test(JV.literalAt(S.text, e.p) || '')) flash('Saved as text -- right-click › Type to change it back', 2600);
+        return true;
+      }
+      const commitAll = () => { if (ed) finish('blur'); };
+
+      // ---- turning it on for a freshly painted page ----
+      function enable(r) {
+        const k = kind(), act = S.mode === 'write' && (k === 'json' || k === 'sql') && !(k === 'json' && r && r.json && r.json.error);
+        root.classList.toggle('writing-data', act);
+        ed = null; jsel = null; hideMenu();
+        if (!act) { if (S.mode === 'write' && k === 'json' && r && r.json && r.json.error) flash('This JSON has an error -- fix it in Edit mode (⌘2) to write on the page', 3500); return; }
+        const mk = (el, wk, tip) => { el.contentEditable = 'plaintext-only'; el.classList.add('wed'); el.dataset.wk = wk; el.spellcheck = false; if (tip && !el.title) el.title = tip; };
+        if (k === 'json') {
+          q('.jv[data-p]').forEach((el) => mk(el, 'v'));
+          q('.jk[data-p]').forEach((el) => mk(el, 'k'));
+          q('.table-wrap[data-jp] > table').forEach((t) => {
+            t.querySelectorAll('thead th[data-col]').forEach((th) => {
+              mk(th, 'th', 'Type to rename this column in every row');
+              th.querySelectorAll('button').forEach((b) => { b.contentEditable = 'false'; });
+              const g = h('button', { type: 'button', class: 'jcg', contenteditable: 'false', tabindex: '-1', title: 'Drag to move this column · click to select it', 'aria-label': 'Move or select column' }); // the glyph is CSS, so the header's text stays the column name
+              if (th.firstChild) th.firstChild.after(g); else th.append(g); // after the name: the header still starts with it
+            });
+            t.querySelectorAll('tbody td[data-col]:not(.jarr)').forEach((td) => mk(td, 'cell'));
+            t.querySelectorAll('tbody td.jarr').forEach((td) => { td.title = 'A list: change it in "as tree" under the table, or in Edit mode'; });
+            t.querySelectorAll('tbody td.jidxcol').forEach((td) => { td.classList.add('jrowh'); td.title = 'Click to select this row (⇧-click for more) · drag to move it'; });
+          });
+        } else {
+          q('.sqlb[data-st] pre > code').forEach((el) => mk(el, 'sql'));
+          q('h2[data-l0]:not([data-gen]) > .t').forEach((el) => mk(el, 'title', 'The comment above the query -- type to rename it'));
+        }
+        buildBar(k); syncBar();
+      }
+
+      // ---- the toolbar ----
+      const BTN = {
+        json: [['add', '+ Add', 'Add a key / item below this one (in a table: a row)'], ['dup', 'Duplicate', 'Duplicate this key, item or row'], ['up', '↑', 'Move up'], ['down', '↓', 'Move down'],
+          ['del', 'Delete', 'Delete this key, item or row (selected rows: all of them)'], ['more', 'More ▾', 'Type, columns, colours ... (or right-click)']],
+        sql: [['add', '+ Query', 'A new query below this one'], ['dup', 'Duplicate', 'Duplicate this query'], ['up', '↑', 'Move this query up'], ['down', '↓', 'Move this query down'],
+          ['del', 'Delete', 'Delete this query'], ['fmt', 'Format', 'Re-indent the whole file (whitespace only)']],
+      };
+      function buildBar(k) {
+        if (built === k) return; built = k;
+        bar.replaceChildren(h('span', { class: 'wtag' }, k === 'json' ? 'Writing JSON' : 'Writing SQL'),
+          ...BTN[k].map(([a, label, tip]) => h('button', { type: 'button', 'data-act': a, title: tip, onmousedown: (e) => e.preventDefault(), onclick: (e) => act(a, e) }, label)),
+          h('span', { class: 'whelp', title: 'Changes go into the file text straight away; ⌘S saves; ⌘Z undoes' }, k === 'json' ? 'Click a value to change it · right-click for more' : 'Type in a query · right-click for more'));
+      }
+      function syncBar() {
+        if (!built) return;
+        const has = !!cur && (kind() === 'sql' ? cur.wk === 'sql' : cur.wk !== 'table');
+        bar.querySelectorAll('button[data-act]').forEach((b) => { b.disabled = b.dataset.act !== 'fmt' && !has; });
+      }
+      function act(a, e) {
+        if (a === 'fmt') { commitAll(); return formatDoc(false); }
+        const d = cur; if (!d) return flash('Click into the page first');
+        if (kind() === 'sql') return sqlAct(a, d.st);
+        if (a === 'more') { const r = e.currentTarget.getBoundingClientRect(); return openMenuFor(find(d) || doc, r.left, r.top, true); }
+        if (d.wk === 'cell' || d.wk === 'th' || d.wk === 'tr') {
+          const w = find({ wk: 'table', jp: d.jp }); if (!w) return;
+          const rows = jsel && jsel.jp === d.jp && jsel.kind === 'row' ? jsel.rows : d.i !== undefined ? [d.i] : [];
+          if (!rows.length) return flash('Click a cell in a row first');
+          const op = { add: 'rowBelow', dup: 'rowDup', up: 'rowUp', down: 'rowDown', del: 'rowDel' }[a];
+          return rowOp(w, op, rows, d.col);
+        }
+        const p = d.p; if (!p) return;
+        treeAct({ add: 'add', dup: 'dup', up: 'up', down: 'down', del: 'del' }[a], p);
+      }
+
+      // ---- JSON tree actions ----
+      function treeAct(op, p, arg) {
+        commitAll();
+        let r;
+        try {
+          if (op === 'add' || op === 'above') r = JV.edit(S.text, 'add', { pk: p, before: op === 'above' });
+          else if (op === 'inside') r = JV.edit(S.text, 'addInside', { pk: p });
+          else if (op === 'dup') r = JV.edit(S.text, 'dup', { pk: p });
+          else if (op === 'up' || op === 'down') r = JV.edit(S.text, 'move', { pk: p, dir: op === 'up' ? -1 : 1 });
+          else if (op === 'del') r = JV.edit(S.text, 'del', { pks: [p] });
+          else if (op === 'type') r = JV.edit(S.text, 'type', { pk: p, to: arg });
+        } catch (err) { return flash(err.message, 3000); }
+        if (!r) return;
+        const f = r.focus;
+        const focus = f ? () => find({ wk: r.role === 'k' ? 'k' : 'v', p: f }) || find({ wk: 'row', p: f }) : null;
+        mutate(r.text, f ? { wk: 'row', p: f } : { wk: 'row', p: parentOf(p) }, focus, op === 'up' || op === 'down' || op === 'type' ? 'end' : 'all');
+        if (op === 'del') flash('Deleted -- ⌘Z brings it back');
+      }
+      const parentOf = (p) => { if (p.startsWith('doc#')) return p; const a = JSON.parse(p); return a.length === 2 ? a[0] : JV.pathKey(a.slice(0, -1)); };
+
+      // ---- JSON table actions ----
+      function tableAct(jp, op, args, focus, how) {
+        commitAll();
+        const w = wrapOf(jp); if (!w) return null;
+        let r; try { r = JV.edit(S.text, op, { pk: jp, cols: colsOf(w), ...args }); } catch (err) { flash(err.message, 3000); return null; }
+        if (!r) return null;
+        clearSel();
+        mutate(r.text, { wk: 'table', jp }, focus ? focus(r) : null, how);
+        return r;
+      }
+      function rowOp(w, op, rows, col) {
+        const jp = w.dataset.jp, cols = colsOf(w), lo = Math.min(...rows), hi = Math.max(...rows), c0 = col || cols[0];
+        if (op === 'rowAbove') return tableAct(jp, 'rowAdd', { at: lo, like: lo }, () => ({ wk: 'cell', jp, i: lo, col: c0 }));
+        if (op === 'rowBelow') return tableAct(jp, 'rowAdd', { at: hi + 1, like: hi }, () => ({ wk: 'cell', jp, i: hi + 1, col: c0 }));
+        if (op === 'rowDup') return tableAct(jp, 'rowDup', { rows }, () => ({ wk: 'cell', jp, i: hi + 1, col: c0 }), 'end');
+        if (op === 'rowUp') { if (lo === 0) return flash('Already the top row'); return tableAct(jp, 'rowMove', { from: lo, to: lo - 1 }, () => ({ wk: 'cell', jp, i: lo - 1, col: c0 }), 'end'); }
+        if (op === 'rowDown') { const n = w.querySelectorAll('tbody tr[data-i]').length; if (hi >= n - 1) return flash('Already the last row'); return tableAct(jp, 'rowMove', { from: hi, to: hi + 2 }, () => ({ wk: 'cell', jp, i: hi + 1, col: c0 }), 'end'); }
+        if (op === 'rowDel') { const r = tableAct(jp, 'rowDel', { rows }); if (r) flash(rows.length > 1 ? `Deleted ${rows.length} rows -- ⌘Z brings them back` : 'Row deleted -- ⌘Z brings it back'); return r; }
+        return null;
+      }
+      function colOp(w, op, names) {
+        const jp = w.dataset.jp, cols = colsOf(w), idx = names.map((n) => cols.indexOf(n)).filter((i) => i >= 0), lo = Math.min(...idx), hi = Math.max(...idx);
+        if (op === 'colLeft' || op === 'colRight') return tableAct(jp, 'colAdd', { at: op === 'colLeft' ? lo : hi + 1 }, (r) => ({ wk: 'th', jp, col: r.focus.col }));
+        if (op === 'moveLeft') { if (lo === 0) return flash('Already the first column'); return tableAct(jp, 'colMove', { from: lo, to: lo - 1 }); }
+        if (op === 'moveRight') { if (hi >= cols.length - 1) return flash('Already the last column'); return tableAct(jp, 'colMove', { from: hi, to: hi + 2 }); }
+        if (op === 'sortAsc' || op === 'sortDesc') { const r = tableAct(jp, 'sort', { col: cols[lo], dir: op === 'sortAsc' ? 1 : -1 }); if (r) flash(`Sorted by "${cols[lo]}"`); else flash('Already in that order'); return r; }
+        if (op === 'delCols') { const r = tableAct(jp, 'colDel', { names }); if (r) flash(names.length > 1 ? `Deleted ${names.length} columns` : 'Column deleted -- ⌘Z brings it back'); return r; }
+        return null;
+      }
+      // colours for a JSON table are kept on this Mac: a JSON file cannot carry them without breaking programs that read it
+      function jColour(w, sel, scope, val, ink) {
+        const jp = w.dataset.jp;
+        if (!jcSave(jp, jcData(jp))) return flash('Save this file first -- colours are kept per file', 3000);
+        const d = jcData(jp), bag = ink ? d.text : d, rows = [...w.querySelectorAll('thead > tr:not(.filters), tbody > tr')];
+        const hs = rows[0] ? [...rows[0].children].map(cellText) : [], label = (i) => cellText(rows[i] && rows[i].children[1]);
+        const cells = sel.cells.length ? sel.cells : [[sel.r, sel.c]];
+        let ts;
+        if (scope === 'col') ts = [...new Set(cells.map((p) => p[1]).filter((c) => c > 0))].map((c) => ['cols', hs[c]]);
+        else if (scope === 'row') ts = [...new Set(cells.map((p) => p[0]).filter((i) => i > 0))].map((i) => ['rows', label(i)]);
+        else ts = cells.filter((p) => p[1] > 0).map(([i, c]) => (i === 0 ? ['cols', hs[c]] : ['cells', label(i) + '|' + hs[c]]));
+        if (!ts.length) return flash('Pick a cell, row or column of the table');
+        for (const [b, key] of ts) { if (val) bag[b][key] = val; else delete bag[b][key]; }
+        jcSave(jp, d); applyColColours();
+        if (!localStorage.getItem('mdr-jcolour-told')) { localStorage.setItem('mdr-jcolour-told', '1'); flash('Colours for JSON tables are saved on this Mac, not in the file (a JSON file cannot hold them without breaking programs that read it)', 5000); }
+      }
+      function jBars(w, names) {
+        const jp = w.dataset.jp, ths = names.map((n) => w.querySelector(`thead th[data-col="${E(n)}"]`)).filter(Boolean);
+        const ok = ths.filter((th) => th.classList.contains('barv')).map((th) => th.dataset.col);
+        if (!ok.length) return flash('Number bars are for columns of amounts -- this one looks like IDs, codes or row numbers');
+        const d = jcData(jp), onNow = ok.every((k) => d.bars.includes(k));
+        d.bars = onNow ? d.bars.filter((k) => !ok.includes(k)) : [...d.bars, ...ok];
+        if (!jcSave(jp, d)) return flash('Save this file first -- colours are kept per file', 3000);
+        applyColColours();
+      }
+
+      // ---- whole-row / whole-column selection (click the # cell or a column's grip) ----
+      function clearSel() { jsel = null; q('.wsel').forEach((x) => x.classList.remove('wsel')); }
+      function paintSel() {
+        q('.wsel').forEach((x) => x.classList.remove('wsel'));
+        const w = jsel && wrapOf(jsel.jp); if (!w) return;
+        if (jsel.kind === 'row') jsel.rows.forEach((i) => w.querySelectorAll(`tbody tr[data-i="${i}"] > *`).forEach((x) => x.classList.add('wsel')));
+        else jsel.cols.forEach((c) => w.querySelectorAll(`[data-col="${E(c)}"]`).forEach((x) => x.classList.add('wsel')));
+      }
+      function pickSel(g) {
+        if (ed) finish('blur');
+        const jp = g.jp;
+        if (g.row !== null) {
+          if (g.shift && jsel && jsel.jp === jp && jsel.kind === 'row') { const a = Math.min(jsel.anchor, g.row), b = Math.max(jsel.anchor, g.row); jsel.rows = [...Array(b - a + 1).keys()].map((x) => x + a); }
+          else jsel = { jp, kind: 'row', rows: [g.row], anchor: g.row };
+          cur = { wk: 'tr', jp, i: g.row };
+        } else {
+          if (g.shift && jsel && jsel.jp === jp && jsel.kind === 'col') { if (!jsel.cols.includes(g.col)) jsel.cols.push(g.col); }
+          else jsel = { jp, kind: 'col', cols: [g.col] };
+          cur = { wk: 'th', jp, col: g.col };
+        }
+        paintSel(); syncBar();
+        flash(jsel.kind === 'row' ? `${jsel.rows.length > 1 ? jsel.rows.length + ' rows' : 'Row'} selected -- Delete removes, right-click for more` : `${jsel.cols.length > 1 ? jsel.cols.length + ' columns' : 'Column'} selected -- Delete removes, right-click for more`, 2200);
+      }
+
+      // ---- menus ----
+      function hideMenu() { menu.hidden = true; menu.replaceChildren(); }
+      function place(x, y, above) {
+        menu.hidden = false;
+        const mw = menu.offsetWidth, mh = menu.offsetHeight;
+        menu.style.left = Math.max(8, Math.min(x, innerWidth - mw - 8)) + 'px';
+        menu.style.top = Math.max(8, Math.min(above ? y - mh - 8 : y, innerHeight - mh - 8)) + 'px';
+      }
+      const it = (label, fn, dis, danger, key) => h('button', { type: 'button', role: 'menuitem', class: danger ? 'danger' : '', disabled: dis ? '' : null,
+        onmousedown: (e) => e.preventDefault(), onclick: () => { hideMenu(); fn(); } }, h('span', {}, label), key ? h('kbd', {}, key) : null);
+      const grp = (n) => h('div', { class: 'wmh' }, n);
+      function openMenuFor(t, x, y, above) {
+        if (!t || !t.closest) return;
+        if (kind() === 'sql') { const d = describe(t); if (d && d.st !== undefined) sqlMenu(d.st, x, y, above); return; }
+        const w = t.closest('.table-wrap[data-jp]'); if (w) return tableMenu(w, t, x, y, above);
+        const r = t.closest('.jl[data-p], summary[data-p], .jroot[data-p]'); if (r) return treeMenu(r, x, y, above);
+      }
+      function tableMenu(w, t, x, y, above) {
+        const jp = w.dataset.jp, cols = colsOf(w), td = t.closest('td, th'), tr = t.closest('tr[data-i]');
+        const s = jsel && jsel.jp === jp ? jsel : null;
+        let rows, names, whole = null;
+        if (s && s.kind === 'row' && (!tr || s.rows.includes(+tr.dataset.i))) { rows = s.rows; names = td && td.dataset.col ? [td.dataset.col] : [cols[0]]; whole = 'row'; }
+        else if (s && s.kind === 'col' && (!td || s.cols.includes(td.dataset.col))) { names = s.cols; rows = []; whole = 'col'; }
+        else { rows = tr ? [+tr.dataset.i] : []; names = td && td.dataset.col !== undefined ? [td.dataset.col] : [cols[0]]; }
+        const ci = names.map((n) => cols.indexOf(n)), nRows = w.querySelectorAll('tbody tr[data-i]').length, all = [...w.querySelectorAll('tbody tr[data-i]')].map((r) => +r.dataset.i);
+        const cells = whole === 'row' ? rows.flatMap((i) => cols.map((_, c) => [i + 1, c + 1])) : whole === 'col' ? [0, ...all.map((i) => i + 1)].flatMap((i) => ci.map((c) => [i, c + 1]))
+          : rows.length ? rows.flatMap((i) => ci.map((c) => [i + 1, c + 1])) : ci.map((c) => [0, c + 1]);
+        const sel = { rows: whole === 'col' ? [] : rows.map((i) => i + 1), cols: ci.map((c) => c + 1), cells, r: rows.length ? rows[0] + 1 : 0, c: ci[0] + 1, whole };
+        const barsOk = names.some((n) => { const th = w.querySelector(`thead th[data-col="${E(n)}"]`); return th && th.classList.contains('barv'); });
+        const barsOn = barsOk && names.every((n) => jcData(jp).bars.includes(n)), nr = rows.length, nc = names.length;
+        menu.replaceChildren(
+          W.colourPicker(w, sel, hideMenu, (scope, val, ink) => jColour(w, sel, scope, val, ink)),
+          ...(nr ? [grp(nr > 1 ? `${nr} rows` : 'Row'),
+            it('Insert row above', () => rowOp(w, 'rowAbove', rows, names[0])), it('Insert row below', () => rowOp(w, 'rowBelow', rows, names[0]), false, false, '⌘↩'),
+            it(nr > 1 ? `Duplicate ${nr} rows` : 'Duplicate row', () => rowOp(w, 'rowDup', rows, names[0])),
+            it('Move up', () => rowOp(w, 'rowUp', rows, names[0]), Math.min(...rows) === 0), it('Move down', () => rowOp(w, 'rowDown', rows, names[0]), Math.max(...rows) >= nRows - 1),
+            it(nr > 1 ? `Delete ${nr} rows` : 'Delete row', () => rowOp(w, 'rowDel', rows), false, true)] : []),
+          grp(nc > 1 ? `${nc} columns` : `Column "${names[0]}"`),
+          it('Insert column left', () => colOp(w, 'colLeft', names)), it('Insert column right', () => colOp(w, 'colRight', names)),
+          it('Move left', () => colOp(w, 'moveLeft', names), Math.min(...ci) === 0), it('Move right', () => colOp(w, 'moveRight', names), Math.max(...ci) >= cols.length - 1),
+          it('Sort by this column, A → Z', () => colOp(w, 'sortAsc', names)), it('Sort by this column, Z → A', () => colOp(w, 'sortDesc', names)),
+          h('button', { type: 'button', role: 'menuitem', disabled: barsOk ? null : '', title: barsOk ? '' : 'Only for columns of amounts -- these look like IDs, codes or row numbers', onmousedown: (e) => e.preventDefault(), onclick: () => { hideMenu(); jBars(w, names); } }, h('span', {}, barsOn ? 'Hide number bars' : 'Show number bars')),
+          it(nc > 1 ? `Delete ${nc} columns` : 'Delete column', () => colOp(w, 'delCols', names), false, true),
+          grp('Table'),
+          it(root.classList.contains('no-tcolour') ? 'Turn table colours on' : 'Turn table colours off', toggleTableColours));
+        place(x, y, above);
+      }
+      const pathText = (p) => { if (p.startsWith('doc#')) return '$'; return '$' + JSON.parse(p).slice(1).map((k) => (typeof k === 'number' ? `[${k}]` : /^[A-Za-z_$][\w$]*$/.test(k) ? '.' + k : `[${JSON.stringify(k)}]`)).join(''); };
+      function treeMenu(rowEl, x, y, above) {
+        const p = rowEl.dataset.p, isRoot = p.startsWith('doc#'), isCont = rowEl.hasAttribute('data-c') || (rowEl.classList.contains('jroot') && !rowEl.querySelector(':scope > .jt > .jl > .jv'));
+        const last = isRoot ? null : JSON.parse(p).slice(-1)[0], inArr = typeof last === 'number', what = inArr ? 'item' : 'key';
+        const lit = isRoot ? null : JV.literalAt(S.text, p) || '';
+        const now = !lit ? '' : lit[0] === '"' ? 'string' : lit[0] === '{' ? 'object' : lit[0] === '[' ? 'array' : /^(true|false|null)$/.test(lit) ? lit : 'number';
+        const tb = (to, label, tip) => h('button', { type: 'button', class: 'wal' + (now === to ? ' on' : ''), title: tip, onmousedown: (e) => e.preventDefault(), onclick: () => { hideMenu(); treeAct('type', p, to); } }, label);
+        const items = [];
+        if (!isRoot) items.push(grp(inArr ? `Item ${last}` : `Key "${last}"`),
+          it(`Add ${what} below`, () => treeAct('add', p)), it(`Add ${what} above`, () => treeAct('above', p)),
+          it('Duplicate', () => treeAct('dup', p)), it('Move up', () => treeAct('up', p)), it('Move down', () => treeAct('down', p)));
+        if (isCont) items.push(it(isRoot ? 'Add at the end' : 'Add inside, at the end', () => treeAct('inside', p)));
+        if (!isRoot) items.push(h('div', { class: 'walign wtype' }, h('span', {}, 'Type'), tb('string', 'Text', 'Text, in quotes'), tb('number', '123', 'Number'), tb('true', 'true'), tb('false', 'false'), tb('null', 'null', 'Empty (null)'), tb('object', '{ }', 'An object (its value is replaced)'), tb('array', '[ ]', 'A list (its value is replaced)')));
+        items.push(it('Copy path', () => { const t = pathText(p); (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => flash('Copied ' + t), () => flash(t, 4000)); }));
+        if (!isRoot) items.push(it(`Delete ${what}`, () => treeAct('del', p), false, true));
+        menu.replaceChildren(...items); place(x, y, above);
+      }
+
+      // ---- SQL ----
+      function sqlAct(a, st) {
+        commitAll();
+        const op = { add: 'add', dup: 'dup', up: 'up', down: 'down', del: 'del' }[a]; if (!op) return;
+        let r; try { r = SQLV.edit(S.text, op, st); } catch (err) { return flash(err.message, 3000); }
+        const f = r.focus === null || r.focus === undefined ? null : r.focus;
+        mutate(r.text, f === null ? null : { wk: 'stmt', st: f }, f === null ? null : { wk: 'sql', st: f }, op === 'add' ? 'all' : 'end');
+        if (op === 'del') flash('Query deleted -- ⌘Z brings it back'); else if (op === 'add') flash('New query added -- type over it', 2200);
+      }
+      function sqlMenu(st, x, y, above) {
+        const n = q('.sqlb[data-st]').length;
+        menu.replaceChildren(grp(`Query ${st + 1}`),
+          it('New query below', () => sqlAct('add', st)), it('Duplicate', () => sqlAct('dup', st)),
+          it('Move up', () => sqlAct('up', st), st === 0), it('Move down', () => sqlAct('down', st), st >= n - 1),
+          it('Format the file', () => { commitAll(); formatDoc(false); }),
+          it('Delete query', () => sqlAct('del', st), false, true));
+        place(x, y, above);
+      }
+      let composing = false;
+      function sqlPause() {
+        if (!ed || ed.wk !== 'sql' || composing) return;
+        const off = caretOffset(ed.el), pos = ed.s + (off === null ? ed.el.textContent.length : off);
+        if (!finish('blur')) return;
+        const hit = q('.sqlb[data-st]').map((b) => [+b.dataset.s, b.querySelector('pre > code')]).filter((x) => x[0] <= pos && x[1]).pop();
+        if (!hit) return;
+        hit[1].focus({ preventScroll: true }); if (!ed || ed.el !== hit[1]) begin(hit[1]);
+        placeAt(hit[1], pos - hit[0]);
+      }
+      const indentAtCaret = (el) => { const off = caretOffset(el); const before = el.textContent.slice(0, off === null ? undefined : off); return /[ \t]*$/.exec(before.slice(before.lastIndexOf('\n') + 1).match(/^[ \t]*/)[0])[0]; };
+
+      // ---- events ----
+      doc.addEventListener('focusin', (e) => {
+        if (!on() || busy) return;
+        const el = e.target.closest && e.target.closest('.wed'); if (!el || (ed && ed.el === el)) return;
+        if (ed) { const nd = describe(el), at = caretOffset(el); finish('blur', nd, at === null ? 'end' : at); if (ed && ed.el === el) return; if (!el.isConnected) return; }
+        begin(el);
+      });
+      doc.addEventListener('focusout', (e) => {
+        if (!ed || busy || e.target !== ed.el) return;
+        const e0 = ed;
+        setTimeout(() => { if (ed === e0 && document.activeElement !== e0.el) finish('blur'); }, 0);
+      });
+      doc.addEventListener('click', (e) => { if (on() && e.target.closest('summary') && e.target.closest('.wed, .jcg')) e.preventDefault(); }, true);
+      doc.addEventListener('input', () => { if (on() && ed && ed.wk === 'sql') { clearTimeout(sqlTimer); sqlTimer = setTimeout(sqlPause, 1200); } });
+      doc.addEventListener('compositionstart', () => { composing = true; });
+      doc.addEventListener('compositionend', () => { composing = false; });
+      doc.addEventListener('beforeinput', (e) => {
+        if (!on() || busy || !/^history(Undo|Redo)$/.test(e.inputType)) return;
+        if (ed && ed.wk !== 'sql' && readOf(ed) !== ed.shown) return; // the field's own undo
+        e.preventDefault(); undo(e.inputType === 'historyRedo');
+      });
+      doc.addEventListener('contextmenu', (e) => {
+        if (!on()) return;
+        const d = describe(e.target); if (!d) return;
+        e.preventDefault();
+        const x = e.clientX, y = e.clientY;
+        if (ed && !(d.wk === ed.d?.wk && JSON.stringify(d) === JSON.stringify(ed.d))) commitAll();
+        else if (ed) commitAll();
+        openMenuFor(find(d) || doc, x, y);
+      });
+      doc.addEventListener('mousedown', (e) => {
+        if (!on()) return;
+        const d = describe(e.target); if (d) { cur = d; syncBar(); }
+        if (kind() !== 'json' || e.button !== 0) return;
+        const rh = e.target.closest('td.jrowh'), cg = e.target.closest('.jcg');
+        if (!rh && !cg) { if (jsel) clearSel(); return; }
+        e.preventDefault();
+        const w = e.target.closest('.table-wrap[data-jp]');
+        dg = { jp: w.dataset.jp, row: rh ? +rh.parentElement.dataset.i : null, col: cg ? cg.closest('th').dataset.col : null, x: e.clientX, y: e.clientY, moving: false, shift: e.shiftKey };
+      });
+      document.addEventListener('mousedown', (e) => { if (!menu.hidden && !menu.contains(e.target)) hideMenu(); }, true);
+      content.addEventListener('scroll', () => { if (!menu.hidden) hideMenu(); }, { passive: true });
+      function slotAt(g, ev) {
+        const w = wrapOf(g.jp); if (!w) return null;
+        const tb = w.querySelector('table').getBoundingClientRect();
+        if (g.row !== null) {
+          const trs = [...w.querySelectorAll('tbody tr[data-i]')].filter((r) => r.getClientRects().length);
+          for (const r of trs) { const b = r.getBoundingClientRect(); if (ev.clientY < b.top + b.height / 2) return { slot: +r.dataset.i, x: tb.left, y: b.top - 1, w: tb.width }; }
+          const l = trs[trs.length - 1]; return l ? { slot: +l.dataset.i + 1, x: tb.left, y: l.getBoundingClientRect().bottom - 1, w: tb.width } : null;
+        }
+        const ths = [...w.querySelectorAll('thead th[data-col]')], cols = colsOf(w);
+        for (const th of ths) { const b = th.getBoundingClientRect(); if (ev.clientX < b.left + b.width / 2) return { slot: cols.indexOf(th.dataset.col), x: b.left - 1, y: tb.top, h: tb.height, v: true }; }
+        const b = ths[ths.length - 1].getBoundingClientRect(); return { slot: cols.length, x: b.right - 1, y: tb.top, h: tb.height, v: true };
+      }
+      function endDrag() { dg = null; dropLine.hidden = true; q('.wdragging').forEach((x) => x.classList.remove('wdragging')); }
+      addEventListener('mousemove', (e) => {
+        if (!dg) return;
+        if (!dg.moving) {
+          if (Math.hypot(e.clientX - dg.x, e.clientY - dg.y) < 5) return;
+          dg.moving = true; if (ed) finish('blur');
+          const w = wrapOf(dg.jp); if (!w) return endDrag();
+          (dg.row !== null ? w.querySelectorAll(`tbody tr[data-i="${dg.row}"] > *`) : w.querySelectorAll(`[data-col="${E(dg.col)}"]`)).forEach((x) => x.classList.add('wdragging'));
+        }
+        const s = slotAt(dg, e); if (!s) return;
+        dropLine.hidden = false; dropLine.classList.toggle('v', !!s.v);
+        Object.assign(dropLine.style, s.v ? { left: s.x + 'px', top: s.y + 'px', height: s.h + 'px', width: '' } : { left: s.x + 'px', top: s.y + 'px', width: s.w + 'px', height: '' });
+      });
+      addEventListener('mouseup', (e) => {
+        if (!dg) return;
+        const g = dg, s = g.moving ? slotAt(g, e) : null; endDrag();
+        if (!g.moving) return pickSel(g);
+        if (!s) return;
+        if (g.row !== null) { if (tableAct(g.jp, 'rowMove', { from: g.row, to: s.slot })) flash('Row moved'); }
+        else { const w = wrapOf(g.jp); if (w && tableAct(g.jp, 'colMove', { from: colsOf(w).indexOf(g.col), to: s.slot })) flash('Column moved'); }
+      });
+      document.addEventListener('keydown', (e) => {
+        if (!on()) return;
+        if (dg && e.key === 'Escape') { e.preventDefault(); endDrag(); return; }
+        if (!menu.hidden && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); hideMenu(); return; }
+        const mod = e.metaKey || e.ctrlKey;
+        const inPage = doc.contains(e.target) || e.target === document.body;
+        if (!inPage) return;
+        if (mod && !e.altKey && e.key.toLowerCase() === 'z') {
+          if (ed && ed.wk !== 'sql' && readOf(ed) !== ed.shown) return; // the field's own undo
+          e.preventDefault(); undo(e.shiftKey); return;
+        }
+        if (!ed) {
+          if (jsel && (e.key === 'Backspace' || e.key === 'Delete')) { e.preventDefault(); const w = wrapOf(jsel.jp); if (w) { if (jsel.kind === 'row') rowOp(w, 'rowDel', jsel.rows); else colOp(w, 'delCols', jsel.cols); } }
+          else if (jsel && e.key === 'Escape') { e.preventDefault(); clearSel(); }
+          return;
+        }
+        const wk = ed.wk, el = ed.el, d = ed.d;
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(wk === 'sql' || wk === 'title' ? 'blur' : 'cancel'); if (document.activeElement && doc.contains(document.activeElement)) document.activeElement.blur(); return; }
+        if (wk === 'sql') {
+          if (e.key === 'Tab') { e.preventDefault(); document.execCommand('insertText', false, '    '); }
+          else if (e.key === 'Enter' && !mod) { e.preventDefault(); document.execCommand('insertText', false, '\n' + indentAtCaret(el)); }
+          return;
+        }
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          const all = q('.wed').filter((x) => x.getClientRects().length), nx = all[all.indexOf(el) + (e.shiftKey ? -1 : 1)];
+          const tr = el.closest('tr[data-i]'), lastCell = wk === 'cell' && tr && !tr.nextElementSibling && el === [...tr.querySelectorAll('td.wed')].pop();
+          if (lastCell && !e.shiftKey) { finish('blur'); const w = wrapOf(d.jp); if (w) rowOp(w, 'rowBelow', [d.i], colsOf(w)[0]); return; }
+          finish('blur', nx ? describe(nx) : null, 'all'); return;
+        }
+        if (e.key === 'Enter') {
+          if (wk === 'v' && e.shiftKey && ed.t === 'string') return; // a line break inside the text
+          e.preventDefault();
+          if (wk === 'cell' && mod) { finish('blur'); const w = wrapOf(d.jp); if (w) rowOp(w, 'rowBelow', [d.i], d.col); return; }
+          if (wk === 'k') { const p = ed.p; finish('blur', (r) => ({ wk: 'v', p: r && r.focus ? r.focus : p }), 'all'); return; }
+          if (wk === 'cell') { finish('blur', { wk: 'cell', jp: d.jp, i: d.i + 1, col: d.col }, 'all'); return; }
+          if (wk === 'th') { finish('blur', (r) => ({ wk: 'cell', jp: d.jp, i: 0, col: r && r.focus ? r.focus.col : d.col }), 'all'); return; }
+          finish('blur'); if (document.activeElement && doc.contains(document.activeElement)) document.activeElement.blur();
+        }
+      });
+      return { enable, commitAll, undo };
     })();
 
     // ---------- rendering ----------
@@ -1094,6 +1634,7 @@
           kind !== 'md' ? null : h('button', { 'data-act': 'edit', onclick: () => editSection(s.index) }, 'Edit section'),
           h('button', { 'data-act': 'copy', onclick: () => copySec(s.index) }, copyLabel)),
         h('div', { class: 'body' }, ...s.el.childNodes))));
+      if (kind === 'json' && MD.decorateTables) MD.decorateTables(doc); // status chips and number-bar lengths, as for markdown tables
       toc.replaceChildren(...r.toc.filter((t) => t.lvl <= 3).map((t) => h('a', { class: 'l' + t.lvl, href: '#' + t.id, onclick: (e) => { e.preventDefault(); scrollTo(t.id); } }, t.text.replace(/^\d+[.)]\s*/, ''))));
       if (kind === 'sql') {
         const lg = head.querySelector('.sqllegend');
@@ -1130,6 +1671,7 @@
       if (global.CSS && CSS.highlights) CSS.highlights.delete('mdr-mirror'); // ranges pointed at the old nodes
       refreshFind();
       W.enable();
+      WD.enable(r);
     }
     function copyJsonSection(i) { navigator.clipboard.writeText(JV.sectionSource(S.text, i)).then(() => flash('JSON copied')); }
     function copySqlSection(i) { navigator.clipboard.writeText(SQLV.sectionSource(S.text, i)).then(() => flash('SQL copied')); }
@@ -1198,6 +1740,16 @@
     const BAGS = ['cols', 'rows', 'cells'];
     const emptyColours = () => ({ cols: {}, rows: {}, cells: {}, text: { cols: {}, rows: {}, cells: {} }, bars: [] });
     // the line right under the table's last row, where its colour comment lives (or would be inserted)
+    // JSON tables: the same colours, kept in this machine's storage per file and table (a JSON file has nowhere to hold them)
+    const JC_KEY = 'mdr-jcolours';
+    const jcDoc = () => { const t = curTab(); return t && !isUntitled(t) ? S.path : null; };
+    function jcAll() { try { return JSON.parse(localStorage.getItem(JC_KEY) || '{}') || {}; } catch { return {}; } }
+    function jcData(jp) {
+      const d = emptyColours(), id = jcDoc(), src = id && (jcAll()[id] || {})[jp];
+      if (src) { for (const k of BAGS) { if (src[k]) d[k] = { ...src[k] }; if (src.text && src.text[k]) d.text[k] = { ...src.text[k] }; } if (Array.isArray(src.bars)) d.bars = src.bars.slice(); }
+      return d;
+    }
+    function jcSave(jp, d) { const id = jcDoc(); if (!id) return false; const all = jcAll(); (all[id] = all[id] || {})[jp] = d; localStorage.setItem(JC_KEY, JSON.stringify(all)); return true; }
     function colourSlot(lines, l0, l1) { let end = l1; while (end > l0 && !(lines[end - 1] || '').trim()) end--; return end; }
     function readColours(lines, l0, l1) {
       const at = colourSlot(lines, l0, l1), m = COLOUR_RE.exec(lines[at] || '');
@@ -1228,12 +1780,13 @@
       const lines = S.text.split('\n');
       doc.querySelectorAll('.table-wrap').forEach((wrap) => {
         const table = wrap.querySelector(':scope > table'); if (!table) return;
-        const d = wrap.dataset.l0 !== undefined ? readColours(lines, +wrap.dataset.l0, +wrap.dataset.l1).data : emptyColours();
+        const isJ = wrap.dataset.jp !== undefined; // a JSON table: colours are kept on this Mac (jcData), its rows are named by the first column after #
+        const d = isJ ? jcData(wrap.dataset.jp) : wrap.dataset.l0 !== undefined ? readColours(lines, +wrap.dataset.l0, +wrap.dataset.l1).data : emptyColours();
         const head = table.querySelector('thead > tr:not(.filters)'), hs = head ? [...head.children].map(cellText) : [];
         const pick = (bag, label, c) => bag.cells[label + '|' + hs[c]] || bag.rows[label] || bag.cols[hs[c]]; // cell beats row beats column
         if (head) [...head.children].forEach((th, c) => { paintCell(th, d.cols[hs[c]], d.text.cols[hs[c]]); th.classList.toggle('bar', th.classList.contains('barv') && d.bars.includes(hs[c])); });
         table.querySelectorAll('tbody > tr').forEach((tr) => {
-          const label = cellText(tr.children[0]);
+          const label = cellText(tr.children[isJ ? 1 : 0]);
           [...tr.children].forEach((td, c) => { paintCell(td, pick(d, label, c), pick(d.text, label, c)); td.classList.toggle('bar', td.classList.contains('barv') && d.bars.includes(hs[c])); });
         });
         // the on/off switch: a small round button at the table's top right, shown on hover, which only names itself
@@ -1621,7 +2174,7 @@
     // ---------- modes / theme / panels ----------
     function setMode(m, quiet) {
       if (!['read', 'write', 'edit', 'split'].includes(m)) m = 'read';
-      W.commitAll();
+      W.commitAll(); WD.commitAll();
       if (S.editingSec !== null) finishSection(S.editingSec, true);
       const was = S.mode;
       S.mode = m; root.dataset.mode = m;
@@ -1630,7 +2183,6 @@
       refreeze(); // the pane is half as wide in Split: a frozen (magnified) layout must re-lay out for it
       fitEditor(); if (srcShown()) requestAnimationFrame(buildMirror);
       if (srcShown()) setTimeout(() => ta.focus(), 0);
-      if (m === 'write' && docKind() !== 'md' && !quiet) flash('Write works on Markdown pages -- use Edit for JSON and SQL', 3000);
       if (!quiet) adapter.setPref && adapter.setPref('mode', m);
     }
     function setTheme(t) {
@@ -1744,7 +2296,7 @@
     // ---------- per-section editing ----------
     function editSection(i) {
       if (docKind() !== 'md') return; // JSON / SQL have no markdown sections to splice; use Edit mode
-      W.commitAll();
+      W.commitAll(); WD.commitAll();
       if (S.editingSec !== null && S.editingSec !== i) finishSection(S.editingSec, true, true);
       const { sections } = MD.split(S.text);
       const sec = secs.querySelector(`.sec[data-i="${i}"]`);
@@ -1834,7 +2386,7 @@
     }
     function stashActive() {
       const t = S.tabs[S.tab]; if (!t) return;
-      W.commitAll();
+      W.commitAll(); WD.commitAll();
       if (S.editingSec !== null) finishSection(S.editingSec, true);
       t.text = S.text; t.saved = S.saved; t.scroll = content.scrollTop; t.filters = S.filters;
     }
@@ -2003,7 +2555,7 @@
       const t = curTab();
       if (!t) return flash('Nothing to save');
       if (isUntitled(t) && !adapter.canSave()) return flash('Cannot save from here');
-      W.commitAll();
+      W.commitAll(); WD.commitAll();
       if (S.editingSec !== null) finishSection(S.editingSec, true);
       t.text = S.text;
       try {
@@ -2057,7 +2609,7 @@
     doc.addEventListener('click', (e) => {
       const a = e.target.closest('a[href]'); if (!a) return;
       // Write (the default mode) follows links like Read does; ⌥-click puts the cursor inside the link text instead
-      if (S.mode === 'write' && e.altKey && a.closest('.wblock')) { e.preventDefault(); return; }
+      if (S.mode === 'write' && e.altKey && a.closest('.wblock, .wed')) { e.preventDefault(); return; }
       if (a.dataset.path) { e.preventDefault(); openPathLink(a.dataset.path, e.metaKey || e.ctrlKey); return; }
       const href = a.getAttribute('href');
       if (href.startsWith('#')) { e.preventDefault(); scrollTo(href.slice(1)); }

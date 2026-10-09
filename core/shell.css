@@ -470,7 +470,7 @@ html[data-theme=studio] ::highlight(mdr-find){background:color-mix(in srgb,#f5c5
 
 /* ---------- Write mode: Read's page, editable in place ---------- */
 .app[data-mode=write] .editor{display:none!important}
-.app:not([data-kind=md]) .seg [data-mode=write]{display:none}
+.app[data-kind=mmd] .seg [data-mode=write]{display:none}
 .wbar{display:none}
 .app.writing .wbar{display:flex;align-items:center;gap:2px;position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:26;padding:5px 8px;border-radius:12px;
   background:var(--panel,var(--card,var(--paper,#fff)));color:var(--ink,var(--text,#222));border:1px solid var(--line-2,var(--line,var(--rule,#d6d6d6)));
@@ -635,3 +635,32 @@ html[data-theme=studio] .app:not(.no-tcolour) .doc :is(td,th)[data-tsh=dark]{col
 html[data-theme=studio] .wpill>button.danger{color:#fb923c}
 .wpill>button.wpc::before{content:'';width:12px;height:12px;border-radius:50%;background:conic-gradient(#4f7bd9,#2a9d8f,#4c9a5a,#c9b22a,#d0703b,#c95a7a,#8a6fd0,#4f7bd9)}
 .wpill .wcolours{flex:1 0 100%;border-top:1px solid var(--line-2,var(--line,rgba(0,0,0,.1)));margin-top:3px;padding:8px 6px 5px}
+
+/* ---- Write on JSON and SQL pages ---- */
+.app:not(.writing-data) .wdbar{display:none!important}
+.app.writing-data .wdbar{display:flex;align-items:center;gap:2px;position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:26;padding:5px 8px;border-radius:12px;
+  background:var(--panel,var(--card,var(--paper,#fff)));color:var(--ink,var(--text,#222));border:1px solid var(--line-2,var(--line,var(--rule,#d6d6d6)));
+  box-shadow:0 10px 30px rgba(0,0,0,.12);font:13px/1 var(--sans,system-ui,sans-serif);width:max-content;max-width:calc(100vw - 40px);flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+.app.writing-data .wdbar::-webkit-scrollbar{display:none}
+.app.writing-data .doc{padding-bottom:110px}
+.app.writing-data .wed{border-radius:4px;cursor:text;outline:0;caret-color:var(--accent,#3b82f6);transition:box-shadow .12s,background-color .12s}
+.app.writing-data .jv.wed,.app.writing-data .jk.wed{padding:0 2px;margin:0 -2px}
+.app.writing-data .wed:hover{box-shadow:0 0 0 3px color-mix(in srgb,var(--accent,#3b82f6) 10%,transparent)}
+.app.writing-data .wed:focus{background-color:color-mix(in srgb,var(--accent,#3b82f6) 8%,transparent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent,#3b82f6) 34%,transparent)}
+.app.writing-data .jv.wed:focus{white-space:pre-wrap}
+.app.writing-data td.wed:focus,.app.writing-data th.wed:focus{box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--accent,#3b82f6) 40%,transparent)}
+.app.writing-data pre > code.wed,.app.writing-data pre > code.wed:hover,.app.writing-data pre > code.wed:focus{box-shadow:none;background:transparent}
+.app.writing-data .sqlb:focus-within{box-shadow:0 0 0 2px color-mix(in srgb,var(--accent,#3b82f6) 34%,transparent)}
+.app.writing-data td.jrowh{cursor:grab;user-select:none}
+.app.writing-data td.jrowh:hover{color:var(--accent,#3b82f6)}
+.app.writing-data th .jcg::before{content:'⠿'}
+.app.writing-data th .jcg{border:0;background:transparent;color:inherit;font-size:11px;line-height:1;padding:0 0 0 5px;margin:0;cursor:grab;opacity:0;vertical-align:baseline}
+.app.writing-data th:hover .jcg,.app.writing-data th.wsel .jcg{opacity:.55}
+.app.writing-data th .jcg:hover{opacity:1;color:var(--accent,#3b82f6)}
+.app.writing-data .doc .wsel{background-color:color-mix(in srgb,var(--accent,#3b82f6) 9%,transparent)!important}
+.app.writing-data .doc tr > .wsel:first-child{box-shadow:inset 3px 0 0 var(--accent,#3b82f6)}
+.app.writing-data .doc thead .wsel{box-shadow:inset 0 3px 0 var(--accent,#3b82f6)}
+.app.writing-data .wdragging{opacity:.45}
+.app.writing-data .jl[data-p]:hover{background:color-mix(in srgb,var(--accent,#3b82f6) 3%,transparent);border-radius:4px}
+.wmenu .wtype button.wal{font:11.5px var(--mono,ui-monospace,monospace)}
+.wmenu .wtype button.wal.on{color:var(--accent,#3b82f6);background:color-mix(in srgb,var(--accent,#3b82f6) 14%,transparent)}

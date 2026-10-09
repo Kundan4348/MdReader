@@ -1,0 +1,17 @@
+{
+  "name": "deploy-report",
+  "count": 12,
+  "price": 1.50,   // per unit
+  "homepage": "https://example.com/r",
+  "owner": {
+    "team": "assets",
+    "oncall": null
+  },
+  "tags": ["ops", "beta"],
+  "steps": [
+    { "step": "Build", "state": "passed", "minutes": 4 },
+    { "step": "Test", "state": "failed", "minutes": 19 },
+    { "step": "Deploy", "state": "pending", "minutes": 0 },
+    { "step": "Verify", "state": "pending" }
+  ]
+}

@@ -487,12 +487,12 @@
     const blockEl = (st, i, titled) => {
       const el = h('div', { class: 'sqlst' });
       const ttl = st.title || `Statement ${i + 1}`; const id = uid(ttl);
-      if (titled) { toc.push({ lvl: 2, id, text: ttl }); el.append(h('h2', { id, 'data-l0': st.l0, 'data-l1': st.l0 + 1 }, h('span', { class: 'n' }, String(i + 1).padStart(2, '0')), h('span', { class: 't' }, ttl))); }
+      if (titled) { toc.push({ lvl: 2, id, text: ttl }); el.append(h('h2', { id, 'data-l0': st.l0, 'data-l1': st.l0 + 1, 'data-gen': st.title ? null : '' }, h('span', { class: 'n' }, String(i + 1).padStart(2, '0')), h('span', { class: 't' }, ttl))); }
       else if (st.title) { toc.push({ lvl: 2, id, text: ttl }); el.append(h('h2', { id, 'data-l0': st.l0, 'data-l1': st.l0 + 1 }, h('span', { class: 't' }, ttl))); }
       if (st.desc.length) el.append(noteEl({ lines: st.desc, l0: st.lead.l0 + 1, l1: st.lead.l1 }));
       const sh = shapeEl(st.a, text); if (sh) el.append(sh);
       const first = st.code[0].ln, last = st.code[st.code.length - 1].ln2, n = last - first + 1;
-      const wrap = h('div', { class: 'codeblock sqlb numbered', 'data-lang': 'sql', 'data-label': 'SQL', 'data-l0': first, 'data-l1': last + 1, style: `--gutter:${String(last + 1).length}ch` });
+      const wrap = h('div', { class: 'codeblock sqlb numbered', 'data-lang': 'sql', 'data-label': 'SQL', 'data-l0': first, 'data-l1': last + 1, 'data-s': st.code[0].s, 'data-st': i, style: `--gutter:${String(last + 1).length}ch` });
       wrap.append(h('div', { class: 'codebar', html: `<span class="lang">SQL</span><span class="lc">${n === 1 ? '1 line' : `lines ${first + 1}–${last + 1}`}</span><button type="button" class="copy" title="Copy statement">Copy</button>` }));
       const codeEl = h('code', { class: 'hl sqlc', style: `counter-reset:ln ${first}`, html: linesHtml(st.code, st.a, first, true) });
       wrap.append(h('pre', { class: 'code' }, codeEl));
@@ -513,5 +513,35 @@
   // Source of the i-th statement (its comment title included), for a copy action.
   function sectionSource(text, i = 0) { const { statements } = parse(text); const st = statements[i] || statements[0]; return st ? text.slice(st.s, st.e) : text; }
 
-  global.SQLV = { parse, analyse, summary, highlight, looksLikeSql, renderDoc, sectionSource, format, sameTokens };
+  // Write mode's statement actions. A statement's span runs from its title comment to its last token (the ';' or a
+  // note on that line); everything between statements -- blank lines, a header, the closing note -- stays as it is.
+  // Returns { text, focus: index of the statement to put the cursor in } or throws an Error with a plain message.
+  function edit(text, op, i) {
+    const { statements: sts } = parse(text), st = sts[i];
+    if (!st && op !== 'add') throw new Error('No statement here');
+    const span = (x) => text.slice(x.s, x.e), semi = (t) => (/;\s*(--[^\n]*|#[^\n]*|\/\*[\s\S]*?\*\/)?\s*$/.test(t) ? t : t.replace(/\s*$/, ';'));
+    const at = (pos, t) => text.slice(0, pos) + t + text.slice(pos);
+    switch (op) {
+      case 'add': { // a new query after statement i (or at the end)
+        const fresh = '-- New query\nselect\n    *\nfrom table_name;';
+        if (!st) return { text: (text.trim() ? text.replace(/\s*$/, '') + '\n\n' : '') + fresh + '\n', focus: sts.length };
+        return { text: text.slice(0, st.e) + (/;$/.test(span(st).trim()) ? '' : ';') + '\n\n' + fresh + text.slice(st.e), focus: i + 1 };
+      }
+      case 'dup': return { text: text.slice(0, st.e) + (/;/.test(span(st)) ? '' : ';') + '\n\n' + semi(span(st)) + text.slice(st.e), focus: i + 1 };
+      case 'del': {
+        if (sts.length === 1) return { text: text.slice(0, st.s) + text.slice(st.e).replace(/^[ \t]*\n?/, ''), focus: null };
+        if (i < sts.length - 1) return { text: text.slice(0, st.s) + text.slice(sts[i + 1].s), focus: i };
+        return { text: text.slice(0, sts[i - 1].e) + text.slice(st.e), focus: i - 1 };
+      }
+      case 'up': case 'down': {
+        const j = op === 'up' ? i - 1 : i + 1, o = sts[j];
+        if (!o) throw new Error(op === 'up' ? 'Already the first query' : 'Already the last query');
+        const [a, b] = i < j ? [st, o] : [o, st];
+        return { text: text.slice(0, a.s) + semi(span(b)) + text.slice(a.e, b.s) + semi(span(a)) + text.slice(b.e), focus: j };
+      }
+      default: throw new Error('Unknown edit ' + op);
+    }
+  }
+
+  global.SQLV = { parse, analyse, summary, highlight, looksLikeSql, renderDoc, sectionSource, format, sameTokens, edit };
 })(window);

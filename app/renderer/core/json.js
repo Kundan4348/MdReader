@@ -44,7 +44,7 @@
   const docKey = (i) => 'doc#' + i;
   const pathKey = (p) => JSON.stringify(p);
   const NOTE_START = /[^\sA-Za-z0-9"{}[\],:\-./]/;
-  const emptyAnn = () => ({ notes: new Map(), before: new Map(), after: new Map(), any: false, loc: new Map() });
+  const emptyAnn = () => ({ notes: new Map(), before: new Map(), after: new Map(), any: false, loc: new Map(), cs: new Map() });
   // Line index (0-based) of a character offset, for stamping rendered nodes with their source lines.
   function lineIndexer(text) {
     const starts = [0]; for (let i = 0; i < text.length; i++) if (text[i] === '\n') starts.push(i + 1);
@@ -93,16 +93,19 @@
       }
       fail('unterminated string');
     };
-    const val = (path, pk) => {
-      skip();
+    // ann.cs: path key -> { v: [start, end) of the value, k: [start, end) of the key (object members), m: start of the
+    // member (key, or value for array items), kids: child keys in SOURCE order } -- the character spans Write edits.
+    const cs = (pk) => { let x = ann.cs.get(pk); if (!x) ann.cs.set(pk, (x = {})); return x; };
+    const val = (path, pk) => { skip(); const s0 = i; const r = val0(path, pk); const x = cs(pk); x.v = [s0, i]; if (x.m === undefined) x.m = s0; return r; };
+    const val0 = (path, pk) => {
       const c = text[i];
       if (c === undefined) fail('unexpected end of input');
       if (c === '{') {
-        i++; last = pk; lastEnd = i; const obj = {}; skip();
+        i++; last = pk; lastEnd = i; const obj = {}; const ord = cs(pk).kids = []; skip();
         if (text[i] === '}') { i++; flushAfter(pk); return obj; }
         for (;;) {
           skip();
-          const ks = i; const k = str(); const p = path.concat(k), kp = pathKey(p); lead(kp);
+          const ks = i; const k = str(); const p = path.concat(k), kp = pathKey(p); lead(kp); const ck = cs(kp); ck.k = [ks, i]; ck.m = ks; ord.push(k);
           skip(); if (text[i] !== ':') fail("expected ':'"); i++;
           const v = val(p, kp); Object.defineProperty(obj, k, { value: v, enumerable: true, writable: true, configurable: true });
           span(kp, ks); done(kp); skip();
@@ -112,11 +115,11 @@
         }
       }
       if (c === '[') {
-        i++; last = pk; lastEnd = i; const arr = []; skip();
+        i++; last = pk; lastEnd = i; const arr = []; const ord = cs(pk).kids = []; skip();
         if (text[i] === ']') { i++; flushAfter(pk); return arr; }
         for (;;) {
           skip();
-          const p = path.concat(arr.length), kp = pathKey(p); lead(kp);
+          const p = path.concat(arr.length), kp = pathKey(p); lead(kp); ord.push(arr.length);
           const vs = i; arr.push(val(p, kp)); span(kp, vs); done(kp); skip();
           if (text[i] === ',') { i++; done(kp); skip(); if (text[i] === ']') fail('trailing comma'); continue; }
           if (text[i] === ']') { i++; flushAfter(pk); return arr; }
@@ -231,13 +234,14 @@
     if (!entries.length) return h('div', { class: 'jl' }, h('span', { class: 'jv jempty' }, Array.isArray(v) ? '[ ]' : '{ }'));
     const kids = entries.map(([k, x]) => {
       const p = path.concat(k), kp = pathKey(p);
-      const key = h('span', { class: Array.isArray(v) ? 'jk jidx' : 'jk' }, Array.isArray(v) ? String(k) : JSON.stringify(k));
+      const key = h('span', { class: Array.isArray(v) ? 'jk jidx' : 'jk', 'data-p': Array.isArray(v) ? null : kp }, Array.isArray(v) ? String(k) : JSON.stringify(k));
+      const sv = () => { const el = scalarEl(x); el.dataset.p = kp; el.dataset.t = kindOf(x); return el; };
       const id = ids ? ids(k) : null;
       const before = cmLines(ann.before.get(kp));
-      if (isScalar(x)) return [...before, stamp(h('div', { class: 'jl', id }, key, h('span', { class: 'jc' }, ': '), scalarEl(x), noteEl(ann, kp)), ann, kp)];
+      if (isScalar(x)) return [...before, stamp(h('div', { class: 'jl', id, 'data-p': kp }, key, h('span', { class: 'jc' }, ': '), sv(), noteEl(ann, kp)), ann, kp)];
       const empty = Array.isArray(x) ? !x.length : !Object.keys(x).length;
-      if (empty) return [...before, stamp(h('div', { class: 'jl', id }, key, h('span', { class: 'jc' }, ': '), h('span', { class: 'jv jempty' }, Array.isArray(x) ? '[ ]' : '{ }'), noteEl(ann, kp)), ann, kp), ...cmLines(ann.after.get(kp))];
-      return [...before, range(h('details', { class: 'jn', id, open: depth + 1 < open ? '' : null }, stamp(h('summary', {}, key, h('span', { class: 'jc' }, ': '), h('span', { class: 'jsum' }, summaryOf(x)), noteEl(ann, kp)), ann, kp, true), ...valueBody(x, depth + 1, open, null, p, kp, ann)), ann, kp)];
+      if (empty) return [...before, stamp(h('div', { class: 'jl', id, 'data-p': kp, 'data-c': '' }, key, h('span', { class: 'jc' }, ': '), h('span', { class: 'jv jempty' }, Array.isArray(x) ? '[ ]' : '{ }'), noteEl(ann, kp)), ann, kp), ...cmLines(ann.after.get(kp))];
+      return [...before, range(h('details', { class: 'jn', id, 'data-p': kp, open: depth + 1 < open ? '' : null }, stamp(h('summary', { 'data-p': kp, 'data-c': '' }, key, h('span', { class: 'jc' }, ': '), h('span', { class: 'jsum' }, summaryOf(x)), noteEl(ann, kp)), ann, kp, true), ...valueBody(x, depth + 1, open, null, p, kp, ann)), ann, kp)];
     });
     return h('div', { class: 'jt' }, ...kids.flat(), ...cmLines(ann.after.get(pk)));
   }
@@ -250,12 +254,13 @@
     return cols.length && cols.length <= 40 ? cols : null;
   }
   const cellText = (v) => (v === undefined ? '' : v === null ? 'null' : Array.isArray(v) ? v.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join(', ') : typeof v === 'string' ? v : String(v));
-  function tableEl(arr, cols, path, ann) {
+  function tableEl(arr, cols, path, ann, pk) {
     const table = h('table', { class: 'jtable' },
-      h('thead', {}, h('tr', {}, h('th', { class: 'num jidxcol' }, '#'), ...cols.map((c) => h('th', {}, c)))),
-      h('tbody', {}, ...arr.map((o, i) => stamp(h('tr', {}, h('td', { class: 'num jidxcol' }, String(i)), ...cols.map((c) => {
+      h('thead', {}, h('tr', {}, h('th', { class: 'num jidxcol' }, '#'), ...cols.map((c) => h('th', { 'data-col': c }, c)))),
+      h('tbody', {}, ...arr.map((o, i) => stamp(h('tr', { 'data-i': i }, h('td', { class: 'num jidxcol' }, String(i)), ...cols.map((c) => {
         const v = o[c];
-        const td = h('td', {}, cellText(v));
+        const td = h('td', { 'data-col': c, 'data-t': v === undefined ? 'new' : kindOf(v) }, cellText(v));
+        if (Array.isArray(v)) td.classList.add('jarr');
         if (typeof v === 'number') td.classList.add('num');
         if (v === undefined) td.classList.add('jundef');
         return td;
@@ -268,11 +273,11 @@
         [...table.tBodies[0].rows].forEach((r) => r.cells[ci + 1].classList.add('num'));
       }
     });
-    return h('div', { class: 'table-wrap' }, table);
+    return h('div', { class: 'table-wrap', 'data-jp': pk, 'data-cols': JSON.stringify(cols) }, table);
   }
   function valueBody(v, depth, open, ids, path, pk, ann) {
     const cols = annUnder(ann, path) ? null : tabular(v);
-    if (cols) return [tableEl(v, cols, path, ann), h('details', { class: 'jn jraw' }, h('summary', {}, h('span', { class: 'jsum' }, 'as tree')), treeEl(v, depth, 1, null, path, pk, ann))];
+    if (cols) return [tableEl(v, cols, path, ann, pk), h('details', { class: 'jn jraw', 'data-raw': pk }, h('summary', {}, h('span', { class: 'jsum' }, 'as tree')), treeEl(v, depth, 1, null, path, pk, ann))];
     return [treeEl(v, depth, open, ids, path, pk, ann)];
   }
   const slug = (t) => String(t).toLowerCase().replace(/[^a-z0-9\u00C0-\uFFFF]+/g, '-').replace(/(^-|-$)/g, '') || 'key';
@@ -307,7 +312,8 @@
     const tools = () => (nested ? h('span', { class: 'jtools' }, ' · ', h('button', { class: 'jx', 'data-act': 'expand' }, 'Expand all'), ' · ', h('button', { class: 'jx', 'data-act': 'collapse' }, 'Collapse all')) : null);
     const comments = [...ann.notes.values(), ...ann.before.values(), ...ann.after.values()].reduce((n, a) => n + a.length, 0) + docs.reduce((n, d) => n + d.lead.length + d.tail.length, 0);
     const leadEl = (arr) => (arr.length ? h('p', { class: 'jlead' }, ...arr.map((c, i) => [i ? h('br') : null, c])) : null);
-    const rootEl = (d, i, ids) => h('div', { class: 'jroot' }, ...(isScalar(d.value) ? [h('div', { class: 'jt' }, stamp(h('div', { class: 'jl' }, scalarEl(d.value), noteEl(ann, docKey(i))), ann, docKey(i)))] : valueBody(d.value, 0, open, ids, [docKey(i)], docKey(i), ann)), ...(d.tail.length ? [h('div', { class: 'jt' }, ...cmLines(d.tail))] : []));
+    const rootScalar = (v, i) => { const el = scalarEl(v); el.dataset.p = docKey(i); el.dataset.t = kindOf(v); return el; };
+    const rootEl = (d, i, ids) => h('div', { class: 'jroot', 'data-p': docKey(i) }, ...(isScalar(d.value) ? [h('div', { class: 'jt' }, stamp(h('div', { class: 'jl' }, rootScalar(d.value, i), noteEl(ann, docKey(i))), ann, docKey(i)))] : valueBody(d.value, 0, open, ids, [docKey(i)], docKey(i), ann)), ...(d.tail.length ? [h('div', { class: 'jt' }, ...cmLines(d.tail))] : []));
     if (docs.length === 1) {
       const d = docs[0];
       const minified = text.trim().split('\n').length === 1 && bytes > 200;
@@ -334,5 +340,236 @@
   // Strict, pretty-printed JSON of one document (the i-th; the only one by default), for a copy action.
   function sectionSource(text, i = 0) { const { docs, error } = parse(text); const d = docs[i] || docs[0]; return error || !d ? text : JSON.stringify(d.value, null, 2); }
 
-  global.JV = { parse, looksLikeJson, format, minify, renderDoc, sectionSource };
+  // ---------- editing (Write mode) ----------
+  // Every change is a set of text splices worked out from ONE scan of the source, so everything it does not touch --
+  // indentation, key order, comments, how a number is spelled -- stays byte for byte. Each op returns
+  // { text, focus: pathKey to put the cursor on, role: 'k' | 'v' } or throws an Error with a plain message.
+  const NUM_RE = /^-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?$/;
+  function ctx(text) {
+    let r; try { r = scan(text); } catch { throw new Error('The JSON has an error -- fix it in Edit mode first'); }
+    return { T: text, docs: r.docs, cs: r.ann.cs };
+  }
+  // a document's own key is docKey(i) ("doc#0"), its members' keys are pathKey(["doc#0", ...])
+  const pathOf = (pk) => (pk.startsWith('doc#') ? [pk] : JSON.parse(pk));
+  const parentKey = (pk) => { const p = pathOf(pk); if (p.length < 2) throw new Error('This is the whole document'); return p.length === 2 ? p[0] : pathKey(p.slice(0, -1)); };
+  function valueAt(c, path) { let v = c.docs[+String(path[0]).slice(4)]; v = v && v.value; for (const k of path.slice(1)) v = v === null || v === undefined ? undefined : v[k]; return v; }
+  const S_ = (c, pk) => { const x = c.cs.get(pk); if (!x || !x.v) throw new Error('Could not find that value in the source'); return x; };
+  const kidsOf = (c, pk) => { const p = pathOf(pk), x = S_(c, pk); return (x.kids || []).map((k) => { const kp = pathKey(p.concat(k)); return { k, pk: kp, s: S_(c, kp) }; }); };
+  const lineStart = (T, pos) => T.lastIndexOf('\n', pos - 1) + 1;
+  const lineEnd = (T, pos) => { const e = T.indexOf('\n', pos); return e < 0 ? T.length : e; };
+  // the indentation of a member that starts its own line, or null when it shares a line with something before it
+  const ownIndent = (T, pos) => { const ls = lineStart(T, pos), pre = T.slice(ls, pos); return /^[ \t]*$/.test(pre) ? pre : null; };
+  const lineIndentOf = (T, pos) => /^[ \t]*/.exec(T.slice(lineStart(T, pos)))[0];
+  function applyEdits(T, edits) {
+    edits = edits.slice().sort((a, b) => b.s - a.s || b.e - a.e);
+    for (let i = 1; i < edits.length; i++) if (edits[i].e > edits[i - 1].s) throw new Error('Overlapping edits');
+    for (const x of edits) T = T.slice(0, x.s) + x.t + T.slice(x.e);
+    return T;
+  }
+  const isArr = (c, pk) => c.T[S_(c, pk).v[0]] === '[';
+  // splices that insert `member` as child number `index` of container ppk
+  function insertEdits(c, ppk, index, member) {
+    const T = c.T, pc = S_(c, ppk), ks = kidsOf(c, ppk), [o0, o1] = pc.v;
+    if (!ks.length) {
+      const multi = T.includes('\n'), base = lineIndentOf(T, o0), unit = guessUnit(c);
+      return [{ s: o0 + 1, e: o1 - 1, t: multi ? '\n' + base + unit + member + '\n' + base : member }];
+    }
+    if (index < ks.length) {
+      const tgt = ks[index], ind = ownIndent(T, tgt.s.m);
+      return [{ s: tgt.s.m, e: tgt.s.m, t: member + (ind !== null ? ',\n' + ind : ', ') }];
+    }
+    const last = ks[ks.length - 1], ind = ownIndent(T, last.s.m), e = last.s.v[1];
+    if (ind === null) return [{ s: e, e, t: ', ' + member }];
+    const le = lineEnd(T, e);
+    if (T.slice(e, le).trim() && le < o1) return [{ s: e, e, t: ',' }, { s: le, e: le, t: '\n' + ind + member }]; // keep a note on its own member
+    return [{ s: e, e, t: ',\n' + ind + member }];
+  }
+  function guessUnit(c) { const m = /\n([ \t]+)\S/.exec(c.T); return m ? (m[1].startsWith('\t') ? '\t' : m[1].length >= 4 && m[1].length % 4 === 0 && !/\n  \S/.test(c.T) ? '    ' : '  ') : '  '; }
+  // splices that remove child number idx of container ppk
+  function removeEdits(c, ppk, idx) {
+    const T = c.T, pc = S_(c, ppk), ks = kidsOf(c, ppk), ch = ks[idx], [o0, o1] = pc.v;
+    if (ks.length === 1) return [{ s: o0 + 1, e: o1 - 1, t: '' }];
+    if (idx < ks.length - 1) {
+      let j = ch.s.v[1]; while (/[ \t]/.test(T[j] || '')) j++;
+      if (T[j] === ',') j++;
+      const ind = ownIndent(T, ch.s.m), next = ks[idx + 1].s.m, le = lineEnd(T, j);
+      if (ind !== null && next > le) return [{ s: lineStart(T, ch.s.m), e: Math.min(le + 1, next), t: '' }];
+      while (/[ \t]/.test(T[j] || '')) j++;
+      return [{ s: ch.s.m, e: Math.min(j, next), t: '' }];
+    }
+    return [{ s: ks[idx - 1].s.v[1], e: ch.s.v[1], t: '' }];
+  }
+  const memberText = (c, kid) => c.T.slice(kid.s.m, kid.s.v[1]);
+  const valueText = (c, kid) => c.T.slice(kid.s.v[0], kid.s.v[1]);
+  // the same member with every scalar inside it blanked ("" for text, null for the rest), so a new row keeps its neighbour's layout
+  function blanked(c, kid) {
+    const base = kid.s.m, edits = [];
+    const walk = (pk) => {
+      const x = S_(c, pk);
+      if (x.kids) { kidsOf(c, pk).forEach((k) => walk(k.pk)); return; }
+      const t = c.T[x.v[0]];
+      edits.push({ s: x.v[0] - base, e: x.v[1] - base, t: t === '"' ? '""' : 'null' });
+    };
+    walk(kid.pk);
+    return applyEdits(memberText(c, kid), edits);
+  }
+  const blankLike = (lit) => (lit[0] === '"' ? '""' : lit[0] === '{' ? '{}' : lit[0] === '[' ? '[]' : /^(true|false)$/.test(lit) ? 'false' : NUM_RE.test(lit) ? '0' : 'null');
+  function uniqueKey(c, ppk, want) {
+    const have = new Set(kidsOf(c, ppk).map((k) => k.k));
+    if (!have.has(want)) return want;
+    for (let n = 2; ; n++) if (!have.has(`${want} ${n}`)) return `${want} ${n}`;
+  }
+  const childPk = (ppk, k) => pathKey(pathOf(ppk).concat(k));
+  const out = (T, focus, role) => ({ text: T, focus, role: role || 'v' });
+  // What the user typed into a value, as a JSON literal. Text stays text; a number / true / false / null keeps its type
+  // when what was typed still is one, and becomes text otherwise (so "N/A" typed over 12 is saved, as "N/A").
+  function literal(raw, was) {
+    const t = raw.trim();
+    if (was === 'string') return JSON.stringify(raw);
+    if (NUM_RE.test(t) || /^(true|false|null)$/.test(t)) return t;
+    if (/^".*"$/s.test(t)) { try { JSON.parse(t); return t; } catch { /* not a literal */ } }
+    if (was === 'new' && !t) return null;
+    return JSON.stringify(raw);
+  }
+  // ---- the ops ----
+  const ops = {
+    set(c, { pk, raw, was }) {
+      const x = S_(c, pk), lit = literal(raw, was);
+      if (lit === null || lit === c.T.slice(x.v[0], x.v[1])) return null;
+      return out(applyEdits(c.T, [{ s: x.v[0], e: x.v[1], t: lit }]), pk);
+    },
+    rename(c, { pk, key }) {
+      const x = S_(c, pk); if (!x.k) throw new Error('Array items have no name');
+      const old = pathOf(pk).slice(-1)[0]; if (key === old) return null;
+      if (!key.trim()) throw new Error('A key needs a name');
+      if (kidsOf(c, parentKey(pk)).some((k) => k.k === key)) throw new Error(`"${key}" is already a key here`);
+      return out(applyEdits(c.T, [{ s: x.k[0], e: x.k[1], t: JSON.stringify(key) }]), childPk(parentKey(pk), key), 'k');
+    },
+    // a new sibling after (or before) pk: a key "new key" with "" in an object, a blank like its neighbour in an array
+    add(c, { pk, before }) {
+      const ppk = parentKey(pk), ks = kidsOf(c, ppk), idx = ks.findIndex((k) => k.pk === pk), at = before ? idx : idx + 1;
+      if (isArr(c, ppk)) {
+        const nb = ks[idx], v = valueText(c, nb), t = nb.s.kids && v[0] === '{' && nb.s.kids.length ? blanked(c, nb) : blankLike(v);
+        return out(applyEdits(c.T, insertEdits(c, ppk, at, t)), childPk(ppk, at));
+      }
+      const key = uniqueKey(c, ppk, 'new key');
+      return out(applyEdits(c.T, insertEdits(c, ppk, at, JSON.stringify(key) + ': ""')), childPk(ppk, key), 'k');
+    },
+    // a new last child inside container pk
+    addInside(c, { pk }) {
+      const ks = kidsOf(c, pk);
+      if (isArr(c, pk)) {
+        const nb = ks[ks.length - 1], t = !nb ? '""' : nb.s.kids && valueText(c, nb)[0] === '{' && nb.s.kids.length ? blanked(c, nb) : blankLike(valueText(c, nb));
+        return out(applyEdits(c.T, insertEdits(c, pk, ks.length, t)), childPk(pk, ks.length));
+      }
+      const key = uniqueKey(c, pk, 'new key');
+      return out(applyEdits(c.T, insertEdits(c, pk, ks.length, JSON.stringify(key) + ': ""')), childPk(pk, key), 'k');
+    },
+    dup(c, { pk }) {
+      const ppk = parentKey(pk), ks = kidsOf(c, ppk), idx = ks.findIndex((k) => k.pk === pk), kid = ks[idx];
+      if (isArr(c, ppk)) return out(applyEdits(c.T, insertEdits(c, ppk, idx + 1, memberText(c, kid))), childPk(ppk, idx + 1));
+      const key = uniqueKey(c, ppk, kid.k + ' copy');
+      return out(applyEdits(c.T, insertEdits(c, ppk, idx + 1, JSON.stringify(key) + ': ' + valueText(c, kid))), childPk(ppk, key), 'k');
+    },
+    del(c, { pks }) { return out(removeMany(c, pks), null); },
+    move(c, { pk, dir }) {
+      const ppk = parentKey(pk), ks = kidsOf(c, ppk), idx = ks.findIndex((k) => k.pk === pk), to = idx + dir;
+      if (to < 0 || to >= ks.length) throw new Error(dir < 0 ? 'Already the first one' : 'Already the last one');
+      const order = ks.map((_, i) => i); order.splice(to, 0, order.splice(idx, 1)[0]);
+      return out(applyEdits(c.T, reorderEdits(c, ppk, order)), isArr(c, ppk) ? childPk(ppk, to) : pk);
+    },
+    type(c, { pk, to }) {
+      const x = S_(c, pk), cur = c.T.slice(x.v[0], x.v[1]); let v; try { v = JSON.parse(cur); } catch { v = cur; }
+      const lit = { string: JSON.stringify(v === null || typeof v !== 'object' ? String(v) : ''), number: String(typeof v === 'number' ? v : Number.isFinite(parseFloat(v)) ? parseFloat(v) : 0),
+        true: 'true', false: 'false', null: 'null', object: '{}', array: '[]' }[to];
+      if (!lit || lit === cur) return null;
+      return out(applyEdits(c.T, [{ s: x.v[0], e: x.v[1], t: lit }]), pk);
+    },
+    // ---- an array of objects shown as a table: `cols` is the table's column order (keys in first-seen order) ----
+    cell(c, { pk: apk, i, col, raw, cols }) {
+      const opk = childPk(apk, i), have = kidsOf(c, opk), m = have.find((k) => k.k === col);
+      if (m) return ops.set(c, { pk: m.pk, raw, was: kindOfLit(valueText(c, m)) });
+      const lit = literal(raw, 'new'); if (lit === null) return null;
+      const at = have.filter((k) => cols.indexOf(k.k) < cols.indexOf(col)).length;
+      return out(applyEdits(c.T, insertEdits(c, opk, at, JSON.stringify(col) + ': ' + lit)), childPk(opk, col));
+    },
+    rowAdd(c, { pk: apk, at, like }) {
+      const ks = kidsOf(c, apk), nb = ks[Math.max(0, Math.min(like, ks.length - 1))];
+      return out(applyEdits(c.T, insertEdits(c, apk, at, nb ? blanked(c, nb) : '{}')), childPk(apk, at));
+    },
+    rowDup(c, { pk: apk, rows }) {
+      const ks = kidsOf(c, apk), hi = Math.max(...rows), add = rows.map((r) => memberText(c, ks[r]));
+      let T = c.T, n = 0; for (const t of add) { T = applyEdits(T, insertEdits(ctx(T), apk, hi + 1 + n, t)); n++; }
+      return out(T, childPk(apk, hi + 1));
+    },
+    rowDel(c, { pk: apk, rows }) { return out(removeMany(c, rows.map((r) => childPk(apk, r))), null); },
+    rowMove(c, { pk: apk, from, to }) { // to is a slot: 0 = before the first row
+      const n = kidsOf(c, apk).length; if (to === from || to === from + 1) return null;
+      const order = [...Array(n).keys()], [x] = order.splice(from, 1); order.splice(to > from ? to - 1 : to, 0, x);
+      return out(applyEdits(c.T, reorderEdits(c, apk, order)), childPk(apk, to > from ? to - 1 : to));
+    },
+    sort(c, { pk: apk, col, dir }) {
+      const ks = kidsOf(c, apk), arr = valueAt(c, pathOf(apk)), key = (i) => (arr[i] && typeof arr[i] === 'object' ? arr[i][col] : undefined);
+      const order = ks.map((_, i) => i).sort((a, b) => { const x = key(a), y = key(b); const ex = x === undefined || x === null || x === '', ey = y === undefined || y === null || y === '';
+        if (ex || ey) return ex === ey ? a - b : ex ? 1 : -1;
+        const v = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true, sensitivity: 'base' });
+        return v * dir || a - b; });
+      if (order.every((x, i) => x === i)) return null;
+      return out(applyEdits(c.T, reorderEdits(c, apk, order)), null);
+    },
+    colAdd(c, { pk: apk, at, cols }) {
+      let name = 'new column', n = 2; while (cols.includes(name)) name = 'new column ' + n++;
+      const order = cols.slice(); order.splice(at, 0, name);
+      const edits = kidsOf(c, apk).flatMap((o) => { if (!o.s.kids) return []; const have = kidsOf(c, o.pk); const idx = have.filter((k) => order.indexOf(k.k) < at).length; return insertEdits(c, o.pk, idx, JSON.stringify(name) + ': ""'); });
+      return out(applyEdits(c.T, edits), { col: name });
+    },
+    colRename(c, { pk: apk, from, to }) {
+      if (from === to) return null; if (!to.trim()) throw new Error('A column needs a name');
+      const objs = kidsOf(c, apk).filter((o) => o.s.kids);
+      if (objs.some((o) => o.s.kids.includes(to) && o.s.kids.includes(from))) throw new Error(`"${to}" is already a column`);
+      const edits = objs.flatMap((o) => kidsOf(c, o.pk).filter((k) => k.k === from).map((k) => ({ s: k.s.k[0], e: k.s.k[1], t: JSON.stringify(to) })));
+      return out(applyEdits(c.T, edits), { col: to });
+    },
+    colDel(c, { pk: apk, names }) {
+      const pks = kidsOf(c, apk).filter((o) => o.s.kids).flatMap((o) => kidsOf(c, o.pk).filter((k) => names.includes(k.k)).map((k) => k.pk));
+      return out(pks.length ? removeMany(c, pks) : c.T, null);
+    },
+    colMove(c, { pk: apk, cols, from, to }) { // to is a slot
+      if (to === from || to === from + 1) return null;
+      const order = cols.slice(), [x] = order.splice(from, 1); order.splice(to > from ? to - 1 : to, 0, x);
+      const edits = kidsOf(c, apk).filter((o) => o.s.kids).flatMap((o) => { const have = kidsOf(c, o.pk); const want = have.map((_, i) => i).sort((a, b) => order.indexOf(have[a].k) - order.indexOf(have[b].k)); return want.every((v, i) => v === i) ? [] : reorderEdits(c, o.pk, want); });
+      return out(applyEdits(c.T, edits), { col: x });
+    },
+  };
+  const kindOfLit = (lit) => (lit[0] === '"' ? 'string' : lit === 'null' ? 'null' : /^(true|false)$/.test(lit) ? 'boolean' : lit[0] === '{' ? 'object' : lit[0] === '[' ? 'array' : 'number');
+  function reorderEdits(c, ppk, order) {
+    const ks = kidsOf(c, ppk), texts = ks.map((k) => memberText(c, k));
+    return ks.map((k, i) => ({ s: k.s.m, e: k.s.v[1], t: texts[order[i]] })).filter((x, i) => order[i] !== i);
+  }
+  // remove several members: one splice per container where it can, one container member at a time otherwise
+  function removeMany(c, pks) {
+    const byParent = new Map();
+    for (const pk of pks) { const pp = parentKey(pk); if (!byParent.has(pp)) byParent.set(pp, []); byParent.get(pp).push(pk); }
+    const single = [...byParent.values()].every((a) => a.length === 1);
+    if (single) return applyEdits(c.T, [...byParent.entries()].flatMap(([pp, [pk]]) => removeEdits(c, pp, kidsOf(c, pp).findIndex((k) => k.pk === pk))));
+    // several in one container: rounds, each removing one member per container (the last remaining first, so the
+    // positions of the others do not move), re-reading the source between rounds
+    const pos = (cc, pp, pk) => kidsOf(cc, pp).findIndex((k) => k.pk === pk);
+    const queues = [...byParent.entries()].map(([pp, a]) => [pp, a.slice().sort((x, y) => pos(c, pp, y) - pos(c, pp, x))]);
+    let T = c.T;
+    while (queues.some((q) => q[1].length)) {
+      const cc = ctx(T);
+      T = applyEdits(T, queues.filter((q) => q[1].length).flatMap(([pp, a]) => { const i = pos(cc, pp, a.shift()); return i >= 0 ? removeEdits(cc, pp, i) : []; }));
+    }
+    return T;
+  }
+  function edit(text, op, args) {
+    const f = ops[op]; if (!f) throw new Error('Unknown edit ' + op);
+    return f(ctx(text), args || {});
+  }
+
+  // the source text of one value (a number keeps its own spelling: 1.50, 1e3)
+  function literalAt(text, pk) { const x = ctx(text).cs.get(pk); return x && x.v ? text.slice(x.v[0], x.v[1]) : null; }
+
+  global.JV = { parse, looksLikeJson, format, minify, renderDoc, sectionSource, edit, literal, literalAt, pathKey };
 })(window);
