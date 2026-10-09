@@ -1,0 +1,14 @@
+{
+  "entity": {
+    "serializationToken": "PhysicalAssetService.PhysicalAssetInvent",
+    "serializedObject": {
+      "currentOwnerArn": "arn:aws:ocean-wave:us-east-1:038462747010:supplyChain/aws-inf-p",
+      "id": "ns_hw_id#SNX.6115",
+      "identifiers": { "hw_id": "SNX.6115" },
+      "inventorySnapshotVersion": 6021,
+      "workflowType": "data_center"
+    }
+  },
+  "id": { "value": "pdx67_ns_hw_id#SNX.6115" },
+  "version": 1
+}

@@ -118,6 +118,22 @@ report.multiMounted = await mount(base + '/test/fixtures/multi.json'); await sle
 await ev(`document.querySelector('#app .top .cmpb').click()`); await sleep(400);
 report.multi = await state();
 checks.multi = /multi\.json · before/.test(report.multi.left) && /multi\.json · after|the response once/.test(report.multi.right) && report.multi.tiles.add === 3;
+// two differently shaped JSONs: the panel suggests the parts that match, and compares them on one click
+await ev(`document.querySelector('#app .cmp-x').click()`); await sleep(200);
+report.evMounted = await mount(base + '/test/fixtures/cmp-event.json'); await sleep(700);
+await ev(`dispatchEvent(new KeyboardEvent('keydown',{key:'t',metaKey:true,bubbles:true}))`); await sleep(300);
+await ev(`(()=>{const ta=document.querySelector('#app textarea.src'); ta.value=${JSON.stringify(read('cmp-entity.json'))}; ta.dispatchEvent(new Event('input',{bubbles:true}));})()`); await sleep(200);
+await ev(`document.querySelector('#app .top [data-mode=read]').click()`); await sleep(300);
+await ev(`document.querySelector('#app .tabs .tab').click()`); await sleep(500);
+await ev(`document.querySelector('#app .top .cmpb').click()`); await sleep(400);
+report.shape = await state(); report.shapeHint = await ev(`document.querySelector('#app .cmp-hint')?.textContent`);
+await ev(`scrollTo(0,0); document.querySelector('#app .content').scrollTop=0`); await sleep(100); await shot('compare-hint.png');
+await ev(`document.querySelector('#app .cmp-hint button').click()`); await sleep(300);
+report.inner = await state(); report.innerHint = await ev(`document.querySelector('#app .cmp-hint')?.textContent`); await ev(`scrollTo(0,0); document.querySelector('#app .content').scrollTop=0`); await sleep(100); await shot('compare-inner.png');
+await ev(`document.querySelector('#app .cmp-hint button').click()`); await sleep(300); report.back = await state();
+checks.shapeHint = report.shape.big === '8' && /parts that match best are \$\.event and \$\.entity/.test(report.shapeHint || '')
+  && report.inner.big === '3' && JSON.stringify(report.inner.marks) === JSON.stringify(['$.serializationToken', '$.serializedObject.ownerSupplyChain', '$.serializedObject.currentOwnerArn'])
+  && /Comparing \$\.event with \$\.entity/.test(report.innerHint || '') && /› event/.test(report.inner.sub) && report.back.big === '8';
 await ev(`document.documentElement.dataset.theme='studio'`); await sleep(200); await shot('compare-studio.png');
 
 report.checks = checks;

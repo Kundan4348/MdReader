@@ -1,0 +1,16 @@
+{
+  "entityId": { "value": "pdx67_ns_hw_id#SNX.6115#6021" },
+  "event": {
+    "serializationToken": "PhysicalAssetService.InventEntityUploaded",
+    "serializedObject": {
+      "id": "ns_hw_id#SNX.6115",
+      "identifiers": { "hw_id": "SNX.6115" },
+      "inventorySnapshotVersion": 6021,
+      "ownerSupplyChain": "arn:aws:ocean-wave:us-west-2:662631391062:supplyChain/aws-inf-p",
+      "workflowType": "data_center"
+    }
+  },
+  "eventId": { "value": "ec5e41d6-5721" },
+  "sequenceNumber": 1,
+  "timestamp": "2026-10-08T23:06:37.833Z"
+}

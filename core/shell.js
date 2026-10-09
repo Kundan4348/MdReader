@@ -1588,12 +1588,12 @@
     // folded away) or as a list, with next / previous, and Copy for a text report.
     const CMP = (() => {
       const st = { open: false, left: null, right: null, only: true, ignoreOrder: false, match: 'auto', view: localStorage.getItem('mdr-cmp-view') || 'tree', paste: { left: '', right: '' }, files: [], at: -1,
-        ignoreKeys: localStorage.getItem('mdr-cmp-ignore') || '', hide: new Set(), q: '' };
-      const sel = (side) => h('select', { class: 'cmp-src', 'aria-label': side === 'left' ? 'Left side' : 'Right side', onchange: (e) => { st[side] = e.target.value; if (st[side] === 'file') return pickFile(side); run(); } });
+        ignoreKeys: localStorage.getItem('mdr-cmp-ignore') || '', hide: new Set(), q: '', sub: { left: [], right: [] } }; // sub: compare from this part of each side
+      const sel = (side) => h('select', { class: 'cmp-src', 'aria-label': side === 'left' ? 'Left side' : 'Right side', onchange: (e) => { st[side] = e.target.value; st.sub = { left: [], right: [] }; if (st[side] === 'file') return pickFile(side); run(); } });
       const L = sel('left'), R = sel('right');
       const infoL = h('span', { class: 'cmp-info' }), infoR = h('span', { class: 'cmp-info' });
       const sideCard = (which, select, info) => h('div', { class: 'cmp-side ' + which }, h('span', { class: 'cmp-tag' }, which === 'l' ? 'Left' : 'Right'), select, info);
-      const swapB = h('button', { type: 'button', class: 'cmp-swap', title: 'Swap sides', onclick: () => { [st.left, st.right] = [st.right, st.left]; [st.paste.left, st.paste.right] = [st.paste.right, st.paste.left]; PL.value = st.paste.left; PR.value = st.paste.right; run(); } }, '⇄');
+      const swapB = h('button', { type: 'button', class: 'cmp-swap', title: 'Swap sides', onclick: () => { [st.left, st.right] = [st.right, st.left]; [st.paste.left, st.paste.right] = [st.paste.right, st.paste.left]; st.sub = { left: st.sub.right, right: st.sub.left }; PL.value = st.paste.left; PR.value = st.paste.right; run(); } }, '⇄');
       const closeB = h('button', { type: 'button', class: 'cmp-x', title: 'Close (Esc)', onclick: () => close() }, '✕');
       const VIEWS = [['tree', 'Tree', 'The JSON as a tree, with what changed marked'], ['side', 'Side by side', 'Both JSONs next to each other, lined up'], ['list', 'List', 'One row per difference']];
       const viewSeg = h('span', { class: 'cmp-seg', role: 'tablist' }, ...VIEWS.map(([v, label, tip]) => h('button', { type: 'button', 'data-v': v, title: tip, onclick: () => { st.view = v; localStorage.setItem('mdr-cmp-view', v); run(); } }, label)));
@@ -1698,7 +1698,7 @@
           if (id === 'paste') { const t = st.paste[which]; if (!t.trim()) return { wait: `Paste the ${which} JSON above` }; const r = JV.parse(t); return r.error ? { error: r.error, name: `pasted (${which})` } : { value: r.docs.length > 1 ? r.docs.map((d) => d.value) : r.docs[0].value, name: `pasted ${which}` }; }
           const s = list.find((x) => x.id === id); return s ? s : { wait: 'Pick something to compare' };
         };
-        const a = side(st.left, 'left'), b = side(st.right, 'right');
+        let a = side(st.left, 'left'), b = side(st.right, 'right');
         const info = (x) => { if (x.error) return 'not valid JSON'; if (x.value === undefined) return ''; const v = x.value, n = JSON.stringify(v).length;
           const what = Array.isArray(v) ? `List · ${v.length} item${v.length === 1 ? '' : 's'}` : v && typeof v === 'object' ? `Object · ${Object.keys(v).length} key${Object.keys(v).length === 1 ? '' : 's'}` : 'A single value';
           return `${what} · ${n < 1024 ? n + ' B' : (n / 1024).toFixed(1) + ' KB'}`; };
@@ -1710,13 +1710,30 @@
           body.replaceChildren(h('div', { class: 'cmp-msg' }, ...[a.wait || a.error ? msg(a, 'left') : null, b.wait || b.error ? msg(b, 'right') : null].filter(Boolean).map((t) => h('p', {}, t))));
           return syncNav();
         }
-        const names = a.name === b.name ? [a.name + ' (left)', b.name + ' (right)'] : [a.name, b.name];
+        // compare from a part of each side (picked from the suggestion below, or reset to the whole JSONs)
+        const whole = { a: a.value, b: b.value }, sp = (p) => (p.length ? ' › ' + JD.pathStr(p).replace(/^\$\.?/, '') : '');
+        if (st.sub.left.length || st.sub.right.length) {
+          const va = JD.at(a.value, st.sub.left), vb = JD.at(b.value, st.sub.right);
+          if (va === undefined || vb === undefined) st.sub = { left: [], right: [] }; else { a = Object.assign({}, a, { value: va }); b = Object.assign({}, b, { value: vb }); }
+        }
+        const names0 = a.name === b.name ? [a.name + ' (left)', b.name + ' (right)'] : [a.name, b.name];
+        const names = [names0[0] + sp(st.sub.left), names0[1] + sp(st.sub.right)];
         const t0 = performance.now();
         const ignoreKeys = new Set(st.ignoreKeys.split(/[,\s]+/).map((k) => k.trim().toLowerCase()).filter(Boolean));
         const root = JD.diff(a.value, b.value, { ignoreOrder: st.ignoreOrder, match: st.match, ignoreKeys });
         last = { root, names };
         const view = st.view === 'list' ? JD.table(root, names) : st.view === 'side' ? JD.sideBySide(root, names, { onlyChanges: st.only }) : JD.render(root, { onlyChanges: st.only });
-        body.replaceChildren(JD.summary(root, names, { ignored: [...ignoreKeys] }), view);
+        let hint = null;
+        if (st.sub.left.length || st.sub.right.length) {
+          hint = h('div', { class: 'cmp-hint on' }, h('span', {}, 'Comparing ', h('b', {}, JD.pathStr(st.sub.left)), ' with ', h('b', {}, JD.pathStr(st.sub.right)), ' -- the rest of each JSON is left out.'),
+            h('button', { type: 'button', onclick: () => { st.sub = { left: [], right: [] }; run(); panel.scrollIntoView({ block: 'start' }); content.scrollTop = 0; } }, 'Compare the whole JSONs'));
+        } else if (JD.overlap(whole.a, whole.b) < 0.34) {
+          const bp = JD.bestPair(whole.a, whole.b);
+          if (bp) hint = h('div', { class: 'cmp-hint' }, h('span', {}, 'These two JSONs are shaped differently, so most of the differences are whole parts on one side only. The parts that match best are ',
+            h('b', {}, JD.pathStr(bp.a)), ' and ', h('b', {}, JD.pathStr(bp.b)), ` (${Math.round(bp.score * 100)}% of their keys in common).`),
+            h('button', { type: 'button', class: 'go', onclick: () => { st.sub = { left: bp.a, right: bp.b }; run(); panel.scrollIntoView({ block: 'start' }); content.scrollTop = 0; } }, 'Compare those instead'));
+        }
+        body.replaceChildren(...[hint, JD.summary(root, names, { ignored: [...ignoreKeys] }), view].filter(Boolean));
         body.dataset.ms = Math.round(performance.now() - t0);
         applyFilter();
       }

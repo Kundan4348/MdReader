@@ -830,3 +830,13 @@ html[data-theme=studio] .cmp{--add:#6cc28a;--del:#ee8277;--chg:#e2b45a;--mv:#9ea
 .jd-table tr.jd-r-removed .jd-v:nth-child(3){color:var(--del);text-decoration:line-through}
 
 .jd-same .jd-one{opacity:.9}
+.cmp-hint{display:flex;align-items:center;gap:14px;margin:14px 0 0;padding:10px 14px;border-radius:10px;border:1px solid color-mix(in srgb,var(--accent,#3b82f6) 35%,transparent);background:color-mix(in srgb,var(--accent,#3b82f6) 7%,transparent);font-size:12.5px;line-height:1.5}
+.cmp-hint > span{flex:1}
+.cmp-hint b{font-family:var(--mono,ui-monospace,monospace);font-weight:600}
+.cmp-hint button{flex:none;border:1px solid var(--accent,#3b82f6);color:var(--accent,#3b82f6);background:transparent;border-radius:8px;padding:5px 12px;cursor:pointer;font-weight:600}
+.cmp-hint button.go{background:var(--accent,#3b82f6);color:#fff}
+.cmp-hint.on{border-style:dashed}
+/* a long value never runs past the card */
+.cmp .jd-l{max-width:100%;box-sizing:border-box}
+.jd-val{display:inline-block;vertical-align:top;max-width:calc(100% - 140px)}
+.jd-val pre{max-width:100%;box-sizing:border-box;white-space:pre-wrap;overflow-wrap:anywhere}

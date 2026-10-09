@@ -31,4 +31,9 @@ ab.forEach(([a, b], n) => {
   eq(`sbs ${n} one mark per difference`, rows.filter((r) => r.mark).length, JD.changes(d).length);
 });
 eq('ignore keys anywhere', R({ at: 1, o: { at: 2, v: 1 }, l: [{ id: 1, At: 3 }] }, { at: 9, o: { at: 8, v: 1 }, l: [{ id: 1, At: 4 }] }, { ignoreKeys: new Set(['at']) }), []);
+{ const ev = JSON.parse(fs.readFileSync(new URL('./fixtures/cmp-event.json', import.meta.url))), en = JSON.parse(fs.readFileSync(new URL('./fixtures/cmp-entity.json', import.meta.url)));
+  eq('no shared top-level keys', JD.overlap(ev, en), 0);
+  const bp = JD.bestPair(ev, en); eq('best pair', [bp.a, bp.b], [['event'], ['entity']]);
+  eq('inner differences', R(JD.at(ev, bp.a), JD.at(en, bp.b)), ['~ $.serializationToken: "PhysicalAssetService.InventEntityUploaded" → "PhysicalAssetService.PhysicalAssetInvent"', '- $.serializedObject.ownerSupplyChain: "arn:aws:ocean-wave:us-west-2:662631391062:supplyChain/aws-inf-p"', '+ $.serializedObject.currentOwnerArn: "arn:aws:ocean-wave:us-east-1:038462747010:supplyChain/aws-inf-p"']);
+  eq('similar shapes get no suggestion need', JD.overlap({ a: 1, b: 2 }, { a: 1, b: 3 }), 1); }
 console.log(fails ? `${fails} FAILED` : 'ALL OK'); process.exit(fails ? 1 : 0);

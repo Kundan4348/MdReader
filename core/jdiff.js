@@ -389,5 +389,25 @@
     return h('div', { class: 'jd-sbsw' }, t);
   }
 
-  global.JD = { diff, changes, report, pathStr, short, kindOf, canon, total, plural, idKey, render, table, summary, sideBySide, sbsRows };
+  // When two sides share (almost) no top-level keys -- an event envelope against the entity it carries -- the real
+  // comparison is between parts further down. Finds the pair of objects, one on each side, whose keys overlap most.
+  // Returns { a: path, b: path, score } or null. Paths are lists of keys / indexes.
+  function bestPair(a, b, depth = 4) {
+    const objs = (v, path, out, d) => { if (!isObj(v) || d > depth) return out; if (Object.keys(v).length >= 2) out.push({ path, keys: new Set(Object.keys(v)), v }); for (const [k, x] of Object.entries(v)) if (isObj(x)) objs(x, path.concat(k), out, d + 1); return out; };
+    const A = objs(a, [], [], 0), B = objs(b, [], [], 0);
+    let best = null;
+    for (const x of A) for (const y of B) {
+      if (!x.path.length && !y.path.length) continue;
+      let common = 0; for (const k of x.keys) if (y.keys.has(k)) common++;
+      if (common < 2) continue;
+      const score = common / (x.keys.size + y.keys.size - common);
+      if (!best || score > best.score || (score === best.score && x.path.length + y.path.length < best.a.length + best.b.length)) best = { a: x.path, b: y.path, score };
+    }
+    return best && best.score >= 0.5 ? best : null;
+  }
+  const at = (v, path) => path.reduce((x, k) => (x === null || x === undefined ? undefined : x[k]), v);
+  // share of the top-level keys the two sides have in common (1 = all, 0 = none)
+  const overlap = (a, b) => { if (!isObj(a) || !isObj(b)) return 1; const ka = Object.keys(a), kb = new Set(Object.keys(b)); const c = ka.filter((k) => kb.has(k)).length; return ka.length + kb.size ? c / (ka.length + kb.size - c) : 1; };
+
+  global.JD = { diff, changes, report, pathStr, short, kindOf, canon, total, plural, idKey, render, table, summary, sideBySide, sbsRows, bestPair, at, overlap };
 })(typeof window !== 'undefined' ? window : globalThis);
