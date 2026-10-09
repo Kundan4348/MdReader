@@ -48,7 +48,8 @@
     return node;
   }
   function diffObject(a, b, opts) {
-    const keys = Object.keys(a).concat(Object.keys(b).filter((k) => !Object.prototype.hasOwnProperty.call(a, k)));
+    const skip = opts.ignoreKeys && opts.ignoreKeys.size ? (k) => opts.ignoreKeys.has(k.toLowerCase()) : () => false; // keys left out of the comparison everywhere (timestamps, request ids)
+    const keys = Object.keys(a).concat(Object.keys(b).filter((k) => !Object.prototype.hasOwnProperty.call(a, k))).filter((k) => !skip(k));
     return { list: keys.map((k) => diff(own(a, k), own(b, k), opts, k)) };
   }
   const own = (o, k) => (Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined);
@@ -241,10 +242,11 @@
   function one(c, path, parent, opts) {
     const p = c.k === '(the whole value)' ? path : path.concat(step(c)), ps = pathStr(p), k = keyEl(c, parent);
     const mv = c.moved ? h('span', { class: 'jd-mv', title: 'Same item, in a different place' }, `↕ was ${c.moved[0]}`) : null;
-    const line = (cls, sign, ...body) => h('div', { class: 'jl jd-l ' + cls + (cls === 'jd-same' && !mv ? '' : ' jd-c'), 'data-path': ps, title: ps }, h('span', { class: 'jd-s' }, sign), ...k, ...body, mv);
+    const line = (cls, sign, ...body) => h('div', { class: 'jl jd-l ' + cls + (cls === 'jd-same' && !mv ? '' : ' jd-c') + (mv ? ' jd-moved' : ''), 'data-path': ps, title: ps }, h('span', { class: 'jd-s' }, sign), ...k, ...body, mv);
     if (c.st === 'same') {
       if (!isCont(c.a)) return [line('jd-same', '', scal(c.b))];
-      return [line('jd-same', '', valEl(c.b))];
+      const one = spaced(JSON.stringify(c.b)); // an unchanged object or list: one quiet line, shortened
+      return [line('jd-same', '', h('span', { class: 'jv jd-one', title: one.length > 90 ? one.slice(0, 2000) : null }, one.length > 90 ? one.slice(0, 89) + '…' : one))];
     }
     if (c.st === 'added') return [line('jd-add', '+', valEl(c.b, true))];
     if (c.st === 'removed') return [line('jd-del', '−', valEl(c.a, true))];
@@ -255,7 +257,7 @@
     }
     // inner: a fold with what changed inside it
     const by = c.by ? h('span', { class: 'jd-by', title: `List items were matched by their "${c.by}" field, not by position` }, `matched by ${c.by}`) : null;
-    const sum = h('summary', { class: 'jd-l jd-in', 'data-path': ps, title: ps }, h('span', { class: 'jd-s' }, ''), ...k, h('span', { class: 'jsum' }, Array.isArray(c.b) ? `[ ${c.a.length} → ${c.b.length} items ]` : `{ ${Object.keys(c.b).length} keys }`), ' ', ...counts(c.n, movedIn(c)), by, mv);
+    const sum = h('summary', { class: 'jd-l jd-in' + (mv ? ' jd-c jd-moved' : ''), 'data-path': ps, title: ps }, h('span', { class: 'jd-s' }, ''), ...k, h('span', { class: 'jsum' }, Array.isArray(c.b) ? `[ ${c.a.length} → ${c.b.length} items ]` : `{ ${Object.keys(c.b).length} keys }`), ' ', ...counts(c.n, movedIn(c)), by, mv);
     const d = h('details', { class: 'jn jd-n', open: '' }, sum, h('div', { class: 'jt' }, ...lines(c.kids, p, c, opts)));
     return [d];
   }
@@ -274,14 +276,118 @@
     t.append(body);
     return h('div', { class: 'table-wrap jd-tw' }, t);
   }
-  // the plain-words summary band
-  function summary(root, names) {
+  // the summary: one plain sentence, then a tile per kind of difference (the shell makes a tile hide / show that kind)
+  function summary(root, names, opts = {}) {
     const cs = changes(root), mv = cs.filter((c) => c.st === 'moved').length, n = root.n, all = total(n) + mv;
     const byKeys = []; (function walk(x) { if (x.by && !byKeys.includes(x.by)) byKeys.push(x.by); (x.kids || []).forEach(walk); })(root);
-    if (!all) return h('div', { class: 'jd-sum jd-equal' }, h('strong', {}, 'No differences.'), ` ${names[1]} holds exactly the same data as ${names[0]}`, canon(root.a) === canon(root.b) && JSON.stringify(root.a) !== JSON.stringify(root.b) ? ' (only the key order differs)' : '', '.');
-    return h('div', { class: 'jd-sum' }, h('strong', {}, `${plural(all, 'difference')}`), ` from ${names[0]} to ${names[1]} `, h('span', { class: 'jd-chips' }, ...counts(n, mv)),
-      byKeys.length ? h('div', { class: 'jd-note' }, `List items are matched by ${byKeys.map((k) => `"${k}"`).join(', ')}, so an item that was added or moved is not counted as everything after it changing.`) : null);
+    const ign = opts.ignored && opts.ignored.length ? h('div', { class: 'jd-note' }, `Leaving out ${opts.ignored.map((k) => `"${k}"`).join(', ')} wherever it appears.`) : null;
+    const nm = (x) => h('b', {}, x);
+    if (!all) {
+      const order = canon(root.a) === canon(root.b) && JSON.stringify(root.a) !== JSON.stringify(root.b);
+      return h('div', { class: 'jd-sum jd-equal' }, h('div', { class: 'jd-head' }, h('span', { class: 'jd-big' }, '='), h('div', {}, h('div', { class: 'jd-line' }, 'No differences'),
+        h('div', { class: 'jd-sub' }, nm(names[1]), ' holds exactly the same data as ', nm(names[0]), order ? ' -- only the order of keys differs.' : '.'))), ign);
+    }
+    const tile = (k, label, count, tip) => h('button', { type: 'button', class: `jd-tile jd-t-${k}`, 'data-k': k, 'aria-pressed': 'true', disabled: count ? null : '', title: count ? `${tip} -- click to hide or show them` : tip },
+      h('span', { class: 'jd-tn' }, String(count)), h('span', { class: 'jd-tl' }, label));
+    const where = new Set(cs.map((c) => (c.path.length ? pathStr(c.path.slice(0, 1)) : '$'))).size;
+    return h('div', { class: 'jd-sum' },
+      h('div', { class: 'jd-head' }, h('span', { class: 'jd-big' }, String(all)), h('div', {}, h('div', { class: 'jd-line' }, all === 1 ? 'difference' : 'differences'),
+        h('div', { class: 'jd-sub' }, 'from ', nm(names[0]), ' to ', nm(names[1]), where > 1 ? ` · in ${where} top-level parts` : ''))),
+      h('div', { class: 'jd-tiles' }, tile('chg', 'changed', n.changed, 'Values that are different'), tile('add', 'added', n.added, `Only in ${names[1]}`),
+        tile('del', 'removed', n.removed, `Only in ${names[0]}`), tile('mv', 'moved', mv, 'The same list item, in a different place')),
+      byKeys.length ? h('div', { class: 'jd-note' }, `List items are paired by ${byKeys.map((k) => `"${k}"`).join(', ')}, so an added or moved item does not make everything after it look changed.`) : null, ign);
   }
 
-  global.JD = { diff, changes, report, pathStr, short, kindOf, canon, total, plural, idKey, render, table, summary };
+  // ---------- side by side ----------
+  // Both JSONs pretty-printed in two columns, lined up: a line that is the same sits beside itself, a changed value
+  // beside its new value (the characters that differ marked), and an added or removed part faces an empty, hatched
+  // space on the other side. Built from the same diff tree, so list items line up by id exactly as in the tree.
+  const IND = '  ';
+  const prettyLines = (v) => JSON.stringify(v, null, 2).split('\n');
+  function sbsRows(root) {
+    const rows = [];
+    const push = (l, r, st, mark) => rows.push({ l, r, st, mark: !!mark });
+    const keyTxt = (c) => (typeof c.k === 'number' ? '' : JSON.stringify(c.k) + ': ');
+    // the lines of one value, the first one carrying the key, the last one the comma
+    const valueLines = (v, pad, key, comma) => { const ls = prettyLines(v); return ls.map((x, i) => (i ? pad + x : pad + key + x) + (i === ls.length - 1 ? comma : '')); };
+    function node(c, pad, cl, cr) {
+      const key = keyTxt(c);
+      if (c.st === 'same') { const L = valueLines(c.a, pad, key, cl), R = valueLines(c.b, pad, key, cr); L.forEach((x, i) => push(x, R[i], c.moved ? 'mv' : 'same', c.moved && !i)); return; }
+      if (c.st === 'added') { valueLines(c.b, pad, key, cr).forEach((x, i) => push(null, x, 'add', !i)); return; }
+      if (c.st === 'removed') { valueLines(c.a, pad, key, cl).forEach((x, i) => push(x, null, 'del', !i)); return; }
+      if (c.st === 'changed') { const L = valueLines(c.a, pad, key, cl), R = valueLines(c.b, pad, key, cr); for (let i = 0; i < Math.max(L.length, R.length); i++) push(i < L.length ? L[i] : null, i < R.length ? R[i] : null, 'chg', !i); return; }
+      // inner: the container's own brackets on both sides, its members lined up between them
+      const arr = Array.isArray(c.b), o = arr ? '[' : '{', e = arr ? ']' : '}';
+      push(pad + key + o, pad + key + o, c.moved ? 'mv' : 'same', !!c.moved);
+      kids(c.kids, pad + IND);
+      push(pad + e + cl, pad + e + cr, 'same');
+    }
+    function kids(list, pad) {
+      const lastL = list.map((x) => x.st !== 'added').lastIndexOf(true), lastR = list.map((x) => x.st !== 'removed').lastIndexOf(true);
+      list.forEach((c, i) => node(c, pad, i < lastL ? ',' : '', i < lastR ? ',' : ''));
+    }
+    if (root.st === 'inner') { const arr = Array.isArray(root.b); push(arr ? '[' : '{', arr ? '[' : '{', 'same'); kids(root.kids, IND); push(arr ? ']' : '}', arr ? ']' : '}', 'same'); }
+    else node(Object.assign({}, root, { k: 0 }), '', '', '');
+    return rows;
+  }
+  // what differs between two lines of a changed value: common start and end stay plain
+  function linePair(l, r) {
+    let p = 0; while (p < l.length && p < r.length && l[p] === r[p]) p++;
+    let e = 0; while (e < l.length - p && e < r.length - p && l[l.length - 1 - e] === r[r.length - 1 - e]) e++;
+    const part = (t) => (p + e >= t.length ? [t] : [t.slice(0, p), h('mark', {}, t.slice(p, t.length - e)), t.slice(t.length - e)]);
+    return [part(l), part(r)];
+  }
+  // colour a JSON line lightly: keys, strings, numbers, true/false/null
+  function tint(t) {
+    const out = []; const re = /("(?:[^"\\]|\\.)*")(\s*:)?|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|\b(true|false|null)\b/g; let m, last = 0;
+    while ((m = re.exec(t))) {
+      if (m.index > last) out.push(t.slice(last, m.index));
+      if (m[1]) { out.push(h('span', { class: m[2] ? 'jk' : 'jv jstr' }, m[1])); if (m[2]) out.push(m[2]); }
+      else if (m[3]) out.push(h('span', { class: 'jv jnum' }, m[3]));
+      else out.push(h('span', { class: 'jv ' + (m[4] === 'null' ? 'jnull' : 'jbool') }, m[4]));
+      last = re.lastIndex;
+    }
+    if (last < t.length) out.push(t.slice(last));
+    return out;
+  }
+  function sideBySide(root, names, opts = {}) {
+    const rows = sbsRows(root);
+    let ln = 0, rn = 0;
+    rows.forEach((x) => { x.ln = x.l === null ? null : ++ln; x.rn = x.r === null ? null : ++rn; });
+    const t = h('table', { class: 'jd-sbs' }, h('colgroup', {}, h('col', { class: 'n' }), h('col', {}), h('col', { class: 'n' }), h('col', {})),
+      h('thead', {}, h('tr', {}, h('th', { colspan: '2' }, names[0]), h('th', { colspan: '2' }, names[1]))));
+    const body = h('tbody', {});
+    const rowEl = (x) => {
+      const cell = (txt, mine, other) => {
+        if (txt === null) return h('td', { class: 'tx jd-fill' });
+        if (x.st === 'chg' && other !== null) { const [a, b] = linePair(mine === 'l' ? txt : other, mine === 'l' ? other : txt); return h('td', { class: 'tx' }, ...(mine === 'l' ? a : b)); }
+        return h('td', { class: 'tx' }, ...tint(txt));
+      };
+      return h('tr', { class: 'jd-r jd-r-' + x.st + (x.mark ? ' jd-c' : '') },
+        h('td', { class: 'ln' }, x.ln === null ? '' : String(x.ln)), cell(x.l, 'l', x.r), h('td', { class: 'ln' }, x.rn === null ? '' : String(x.rn)), cell(x.r, 'r', x.l));
+    };
+    // with "only differences", long runs of identical lines fold to a few lines of context around each change
+    const CTX = 3;
+    let i = 0;
+    while (i < rows.length) {
+      if (!opts.onlyChanges || rows[i].st !== 'same') { body.append(rowEl(rows[i])); i++; continue; }
+      let j = i; while (j < rows.length && rows[j].st === 'same') j++;
+      const head = i === 0 ? 0 : CTX, tail = j === rows.length ? 0 : CTX;
+      if (j - i <= head + tail + 1) { for (let k = i; k < j; k++) body.append(rowEl(rows[k])); }
+      else {
+        for (let k = i; k < i + head; k++) body.append(rowEl(rows[k]));
+        const hidden = rows.slice(i + head, j - tail);
+        const btn = h('button', { type: 'button', class: 'jd-gap' }, `··· ${hidden.length} unchanged line${hidden.length === 1 ? '' : 's'}`);
+        const gapRow = h('tr', { class: 'jd-gaprow' }, h('td', { colspan: '4' }, btn));
+        btn.addEventListener('click', () => gapRow.replaceWith(...hidden.map(rowEl)));
+        body.append(gapRow);
+        for (let k = j - tail; k < j; k++) body.append(rowEl(rows[k]));
+      }
+      i = j;
+    }
+    t.append(body);
+    return h('div', { class: 'jd-sbsw' }, t);
+  }
+
+  global.JD = { diff, changes, report, pathStr, short, kindOf, canon, total, plural, idKey, render, table, summary, sideBySide, sbsRows };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -1587,28 +1587,64 @@
     // (in the app) a file. The result is a summary in plain words, then the differences as a tree (unchanged parts
     // folded away) or as a list, with next / previous, and Copy for a text report.
     const CMP = (() => {
-      const st = { open: false, left: null, right: null, only: true, ignoreOrder: false, match: 'auto', view: 'tree', paste: { left: '', right: '' }, files: [], at: -1 };
+      const st = { open: false, left: null, right: null, only: true, ignoreOrder: false, match: 'auto', view: localStorage.getItem('mdr-cmp-view') || 'tree', paste: { left: '', right: '' }, files: [], at: -1,
+        ignoreKeys: localStorage.getItem('mdr-cmp-ignore') || '', hide: new Set(), q: '' };
       const sel = (side) => h('select', { class: 'cmp-src', 'aria-label': side === 'left' ? 'Left side' : 'Right side', onchange: (e) => { st[side] = e.target.value; if (st[side] === 'file') return pickFile(side); run(); } });
       const L = sel('left'), R = sel('right');
-      const chk = (label, key, tip) => { const i = h('input', { type: 'checkbox' }); i.checked = st[key]; i.onchange = () => { st[key] = i.checked; run(); }; return h('label', { class: 'cmp-opt', title: tip }, i, ' ' + label); };
-      const matchSel = h('select', { class: 'cmp-match', title: 'How items of a list are paired up', onchange: (e) => { st.match = e.target.value; run(); } },
-        h('option', { value: 'auto' }, 'Match list items by id'), h('option', { value: 'position' }, 'Match list items by position'));
-      const viewSeg = h('span', { class: 'cmp-seg' }, ...['tree', 'list'].map((v) => h('button', { type: 'button', 'data-v': v, onclick: () => { st.view = v; run(); } }, v === 'tree' ? 'Tree' : 'List')));
-      const pos = h('span', { class: 'cmp-pos' });
-      const prevB = h('button', { type: 'button', class: 'cmp-nav', title: 'Previous difference (p)', onclick: () => go(-1) }, '↑');
-      const nextB = h('button', { type: 'button', class: 'cmp-nav', title: 'Next difference (n)', onclick: () => go(1) }, '↓');
-      const copyB = h('button', { type: 'button', class: 'cmp-copy', title: 'Copy the differences as text', onclick: copyReport }, 'Copy');
+      const infoL = h('span', { class: 'cmp-info' }), infoR = h('span', { class: 'cmp-info' });
+      const sideCard = (which, select, info) => h('div', { class: 'cmp-side ' + which }, h('span', { class: 'cmp-tag' }, which === 'l' ? 'Left' : 'Right'), select, info);
+      const swapB = h('button', { type: 'button', class: 'cmp-swap', title: 'Swap sides', onclick: () => { [st.left, st.right] = [st.right, st.left]; [st.paste.left, st.paste.right] = [st.paste.right, st.paste.left]; PL.value = st.paste.left; PR.value = st.paste.right; run(); } }, '⇄');
       const closeB = h('button', { type: 'button', class: 'cmp-x', title: 'Close (Esc)', onclick: () => close() }, '✕');
-      const swapB = h('button', { type: 'button', class: 'cmp-swap', title: 'Swap sides', onclick: () => { [st.left, st.right] = [st.right, st.left]; [st.paste.left, st.paste.right] = [st.paste.right, st.paste.left]; run(); } }, '⇄');
+      const VIEWS = [['tree', 'Tree', 'The JSON as a tree, with what changed marked'], ['side', 'Side by side', 'Both JSONs next to each other, lined up'], ['list', 'List', 'One row per difference']];
+      const viewSeg = h('span', { class: 'cmp-seg', role: 'tablist' }, ...VIEWS.map(([v, label, tip]) => h('button', { type: 'button', 'data-v': v, title: tip, onclick: () => { st.view = v; localStorage.setItem('mdr-cmp-view', v); run(); } }, label)));
+      const qIn = h('input', { type: 'search', class: 'cmp-q', placeholder: 'Filter by path or key…', spellcheck: 'false', 'aria-label': 'Filter differences by path' });
+      qIn.oninput = () => { st.q = qIn.value.trim().toLowerCase(); applyFilter(); };
+      // options, in a small popover so the bar stays one quiet line
+      const chk = (label, key, tip) => { const i = h('input', { type: 'checkbox' }); i.checked = st[key]; i.onchange = () => { st[key] = i.checked; run(); }; return h('label', { class: 'cmp-opt', title: tip }, i, h('span', {}, label)); };
+      const matchSeg = h('span', { class: 'cmp-seg sm' }, ...[['auto', 'by id'], ['position', 'by position']].map(([v, label]) => h('button', { type: 'button', 'data-m': v, onclick: () => { st.match = v; run(); } }, label)));
+      const ignIn = h('input', { type: 'text', class: 'cmp-ign', placeholder: 'e.g. updatedAt, requestId', spellcheck: 'false', value: st.ignoreKeys });
+      let ignT = 0; ignIn.oninput = () => { st.ignoreKeys = ignIn.value; localStorage.setItem('mdr-cmp-ignore', ignIn.value); clearTimeout(ignT); ignT = setTimeout(run, 300); };
+      const optsPop = h('div', { class: 'cmp-pop', hidden: '' },
+        chk('Only show differences', 'only', 'Fold away the parts that are the same'),
+        chk('Ignore the order of lists', 'ignoreOrder', 'Treat lists as sets: an item in a different place is not a difference'),
+        h('div', { class: 'cmp-row' }, h('span', {}, 'Pair list items'), matchSeg),
+        h('div', { class: 'cmp-row col' }, h('span', {}, 'Leave out these keys'), ignIn, h('small', {}, 'Anywhere in the JSON -- for timestamps, request ids and the like')));
+      const optsB = h('button', { type: 'button', class: 'cmp-optsb', title: 'Comparison options', onclick: (e) => { e.stopPropagation(); optsPop.hidden = !optsPop.hidden; } }, 'Options');
+      const optsWrap = h('span', { class: 'cmp-opts' }, optsB, optsPop);
+      document.addEventListener('mousedown', (e) => { if (!optsPop.hidden && !optsWrap.contains(e.target)) optsPop.hidden = true; }, true);
+      const pos = h('span', { class: 'cmp-pos' });
+      const prevB = h('button', { type: 'button', class: 'cmp-nav', title: 'Previous difference (p)', onclick: () => go(-1) }, '‹');
+      const nextB = h('button', { type: 'button', class: 'cmp-nav', title: 'Next difference (n)', onclick: () => go(1) }, '›');
+      const copyB = h('button', { type: 'button', class: 'cmp-copy', title: 'Copy the differences as text', onclick: copyReport }, 'Copy');
       const pasteBox = (side) => { const t = h('textarea', { class: 'cmp-paste', spellcheck: 'false', placeholder: `Paste the ${side} JSON here` }); let tm = 0; t.oninput = () => { st.paste[side] = t.value; clearTimeout(tm); tm = setTimeout(run, 250); }; return t; };
       const PL = pasteBox('left'), PR = pasteBox('right');
       const pastes = h('div', { class: 'cmp-pastes' }, PL, PR);
       const body = h('div', { class: 'cmp-body' });
       const panel = h('section', { class: 'cmp', hidden: '', 'aria-label': 'Compare JSON' },
-        h('div', { class: 'cmp-bar' }, h('span', { class: 'cmp-t' }, 'Compare'), L, swapB, R, h('span', { class: 'cmp-sp' }),
-          chk('Only differences', 'only', 'Fold away the parts that are the same'), chk('Ignore list order', 'ignoreOrder', 'Treat lists as sets: an item in a different place is not a difference'), matchSel,
-          viewSeg, h('span', { class: 'cmp-navs' }, prevB, pos, nextB), copyB, closeB),
+        h('div', { class: 'cmp-head' },
+          h('div', { class: 'cmp-sides' }, h('span', { class: 'cmp-t' }, 'Compare'), sideCard('l', L, infoL), swapB, sideCard('r', R, infoR), closeB),
+          h('div', { class: 'cmp-tools' }, viewSeg, qIn, h('span', { class: 'cmp-sp' }), optsWrap, h('span', { class: 'cmp-navs' }, prevB, pos, nextB), copyB)),
         pastes, body);
+      // the kind tiles in the summary hide or show that kind of difference; the path box narrows to matching ones
+      body.addEventListener('click', (e) => {
+        const t = e.target.closest('.jd-tile[data-k]'); if (!t || t.disabled) return;
+        const k = t.dataset.k; if (st.hide.has(k)) st.hide.delete(k); else st.hide.add(k);
+        applyFilter();
+      });
+      function applyFilter() {
+        ['chg', 'add', 'del', 'mv'].forEach((k) => panel.classList.toggle('hide-' + k, st.hide.has(k)));
+        body.querySelectorAll('.jd-tile[data-k]').forEach((t) => t.setAttribute('aria-pressed', st.hide.has(t.dataset.k) ? 'false' : 'true'));
+        const q = st.q;
+        qIn.disabled = st.view === 'side'; qIn.title = qIn.disabled ? 'The path filter works in Tree and List' : '';
+        body.querySelectorAll('.jd-qhide').forEach((x) => x.classList.remove('jd-qhide'));
+        if (q && st.view !== 'side') {
+          body.querySelectorAll('.jd-c[data-path]').forEach((x) => { if (!x.dataset.path.toLowerCase().includes(q)) x.classList.add('jd-qhide'); });
+          body.querySelectorAll('.jd-same, .jd-gap').forEach((x) => x.classList.add('jd-qhide'));
+          [...body.querySelectorAll('details.jd-n')].reverse().forEach((d) => { if (!d.querySelector('.jd-c:not(.jd-qhide)')) d.classList.add('jd-qhide'); else d.open = true; });
+        }
+        st.at = -1; body.querySelectorAll('.jd-cur').forEach((x) => x.classList.remove('jd-cur'));
+        syncNav();
+      }
       content.append(panel); // after the page and the editor: it is only shown while they are hidden
 
       // ---- the sources ----
@@ -1653,6 +1689,9 @@
         st.leftWas = st.left; st.rightWas = st.right;
         fill(L, list, st.left); fill(R, list, st.right);
         viewSeg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === st.view));
+        matchSeg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.m === st.match));
+        panel.dataset.view = st.view;
+        optsB.classList.toggle('on', !st.only || st.ignoreOrder || st.match !== 'auto' || !!st.ignoreKeys.trim());
         PL.hidden = st.left !== 'paste'; PR.hidden = st.right !== 'paste'; pastes.hidden = PL.hidden && PR.hidden;
         pastes.classList.toggle('one', PL.hidden !== PR.hidden);
         const side = (id, which) => {
@@ -1660,6 +1699,11 @@
           const s = list.find((x) => x.id === id); return s ? s : { wait: 'Pick something to compare' };
         };
         const a = side(st.left, 'left'), b = side(st.right, 'right');
+        const info = (x) => { if (x.error) return 'not valid JSON'; if (x.value === undefined) return ''; const v = x.value, n = JSON.stringify(v).length;
+          const what = Array.isArray(v) ? `List · ${v.length} item${v.length === 1 ? '' : 's'}` : v && typeof v === 'object' ? `Object · ${Object.keys(v).length} key${Object.keys(v).length === 1 ? '' : 's'}` : 'A single value';
+          return `${what} · ${n < 1024 ? n + ' B' : (n / 1024).toFixed(1) + ' KB'}`; };
+        infoL.textContent = info(a); infoR.textContent = info(b);
+        infoL.classList.toggle('bad', !!a.error); infoR.classList.toggle('bad', !!b.error);
         last = null; st.at = -1;
         const msg = (x, which) => (x.wait ? x.wait : `The ${which} side is not valid JSON${x.error.line ? ` (line ${x.error.line}${x.error.col ? `, column ${x.error.col}` : ''})` : ''}: ${x.error.message}`);
         if (a.wait || a.error || b.wait || b.error) {
@@ -1668,17 +1712,18 @@
         }
         const names = a.name === b.name ? [a.name + ' (left)', b.name + ' (right)'] : [a.name, b.name];
         const t0 = performance.now();
-        const root = JD.diff(a.value, b.value, { ignoreOrder: st.ignoreOrder, match: st.match });
+        const ignoreKeys = new Set(st.ignoreKeys.split(/[,\s]+/).map((k) => k.trim().toLowerCase()).filter(Boolean));
+        const root = JD.diff(a.value, b.value, { ignoreOrder: st.ignoreOrder, match: st.match, ignoreKeys });
         last = { root, names };
-        const view = st.view === 'list' ? JD.table(root, names) : JD.render(root, { onlyChanges: st.only });
-        body.replaceChildren(JD.summary(root, names), view);
+        const view = st.view === 'list' ? JD.table(root, names) : st.view === 'side' ? JD.sideBySide(root, names, { onlyChanges: st.only }) : JD.render(root, { onlyChanges: st.only });
+        body.replaceChildren(JD.summary(root, names, { ignored: [...ignoreKeys] }), view);
         body.dataset.ms = Math.round(performance.now() - t0);
-        syncNav();
+        applyFilter();
       }
       const marks = () => [...body.querySelectorAll('.jd-c')].filter((x) => x.getClientRects().length);
       function syncNav() {
         const n = marks().length;
-        pos.textContent = n ? (st.at >= 0 ? `${st.at + 1} of ${n}` : `${n}`) : '0';
+        pos.textContent = n ? (st.at >= 0 ? `${st.at + 1} of ${n}` : `${n} to see`) : 'none';
         prevB.disabled = nextB.disabled = !n; copyB.disabled = !last;
       }
       function go(d) {
@@ -1687,8 +1732,8 @@
         body.querySelectorAll('.jd-cur').forEach((x) => x.classList.remove('jd-cur'));
         const el = ms[st.at]; el.classList.add('jd-cur');
         for (let p = el.parentElement && el.parentElement.closest('details'); p; p = p.parentElement && p.parentElement.closest('details')) p.open = true;
-        const br = el.getBoundingClientRect(), cr = content.getBoundingClientRect();
-        content.scrollTop += br.top - cr.top - content.clientHeight / 3;
+        const br = el.getBoundingClientRect(), cr = content.getBoundingClientRect(), hd = panel.querySelector('.cmp-head').offsetHeight;
+        content.scrollTop += br.top - cr.top - hd - (content.clientHeight - hd) / 3;
         syncNav();
       }
       function copyReport() {

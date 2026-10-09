@@ -35,7 +35,9 @@ const report = { logs };
 const read = (f) => readFileSync(path.join(root, 'test/fixtures', f), 'utf8');
 const key = (k, code, vk, mods = 0) => send('Input.dispatchKeyEvent', { type: 'keyDown', key: k, code, windowsVirtualKeyCode: vk, modifiers: mods }).then(() => send('Input.dispatchKeyEvent', { type: 'keyUp', key: k, code, windowsVirtualKeyCode: vk, modifiers: mods }));
 const state = () => ev(`(()=>{const c=document.querySelector('#app .cmp'); return {open:!c.hidden, left:c.querySelector('.cmp-src').selectedOptions[0]?.textContent, right:c.querySelectorAll('.cmp-src')[1].selectedOptions[0]?.textContent,
-  sum:c.querySelector('.jd-sum')?.textContent.replace(/\\s+/g,' ').trim(), marks:[...c.querySelectorAll('.jd-c')].filter(x=>x.getClientRects().length).map(x=>x.dataset.path),
+  sum:c.querySelector('.jd-sum')?.textContent.replace(/\\s+/g,' ').trim(), big:c.querySelector('.jd-big')?.textContent, sub:c.querySelector('.jd-sub')?.textContent,
+  tiles:Object.fromEntries([...c.querySelectorAll('.jd-tile')].map(t=>[t.dataset.k,+t.querySelector('.jd-tn').textContent])), note:[...c.querySelectorAll('.jd-note')].map(n=>n.textContent).join(' | '),
+  fills:c.querySelectorAll('.jd-fill').length, sbsRows:c.querySelectorAll('.jd-sbs tbody tr.jd-r').length, marks:[...c.querySelectorAll('.jd-c')].filter(x=>x.getClientRects().length).map(x=>x.dataset.path),
   gaps:c.querySelectorAll('.jd-gap').length, pos:c.querySelector('.cmp-pos').textContent, cur:c.querySelector('.jd-cur')?.dataset.path||null, msg:c.querySelector('.cmp-msg')?.textContent||null,
   docHidden:getComputedStyle(document.querySelector('#app .doc')).display==='none', rows:c.querySelectorAll('.jd-table tbody tr').length, opts:[...c.querySelector('.cmp-src').options].map(o=>o.textContent)}})()`);
 const cmpKey = () => key('D', 'KeyD', 68, 4 | 8);
@@ -52,17 +54,34 @@ await ev(`document.body.focus()`); await cmpKey(); await sleep(500);
 report.s1 = await state();
 const want = ['$.status', '$.carrier.tracking', '$.weightKg', '$.notes', '$.items[sku="CBL-QSFP"]', '$.items[sku="PSU-1100"].qty', '$.items[sku="RACK-42U"]', '$.history[2]', '$.deliveredTo'];
 checks.defaults = report.s1.open && /cmp-before\.json \(this tab\)/.test(report.s1.left) && /Untitled/.test(report.s1.right) && report.s1.docHidden;
-checks.summary = /^9 differences from cmp-before\.json to Untitled 1 /.test(report.s1.sum) && /4 changed/.test(report.s1.sum) && /3 added/.test(report.s1.sum) && /2 removed/.test(report.s1.sum) && /matched by "sku"/.test(report.s1.sum);
+checks.summary = report.s1.big === '9' && /^from cmp-before\.json to Untitled 1/.test(report.s1.sub) && JSON.stringify(report.s1.tiles) === '{"chg":4,"add":3,"del":2,"mv":0}' && /paired by "sku"/.test(report.s1.note);
 checks.marks = JSON.stringify(report.s1.marks) === JSON.stringify(want);
 checks.folded = report.s1.gaps > 0;
 report.detail = await ev(`(()=>{const c=document.querySelector('#app .cmp'); const l=(p)=>[...c.querySelectorAll('.jd-c')].find(x=>x.dataset.path===p);
   return {status:l('$.status').textContent.replace(/\\s+/g,' '), mark:l('$.carrier.tracking').querySelector('ins mark').textContent, kind:l('$.weightKg').querySelector('.jd-kind').textContent, id:!!c.querySelector('.jd-id')}})()`);
 checks.detail = /"IN_TRANSIT"\s*→\s*"DELIVERED"/.test(report.detail.status) && report.detail.mark === '5' && report.detail.kind === 'number → text';
 await shot('compare-tree.png');
+await ev(`document.querySelector('#app .cmp-optsb').click()`); await sleep(150); await shot('compare-options.png'); await ev(`document.querySelector('#app .cmp-optsb').click()`);
 // next / previous
 await key('n', 'KeyN', 78); await key('n', 'KeyN', 78); report.n2 = await state();
 await key('p', 'KeyP', 80); report.p1 = await state();
 checks.nav = report.n2.cur === want[1] && report.n2.pos === '2 of 9' && report.p1.cur === want[0];
+// side by side: one marked row per difference, hatched space opposite added / removed parts
+await ev(`document.querySelector('#app .cmp-seg [data-v=side]').click()`); await sleep(250); report.side = await state(); await shot('compare-side.png');
+checks.side = report.side.marks.length === 9 && report.side.fills > 0 && report.side.sbsRows > 9;
+await ev(`document.querySelector('#app .cmp-seg [data-v=tree]').click()`); await sleep(150);
+// a tile hides that kind: hiding "added" leaves 6
+await ev(`document.querySelector('#app .jd-tile[data-k=add]').click()`); await sleep(150); report.hideAdd = await state();
+await ev(`document.querySelector('#app .jd-tile[data-k=add]').click()`); await sleep(150);
+checks.tiles = report.hideAdd.marks.length === 6 && !report.hideAdd.marks.some((p) => p === '$.deliveredTo');
+// the path box narrows to matching differences
+await ev(`(()=>{const q=document.querySelector('#app .cmp-q'); q.value='items'; q.dispatchEvent(new Event('input'))})()`); await sleep(150); report.q = await state();
+await ev(`(()=>{const q=document.querySelector('#app .cmp-q'); q.value=''; q.dispatchEvent(new Event('input'))})()`); await sleep(150);
+checks.pathFilter = JSON.stringify(report.q.marks) === JSON.stringify(want.filter((p) => p.includes('items')));
+// keys left out everywhere
+await ev(`(()=>{const i=document.querySelector('#app .cmp-ign'); i.value='status, tracking'; i.dispatchEvent(new Event('input'))})()`); await sleep(500); report.ign = await state();
+await ev(`(()=>{const i=document.querySelector('#app .cmp-ign'); i.value=''; i.dispatchEvent(new Event('input'))})()`); await sleep(500);
+checks.ignoreKeys = report.ign.marks.length === 7 && /Leaving out "status", "tracking"/.test(report.ign.note);
 // list view
 await ev(`document.querySelector('#app .cmp-seg [data-v=list]').click()`); await sleep(200); report.list = await state(); await shot('compare-list.png');
 checks.list = report.list.rows === 9;
@@ -72,12 +91,12 @@ await ev(`(()=>{const i=[...document.querySelectorAll('#app .cmp-opt input')][0]
 checks.allShown = report.all.gaps === 0 && report.all.marks.length === 9;
 await ev(`(()=>{const i=[...document.querySelectorAll('#app .cmp-opt input')][0]; i.click()})()`); await sleep(150);
 // by position: the inserted item now looks like every later one changed
-await ev(`(()=>{const s=document.querySelector('#app .cmp-match'); s.value='position'; s.dispatchEvent(new Event('change'))})()`); await sleep(200); report.pos = await state();
+await ev(`document.querySelector('#app .cmp-pop [data-m=position]').click()`); await sleep(200); report.pos = await state();
 checks.position = report.pos.marks.length > 9;
-await ev(`(()=>{const s=document.querySelector('#app .cmp-match'); s.value='auto'; s.dispatchEvent(new Event('change'))})()`); await sleep(150);
+await ev(`document.querySelector('#app .cmp-pop [data-m=auto]').click()`); await sleep(150);
 // swap
 await ev(`document.querySelector('#app .cmp-swap').click()`); await sleep(200); report.swap = await state();
-checks.swap = /^Untitled/.test(report.swap.left) && /2 removed|3 removed/.test(report.swap.sum) && /3 removed/.test(report.swap.sum);
+checks.swap = /^Untitled/.test(report.swap.left) && report.swap.tiles.del === 3 && report.swap.tiles.add === 2;
 // copy report text (the same text Copy puts on the clipboard)
 { const vm = await import('node:vm'); const g = {}; vm.runInNewContext(readFileSync(path.join(root, 'core/jdiff.js'), 'utf8'), { window: g }); // the page's script world is the extension's, not reachable from here
   report.reportText = g.JD.report(g.JD.diff(JSON.parse(read('cmp-before.json')), JSON.parse(read('cmp-after.json'))), ['before', 'after']); }
@@ -89,7 +108,7 @@ await ev(`(()=>{const t=[...document.querySelectorAll('#app .cmp-paste')].find(x
 report.pasteBad = await state();
 await ev(`(()=>{const t=[...document.querySelectorAll('#app .cmp-paste')].find(x=>!x.hidden); t.value=${JSON.stringify(JSON.stringify({ ...JSON.parse(read('cmp-after.json')), status: 'IN_TRANSIT' }))}; t.dispatchEvent(new Event('input'))})()`); await sleep(500);
 report.pasteOk = await state();
-checks.paste = /Paste the right JSON/.test(report.pasteWait.msg || '') && /The right side is not valid JSON \(line 1, column \d+\): trailing comma/.test(report.pasteBad.msg || '') && /^1 difference from Untitled 1 to pasted right 1 changed/.test(report.pasteOk.sum || '');
+checks.paste = /Paste the right JSON/.test(report.pasteWait.msg || '') && /The right side is not valid JSON \(line 1, column \d+\): trailing comma/.test(report.pasteBad.msg || '') && report.pasteOk.big === '1' && /^from Untitled 1 to pasted right/.test(report.pasteOk.sub || '');
 // Esc closes, the page is back
 await ev(`document.body.focus()`); await key('Escape', 'Escape', 27); await sleep(200);
 report.closed = await ev(`({open:!document.querySelector('#app .cmp').hidden, doc:getComputedStyle(document.querySelector('#app .doc')).display})`);
@@ -98,7 +117,7 @@ checks.close = !report.closed.open && report.closed.doc !== 'none';
 report.multiMounted = await mount(base + '/test/fixtures/multi.json'); await sleep(700);
 await ev(`document.querySelector('#app .top .cmpb').click()`); await sleep(400);
 report.multi = await state();
-checks.multi = /multi\.json · before/.test(report.multi.left) && /multi\.json · after|the response once/.test(report.multi.right) && /3 added/.test(report.multi.sum || '');
+checks.multi = /multi\.json · before/.test(report.multi.left) && /multi\.json · after|the response once/.test(report.multi.right) && report.multi.tiles.add === 3;
 await ev(`document.documentElement.dataset.theme='studio'`); await sleep(200); await shot('compare-studio.png');
 
 report.checks = checks;

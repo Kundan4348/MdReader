@@ -20,4 +20,15 @@ eq('ignore order scalars', R([1, 2, 3], [3, 1, 2], { ignoreOrder: true }), []);
 eq('by position', R(A, [{ id: 0, s: 'new' }, ...A], { match: 'position' }).length, 5);
 eq('idKey picks shipmentId', JD.idKey([{ shipmentId: 'a', n: 1 }], [{ shipmentId: 'b', n: 1 }]), 'shipmentId');
 eq('counts', JD.diff({ a: 1, l: [1, 2] }, { a: 2, l: [1, 2, 3], z: 0 }).n, { changed: 1, added: 2, removed: 0 });
+// side by side: each column is the real JSON of its side (valid, equal), and there is one marked row per difference
+const ab = [[{ a: 1, l: [{ id: 1, v: 'x' }, { id: 2, v: 'y' }], o: { p: [1, 2] } }, { a: 2, l: [{ id: 0, v: 'n' }, { id: 1, v: 'x' }, { id: 2, v: 'z' }], o: { p: [1, 2, 3] }, q: { deep: true } }],
+  [JSON.parse(fs.readFileSync(new URL('./fixtures/cmp-before.json', import.meta.url))), JSON.parse(fs.readFileSync(new URL('./fixtures/cmp-after.json', import.meta.url)))], [[3, 1, 2], [1, 2, 3]], [{ x: 1 }, { x: 1 }]];
+ab.forEach(([a, b], n) => {
+  const d = JD.diff(a, b), rows = JD.sbsRows(d);
+  const L = rows.filter((r) => r.l !== null).map((r) => r.l).join('\n'), Rt = rows.filter((r) => r.r !== null).map((r) => r.r).join('\n');
+  eq(`sbs ${n} left is the left JSON`, JSON.parse(L), a); eq(`sbs ${n} right is the right JSON`, JSON.parse(Rt), b);
+  eq(`sbs ${n} left is pretty-printed`, L, JSON.stringify(a, null, 2));
+  eq(`sbs ${n} one mark per difference`, rows.filter((r) => r.mark).length, JD.changes(d).length);
+});
+eq('ignore keys anywhere', R({ at: 1, o: { at: 2, v: 1 }, l: [{ id: 1, At: 3 }] }, { at: 9, o: { at: 8, v: 1 }, l: [{ id: 1, At: 4 }] }, { ignoreKeys: new Set(['at']) }), []);
 console.log(fails ? `${fails} FAILED` : 'ALL OK'); process.exit(fails ? 1 : 0);
