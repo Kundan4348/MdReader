@@ -15,7 +15,8 @@ const electron = path.join(root, 'app/node_modules/electron/dist/Electron.app/Co
 const busy = async (pt) => { try { await fetch(`http://127.0.0.1:${pt}/json/version`, { signal: AbortSignal.timeout(800) }); return true; } catch (e) { if (e.name === 'TypeError' || e.name === 'TimeoutError') return false; throw e; } };
 let port = 9333; while (await busy(port)) port++;
 const udd = path.join(outdir, 'user-data'); rmSync(udd, { recursive: true, force: true }); mkdirSync(udd, { recursive: true }); // fresh profile every run
-const proc = spawn(electron, [`--remote-debugging-port=${port}`, `--user-data-dir=${udd}`, path.join(root, 'app'), sample], { stdio: ['ignore', 'ignore', 'pipe'] });
+const openLog = path.join(outdir, 'opened.log'); rmSync(openLog, { force: true });
+const proc = spawn(electron, [`--remote-debugging-port=${port}`, `--user-data-dir=${udd}`, path.join(root, 'app'), sample], { stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, MDR_OPEN_LOG: openLog } });
 const stop = () => { try { proc.kill('SIGKILL'); } catch {} };
 process.on('exit', stop);
 setTimeout(() => { console.error('FAIL: timeout'); stop(); process.exit(2); }, 150000);
@@ -63,9 +64,11 @@ report.defaultTheme = await ev('document.documentElement.dataset.theme');
   report.secEditDirty = await ev(`document.querySelector('#app').classList.contains('dirty')`);
   report.secEditOk = !report.secEditDirty && Object.values(se).every((x) => x.before === 100 && [x.editing, x.afterDone, x.afterCancel].every((v) => Math.abs(v - x.before) <= 2));
 }
-// Navigation guard: a relative link to a non-markdown file must not replace the window contents.
+// Navigation guard: a relative link to a non-markdown file must not replace the window contents. The click is handed
+// to the OS, which a test run logs to MDR_OPEN_LOG instead of opening (it used to open the .css in Firefox).
 await ev(`(()=>{const a=document.createElement('a'); a.href='core/themes/sections.css'; a.textContent='x'; document.querySelector('#app .doc').appendChild(a); a.click(); a.remove();})()`);
 await sleep(600);
+report.cssLoggedNotOpened = (() => { try { return readFileSync(openLog, 'utf8').includes('core/themes/sections.css'); } catch { return false; } })();
 report.stillMounted = await ev(`!!document.querySelector('#app h1') && location.pathname.endsWith('index.html')`);
 report.debug = await ev(`(async()=>({cls: document.querySelector('#app').className, hasListDir: typeof window.mdreader?.listDir, apiKeys: Object.keys(window.mdreader||window.api||{}), prefFiles: await (window.mdreader||window.api)?.getPref?.('files'), w: innerWidth}))()`);
 report.filesPanelVisible = await ev(`getComputedStyle(document.querySelector('#app .files')).display !== 'none' && !getComputedStyle(document.querySelector('#app')).gridTemplateColumns.startsWith('0px')`);
@@ -291,4 +294,4 @@ await sleep(800);
 report.reloadedFromDisk = await ev(`!document.querySelector('#app textarea').value.includes('[APP-EDIT]')`);
 console.log(JSON.stringify(report, null, 2));
 writeFileSync(path.join(outdir, 'report.json'), JSON.stringify(report, null, 2));
-stop(); process.exit(report.mounted && report.filesPanelVisible && report.savedToDisk && !report.dirtyAfterSave && report.defaultTheme === 'mono' && report.stillMounted && report.outlineToggleOk && report.tabsOk && report.pathLinksOk && report.imageOk && report.pinchAnchorOk && report.secondFileUntouched && report.crumbsOk && report.newTabOk && report.dragOk && report.filesNavOk && report.diagramsOk && report.secEditOk ? 0 : 1);
+stop(); process.exit(report.mounted && report.filesPanelVisible && report.savedToDisk && !report.dirtyAfterSave && report.defaultTheme === 'mono' && report.stillMounted && report.cssLoggedNotOpened && report.outlineToggleOk && report.tabsOk && report.pathLinksOk && report.imageOk && report.pinchAnchorOk && report.secondFileUntouched && report.crumbsOk && report.newTabOk && report.dragOk && report.filesNavOk && report.diagramsOk && report.secEditOk ? 0 : 1);

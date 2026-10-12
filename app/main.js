@@ -11,6 +11,9 @@ const isMac = process.platform === 'darwin';
 // so a build does not throw windows in front of whatever the user is doing.
 const TEST_HIDE = !!process.env.MDR_TEST_HIDE || app.commandLine.hasSwitch('remote-debugging-port');
 const focusWin = (w) => { if (!TEST_HIDE) w.focus(); };
+// Test runs never hand anything to macOS (a .css link click opened Firefox): the request is logged to MDR_OPEN_LOG
+// when set, else dropped. Returns true when the caller must stop.
+const testSink = (what) => { if (!TEST_HIDE && !process.env.MDR_OPEN_LOG) return false; if (process.env.MDR_OPEN_LOG) { try { fs.appendFileSync(process.env.MDR_OPEN_LOG, what + '\n'); } catch {} } return true; };
 if (TEST_HIDE && isMac && app.dock) app.dock.hide(); // no Dock icon, no app activation
 const wins = new Map(); // id -> { win, paths:Set, active, dirty, watchers:Map<path,FSWatcher> }
 const pendingOpens = [];
@@ -56,7 +59,7 @@ function createWindow(filePath) {
     }
   });
   win.on('closed', () => { const en = wins.get(win.id); if (en) for (const w of en.watchers.values()) w.close(); wins.delete(win.id); });
-  win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: 'deny' }; });
+  win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url) && !testSink('external ' + url)) shell.openExternal(url); return { action: 'deny' }; });
   // The window only ever shows renderer/index.html. Any navigation (dropped file, relative link, file:// href) is cancelled;
   // markdown targets are routed through openPath instead.
   win.webContents.on('will-navigate', (e, url) => { e.preventDefault(); const p = pathFromArg(url); if (p) openPath(p); });
@@ -82,8 +85,7 @@ const isMarkdownPath = (p) => /\.(md|markdown|mdown|mkd|txt|json|sql|hql|psql|mm
 // Anything that is not a markdown/text document (a .py, .csv, a folder) is handed to the OS: default app for files,
 // Finder for folders. Falls back to revealing the item when no app claims it.
 async function openOther(p) {
-  // Tests set MDR_OPEN_LOG so a click on a .py link is recorded instead of launching an editor.
-  if (process.env.MDR_OPEN_LOG) { try { fs.appendFileSync(process.env.MDR_OPEN_LOG, p + '\n'); } catch {} return; }
+  if (testSink(p)) return;
   try {
     const st = await fsp.stat(p);
     if (st.isDirectory()) { shell.openPath(p); return; }
@@ -150,9 +152,9 @@ ipcMain.handle('display-path', (e, p) => {
 });
 ipcMain.on('get-home', (e) => { e.returnValue = home; });
 ipcMain.on('dirty', (e, d) => { const w = BrowserWindow.fromWebContents(e.sender); const en = wins.get(w.id); if (en) { en.dirty = d; w.setDocumentEdited(d); } });
-ipcMain.on('open-external', (e, url) => { if (/^https?:/.test(url)) shell.openExternal(url); });
+ipcMain.on('open-external', (e, url) => { if (/^https?:/.test(url) && !testSink('external ' + url)) shell.openExternal(url); });
 ipcMain.on('close-window', (e) => { const w = BrowserWindow.fromWebContents(e.sender); const en = wins.get(w.id); if (en) en.dirty = false; w.close(); });
-ipcMain.on('reveal', (e, p) => { if (!p) return; if (process.env.MDR_OPEN_LOG) { try { fs.appendFileSync(process.env.MDR_OPEN_LOG, 'reveal ' + p + '\n'); } catch {} return; } shell.showItemInFolder(p); });
+ipcMain.on('reveal', (e, p) => { if (!p) return; if (testSink('reveal ' + p)) return; shell.showItemInFolder(p); });
 ipcMain.handle('get-recent', () => { const ok = (p) => { try { return fs.statSync(p).isFile(); } catch { return false; } }; return { files: (prefs.recent || []).filter(ok), lastSession: (prefs.lastSession && prefs.lastSession.paths || []).filter(ok) }; });
 ipcMain.on('open-path', (e, p) => { if (p) openOther(p); });
 ipcMain.handle('stat-path', async (e, p) => { try { const st = await fsp.stat(p); return { exists: true, dir: st.isDirectory() }; } catch { return { exists: false, dir: false }; } });
