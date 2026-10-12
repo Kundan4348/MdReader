@@ -7,6 +7,11 @@ const fsp = require('fs/promises');
 const path = require('path');
 
 const isMac = process.platform === 'darwin';
+// Test runs (they always attach a debugger, or set MDR_TEST_HIDE) keep their windows minimised and never take focus,
+// so a build does not throw windows in front of whatever the user is doing.
+const TEST_HIDE = !!process.env.MDR_TEST_HIDE || app.commandLine.hasSwitch('remote-debugging-port');
+const focusWin = (w) => { if (!TEST_HIDE) w.focus(); };
+if (TEST_HIDE && isMac && app.dock) app.dock.hide(); // no Dock icon, no app activation
 const wins = new Map(); // id -> { win, paths:Set, active, dirty, watchers:Map<path,FSWatcher> }
 const pendingOpens = [];
 let ready = false;
@@ -28,18 +33,18 @@ function pathFromArg(arg) {
 
 function createWindow(filePath) {
   // Reuse an untouched empty window if one exists.
-  for (const e of wins.values()) if (!e.paths.size && !e.dirty) { e.win.focus(); return openInWindow(e.win, filePath); }
+  for (const e of wins.values()) if (!e.paths.size && !e.dirty) { focusWin(e.win); return openInWindow(e.win, filePath); }
   const win = new BrowserWindow({
     width: prefs.winW || 1280, height: prefs.winH || 860, minWidth: 640, minHeight: 400,
     titleBarStyle: isMac ? 'hiddenInset' : 'default', trafficLightPosition: { x: 14, y: 14 },
     backgroundColor: { paper: '#f7f3ec', studio: '#0f1216', sections: '#eef2f6', mono: '#f9f8f4' }[prefs.theme] || '#f9f8f4',
     show: false,
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: true },
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: true, backgroundThrottling: !TEST_HIDE },
   });
   const entry = { win, paths: new Set(), active: null, dirty: false, watchers: new Map(), loaded: false, queue: [] };
   wins.set(win.id, entry);
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => { if (TEST_HIDE) { win.showInactive(); win.minimize(); } else win.show(); });
   win.webContents.on('did-finish-load', () => { entry.loaded = true; const q = [filePath, ...entry.queue].filter(Boolean); entry.queue = []; q.forEach((p) => openInWindow(win, p)); });
   win.on('resize', () => { const [w, h] = win.getSize(); prefs.winW = w; prefs.winH = h; savePrefs(); });
   win.on('close', (e) => {
@@ -91,11 +96,11 @@ function openPath(p) {
   if (!ready) return pendingOpens.push(p);
   if (!isMarkdownPath(p)) return openOther(p);
   // Already open in some window? focus that tab.
-  for (const e of wins.values()) if (e.paths.has(p)) { e.win.focus(); return openInWindow(e.win, p); }
+  for (const e of wins.values()) if (e.paths.has(p)) { focusWin(e.win); return openInWindow(e.win, p); }
   // Otherwise open as a new tab in the focused window (or the most recent one). Only the very first open creates a window.
   const focused = BrowserWindow.getFocusedWindow();
   const target = (focused && wins.get(focused.id)) || [...wins.values()].pop();
-  if (target) { target.win.focus(); return openInWindow(target.win, p); }
+  if (target) { focusWin(target.win); return openInWindow(target.win, p); }
   createWindow(p);
 }
 
@@ -105,7 +110,7 @@ app.on('open-url', (e, url) => { e.preventDefault(); openPath(pathFromArg(url));
 
 // Single instance so a second launch (from Finder or the mdreader:// scheme) routes here.
 if (!app.requestSingleInstanceLock()) app.quit();
-app.on('second-instance', (e, argv) => { const p = argv.map(pathFromArg).filter(Boolean).pop(); if (p) openPath(p); else if (wins.size) [...wins.values()][0].win.focus(); });
+app.on('second-instance', (e, argv) => { const p = argv.map(pathFromArg).filter(Boolean).pop(); if (p) openPath(p); else if (wins.size) focusWin([...wins.values()][0].win); });
 if (!app.isDefaultProtocolClient('mdreader')) app.setAsDefaultProtocolClient('mdreader');
 
 // ---------- IPC ----------
