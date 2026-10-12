@@ -515,6 +515,11 @@ html[data-theme=studio] ::highlight(mdr-find){background:color-mix(in srgb,#f5c5
 .wmenu button.danger{color:#c2410c}
 html[data-theme=studio] .wmenu button.danger{color:#fb923c}
 .wmenu kbd{font:11px var(--mono,ui-monospace,monospace);opacity:.5}
+.tmenu{min-width:210px}
+.tmenu .wsep{height:1px;margin:5px 4px;background:var(--line-2,var(--line,var(--rule,#ddd)))}
+.tabs.tdragging .tab{transition:transform .14s ease}
+.tabs.tdragging .tab.tdrag{transition:none;z-index:3;opacity:1;cursor:grabbing;background:var(--panel,var(--card,var(--paper,#fff)));box-shadow:0 4px 14px rgba(0,0,0,.14)}
+.tabs.tdragging{cursor:grabbing}
 .wmenu .walign{display:flex;align-items:center;gap:2px;padding:2px 9px}
 .wmenu .walign>span{flex:1;opacity:.85}
 .wmenu .walign button.wal{width:auto;padding:5px 7px;justify-content:center}

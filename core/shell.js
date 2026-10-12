@@ -2994,12 +2994,97 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
       tabsEl.replaceChildren(...S.tabs.map((t, i) => {
         const d = dispOf(t);
         return h('div', { class: 'tab' + (i === S.tab ? ' on' : '') + (t.text !== t.saved ? ' dirty' : '') + (isUntitled(t) ? ' untitled' : ''), role: 'tab', title: isUntitled(t) ? 'Unsaved document' : t.path, 'data-path': t.path,
-          onclick: (e) => { if (!e.target.closest('.x')) showTab(i); }, onauxclick: (e) => { if (e.button === 1) { e.preventDefault(); closeTab(i); } } },
+          onclick: (e) => { if (tabDragEnded) return; if (!e.target.closest('.x')) showTab(i); }, onauxclick: (e) => { if (e.button === 1) { e.preventDefault(); closeTab(i); } },
+          onpointerdown: (e) => startTabDrag(e, i), oncontextmenu: (e) => { e.preventDefault(); showTabMenu(e.clientX, e.clientY, i); } },
           h('span', { class: 'name' }, d.name), h('span', { class: 'dot' }), h('button', { class: 'x', title: 'Close (⌘W)', onclick: (e) => { e.stopPropagation(); closeTab(i); }, html: '&#x2715;' }));
       }), h('button', { class: 'tab-new', title: 'New tab (⌘T)', onclick: () => newTab(), html: '+' }));
       root.classList.toggle('has-tabs', S.tabs.length > 0);
       root.classList.toggle('multi-tabs', S.tabs.length > 1);
+      const on = tabsEl.children[S.tab]; if (on) on.classList.toggle('dirty', S.dirty); // the active tab's text lives in S, not in its record
     }
+    // ---------- reordering tabs: drag, right-click menu, ⌃⇧PageUp / PageDown ----------
+    function moveTab(from, to) {
+      if (from === to || from < 0 || to < 0 || from >= S.tabs.length || to >= S.tabs.length) return;
+      const cur = S.tabs[S.tab];
+      const [t] = S.tabs.splice(from, 1); S.tabs.splice(to, 0, t);
+      S.tab = S.tabs.indexOf(cur);
+      renderTabs(); revealActiveTab(); notifyTabs(); // notifyTabs saves the new order for the next launch
+    }
+    let tabDragEnded = false;
+    function startTabDrag(e, i) {
+      if (e.button !== 0 || e.target.closest('.x') || S.tabs.length < 2) return;
+      const el = e.currentTarget, x0 = e.clientX, sl0 = tabsEl.scrollLeft;
+      const all = [...tabsEl.querySelectorAll('.tab')];
+      const scale = tabsEl.offsetWidth ? tabsEl.getBoundingClientRect().width / tabsEl.offsetWidth : 1; // the strip uses CSS zoom
+      const gap = parseFloat(getComputedStyle(tabsEl).columnGap) || 0;
+      let on = false, to = i, cancel = false, lastX = x0, timer = 0;
+      const place = () => {
+        const dx = (lastX - x0) / scale + (tabsEl.scrollLeft - sl0);
+        el.style.transform = `translateX(${dx}px)`;
+        to = i;
+        all.forEach((t, j) => {
+          if (j === i) return;
+          const r = t.getBoundingClientRect(), m = r.left + r.width / 2;
+          if (j < i && lastX < m) to = Math.min(to, j);
+          if (j > i && lastX > m) to = Math.max(to, j);
+        });
+        const w = el.offsetWidth + gap;
+        all.forEach((t, j) => { if (j === i) return; const sh = i < j && j <= to ? -w : to <= j && j < i ? w : 0; t.style.transform = sh ? `translateX(${sh}px)` : ''; });
+      };
+      const edge = () => { // keep scrolling while the pointer rests near either end of an overflowing strip
+        const s = tabsEl.getBoundingClientRect(), z = 36 * scale;
+        const v = lastX < s.left + z ? -10 : lastX > s.right - z ? 10 : 0;
+        if (v && tabsEl.scrollWidth > tabsEl.clientWidth) { tabsEl.scrollLeft += v; place(); }
+      };
+      const move = (ev) => {
+        lastX = ev.clientX;
+        if (!on) {
+          if (Math.abs(lastX - x0) < 5) return;
+          on = true; el.classList.add('tdrag'); tabsEl.classList.add('tdragging');
+          timer = setInterval(edge, 30);
+        }
+        place();
+      };
+      const key = (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); cancel = true; up(); } };
+      const up = () => {
+        removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up); removeEventListener('keydown', key, true);
+        clearInterval(timer);
+        if (!on) return;
+        all.forEach((t) => { t.style.transform = ''; }); el.classList.remove('tdrag'); tabsEl.classList.remove('tdragging');
+        tabDragEnded = true; setTimeout(() => { tabDragEnded = false; }, 0); // the click that ends a drag must not switch tabs
+        if (!cancel) moveTab(i, to);
+      };
+      addEventListener('pointermove', move); addEventListener('pointerup', up); addEventListener('pointercancel', up); addEventListener('keydown', key, true);
+    }
+    const tabMenu = h('div', { class: 'wmenu tmenu', role: 'menu', hidden: '' });
+    root.append(tabMenu);
+    const hideTabMenu = () => { tabMenu.hidden = true; tabMenu.replaceChildren(); };
+    addEventListener('pointerdown', (e) => { if (!tabMenu.hidden && !tabMenu.contains(e.target)) hideTabMenu(); }, true);
+    addEventListener('keydown', (e) => { if (!tabMenu.hidden && e.key === 'Escape') { e.preventDefault(); hideTabMenu(); } }, true);
+    function showTabMenu(x, y, i) {
+      const n = S.tabs.length;
+      const item = (label, fn, dis, keys) => h('button', { type: 'button', role: 'menuitem', disabled: dis ? '' : null, onclick: () => { hideTabMenu(); fn(); } }, h('span', {}, label), keys ? h('kbd', {}, keys) : null);
+      const closeOthers = async (keep) => { const k = S.tabs[keep]; for (const t of [...S.tabs]) if (t !== k) { const j = S.tabs.indexOf(t); if (!(await closeTab(j))) return; } };
+      const closeRight = async (from) => { const k = S.tabs[from]; while (S.tabs.indexOf(k) < S.tabs.length - 1) { if (!(await closeTab(S.tabs.length - 1))) return; } };
+      tabMenu.replaceChildren(
+        item('Move left', () => moveTab(i, i - 1), i === 0, i === S.tab ? '⌃⇧PgUp' : ''),
+        item('Move right', () => moveTab(i, i + 1), i === n - 1, i === S.tab ? '⌃⇧PgDn' : ''),
+        item('Move to the start', () => moveTab(i, 0), i === 0),
+        item('Move to the end', () => moveTab(i, n - 1), i === n - 1),
+        h('div', { class: 'wsep' }),
+        item('Close tab', () => closeTab(i), false, i === S.tab ? '⌘W' : ''),
+        item('Close other tabs', () => closeOthers(i), n < 2),
+        item('Close tabs to the right', () => closeRight(i), i === n - 1));
+      tabMenu.hidden = false;
+      const r = tabMenu.getBoundingClientRect();
+      tabMenu.style.left = Math.max(6, Math.min(x, innerWidth - r.width - 6)) + 'px';
+      tabMenu.style.top = Math.max(6, Math.min(y, innerHeight - r.height - 6)) + 'px';
+    }
+    addEventListener('keydown', (e) => {
+      if (!e.ctrlKey || !e.shiftKey || e.metaKey || e.altKey || S.tab < 0) return;
+      if (e.key === 'PageUp') { e.preventDefault(); moveTab(S.tab, S.tab - 1); }
+      else if (e.key === 'PageDown') { e.preventDefault(); moveTab(S.tab, S.tab + 1); }
+    });
     // Writes a tab's text. An untitled tab has no path: the adapter asks where to save (hinted with the extension the
     // content calls for -- .json when the pasted text is JSON) and returns the path, which the tab then adopts (it
     // becomes an ordinary file tab). Throws if the user cancels.

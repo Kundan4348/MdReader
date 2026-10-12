@@ -246,15 +246,14 @@ app.whenReady().then(() => {
   buildMenu();
   ready = true;
   const argPaths = process.argv.slice(1).map(pathFromArg).filter(Boolean);
-  // Tabs open at the last quit come back (files that vanished meanwhile are dropped). The LAST path opened ends up
-  // focused, so the tab that was active at quit goes last -- unless a file was actually asked for now, which wins.
+  // Tabs open at the last quit come back in their saved order (files that vanished meanwhile are dropped). The LAST
+  // path opened ends up focused, so the active tab is opened once more at the end (an open tab is only focused, not
+  // duplicated) -- unless a file was actually asked for now, which wins.
   const sess = prefs.session || {};
   const restore = (sess.paths || []).filter((p) => { try { return fs.statSync(p).isFile(); } catch { return false; } });
   const asked = [...pendingOpens, ...argPaths];
-  const order = asked.length
-    ? [...restore, ...asked]
-    : [...restore.filter((p) => p !== sess.active), ...(restore.includes(sess.active) ? [sess.active] : [])];
-  const all = [...new Set(order)];
+  const all = [...new Set([...restore, ...asked])];
+  if (!asked.length && restore.includes(sess.active) && all[all.length - 1] !== sess.active) all.push(sess.active);
   if (all.length) all.forEach((p) => openPath(p)); else createWindow(null);
   app.on('activate', () => { if (!wins.size) createWindow(null); });
 });
