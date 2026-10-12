@@ -44,7 +44,7 @@ function createWindow(filePath) {
     show: false,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: true, backgroundThrottling: !TEST_HIDE },
   });
-  const entry = { win, paths: new Set(), active: null, dirty: false, watchers: new Map(), loaded: false, queue: [] };
+  const entry = { win, paths: new Set(), active: null, dirty: false, watchers: new Map(), dirWatchers: new Map(), loaded: false, queue: [] };
   wins.set(win.id, entry);
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.once('ready-to-show', () => { if (TEST_HIDE) { win.showInactive(); win.minimize(); } else win.show(); });
@@ -58,7 +58,7 @@ function createWindow(filePath) {
       if (r === 0) { e.preventDefault(); win.webContents.send('cmd', 'save-all-and-close'); return; }
     }
   });
-  win.on('closed', () => { const en = wins.get(win.id); if (en) for (const w of en.watchers.values()) w.close(); wins.delete(win.id); });
+  win.on('closed', () => { const en = wins.get(win.id); if (en) { for (const w of en.watchers.values()) w.close(); for (const w of en.dirWatchers.values()) w.close(); } wins.delete(win.id); });
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url) && !testSink('external ' + url)) shell.openExternal(url); return { action: 'deny' }; });
   // The window only ever shows renderer/index.html. Any navigation (dropped file, relative link, file:// href) is cancelled;
   // markdown targets are routed through openPath instead.
@@ -80,6 +80,23 @@ function watch(en, p) {
   try { en.watchers.set(p, fs.watch(p, { persistent: false }, () => setTimeout(() => !en.win.isDestroyed() && en.win.webContents.send('external-change', p), 120))); } catch {}
 }
 function unwatch(en, p) { const w = en.watchers.get(p); if (w) { w.close(); en.watchers.delete(p); } }
+// Folders shown in the Files pane. The renderer sends the full list whenever it changes; a change inside one of
+// them (file created, deleted, renamed) is reported after a short debounce so a burst of writes refreshes once.
+function watchDirs(en, dirs) {
+  const want = new Set((Array.isArray(dirs) ? dirs : []).filter((d) => typeof d === 'string' && path.isAbsolute(d)).slice(0, 64));
+  for (const [d, w] of en.dirWatchers) if (!want.has(d)) { w.close(); clearTimeout(w.mdrTimer); en.dirWatchers.delete(d); }
+  for (const d of want) {
+    if (en.dirWatchers.has(d)) continue;
+    try {
+      const w = fs.watch(d, { persistent: false }, () => {
+        clearTimeout(w.mdrTimer);
+        w.mdrTimer = setTimeout(() => !en.win.isDestroyed() && en.win.webContents.send('dir-change', d), 250);
+      });
+      w.on('error', () => { w.close(); en.dirWatchers.delete(d); });
+      en.dirWatchers.set(d, w);
+    } catch { /* unreadable or gone: the focus refresh still covers it */ }
+  }
+}
 
 const isMarkdownPath = (p) => /\.(md|markdown|mdown|mkd|txt|json|sql|hql|psql|mmd|mermaid)$/i.test(p);
 // Anything that is not a markdown/text document (a .py, .csv, a folder) is handed to the OS: default app for files,
@@ -157,6 +174,7 @@ ipcMain.on('close-window', (e) => { const w = BrowserWindow.fromWebContents(e.se
 ipcMain.on('reveal', (e, p) => { if (!p) return; if (testSink('reveal ' + p)) return; shell.showItemInFolder(p); });
 ipcMain.handle('get-recent', () => { const ok = (p) => { try { return fs.statSync(p).isFile(); } catch { return false; } }; return { files: (prefs.recent || []).filter(ok), lastSession: (prefs.lastSession && prefs.lastSession.paths || []).filter(ok) }; });
 ipcMain.on('open-path', (e, p) => { if (p) openOther(p); });
+ipcMain.on('watch-dirs', (e, dirs) => { const w = BrowserWindow.fromWebContents(e.sender); const en = w && wins.get(w.id); if (en) watchDirs(en, dirs); });
 ipcMain.handle('stat-path', async (e, p) => { try { const st = await fsp.stat(p); return { exists: true, dir: st.isDirectory() }; } catch { return { exists: false, dir: false }; } });
 // Renderer reports its tab set after every change; main mirrors it into watchers, title-bar proxy icon and dirty state.
 ipcMain.on('tabs', (e, { paths, active, dirty }) => {

@@ -3177,6 +3177,7 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
       const up = parentDir(dir); upBtn.disabled = !up || up === dir; upBtn.title = up && up !== dir ? 'Up to ' + shortDir(up) : 'Already at the top';
       homeBtn.hidden = !adapter.home || dir === adapter.home;
       tree.replaceChildren(await folderNode(dir, true));
+      syncDirWatch();
     }
     // Recent view replaces the tree while open. Rows: the last session (if the tab set was lost), then recently opened files.
     async function toggleRecent(force) {
@@ -3204,19 +3205,50 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
       const name = dir.split('/').filter(Boolean).pop() || dir;
       const kids = h('div', { class: 'kids' });
       const node = h('div', { class: 'folder' + (open ? ' open' : ''), 'data-path': dir },
-        h('div', { class: 'label', onclick: async () => { const o = node.classList.toggle('open'); if (o && !kids.childElementCount) await fillFolder(dir, kids); } }, h('span', { class: 'tri' }), name), kids);
+        h('div', { class: 'label', onclick: async () => { const o = node.classList.toggle('open'); if (o) await fillFolder(dir, kids); else syncDirWatch(); } }, h('span', { class: 'tri' }), name), kids);
       if (open) await fillFolder(dir, kids);
       return node;
     }
+    const TREE_FILE = /\.(md|markdown|mdown|mkd|txt|json|sql|mmd|mermaid)$/i;
+    const fileRow = (f) => h('div', { class: 'file' + (f.path === S.path ? ' on' : ''), 'data-path': f.path, title: f.name, onclick: () => loadFile(f.path) }, f.name);
+    // Fills a folder's children. When it already has children (a refresh), existing rows are reused by path, so
+    // sub-folders keep their open state and contents and only new or removed entries change.
     async function fillFolder(dir, kids) {
       let entries = [];
-      try { entries = await adapter.listDir(dir); } catch (e) { kids.append(h('div', { class: 'empty' }, 'not readable')); return; }
+      try { entries = await adapter.listDir(dir); } catch (e) { kids.replaceChildren(h('div', { class: 'empty' }, 'not readable')); return; }
       const dirs = entries.filter((e) => e.dir && !e.name.startsWith('.')).sort((a, b) => a.name.localeCompare(b.name));
-      const mds = entries.filter((e) => !e.dir && /\.(md|markdown|mdown|txt|json|sql)$/i.test(e.name)).sort((a, b) => a.name.localeCompare(b.name));
-      for (const d of dirs) kids.append(await folderNode(d.path, false));
-      for (const f of mds) kids.append(h('div', { class: 'file' + (f.path === S.path ? ' on' : ''), 'data-path': f.path, title: f.name, onclick: () => loadFile(f.path) }, f.name));
-      if (!dirs.length && !mds.length) kids.append(h('div', { class: 'empty' }, 'no markdown here'));
+      const mds = entries.filter((e) => !e.dir && TREE_FILE.test(e.name)).sort((a, b) => a.name.localeCompare(b.name));
+      const old = new Map();
+      for (const el of kids.children) if (el.dataset.path) old.set((el.classList.contains('folder') ? 'd:' : 'f:') + el.dataset.path, el);
+      const next = [];
+      for (const d of dirs) next.push(old.get('d:' + d.path) || await folderNode(d.path, false));
+      for (const f of mds) next.push(old.get('f:' + f.path) || fileRow(f));
+      if (!next.length) next.push(h('div', { class: 'empty' }, 'no markdown here'));
+      kids.replaceChildren(...next);
+      syncDirWatch();
     }
+    // Every folder whose contents are on screen: the root and each open sub-folder.
+    const openFolders = () => [...tree.querySelectorAll('.folder')].filter((n) => n.classList.contains('open') && !n.parentElement.closest('.folder:not(.open)'));
+    let watchKey = '';
+    function syncDirWatch() {
+      if (!adapter.watchDirs) return;
+      const dirs = openFolders().map((n) => n.dataset.path).slice(0, 64);
+      const k = dirs.join('\n'); if (k === watchKey) return;
+      watchKey = k; adapter.watchDirs(dirs);
+    }
+    const refreshing = new Set();
+    async function refreshFolder(dir) {
+      if (refreshing.has(dir)) return; refreshing.add(dir);
+      try {
+        const node = tree.querySelector(`.folder[data-path="${CSS.escape(dir)}"]`);
+        if (node && node.classList.contains('open')) await fillFolder(dir, node.querySelector(':scope > .kids'));
+      } finally { refreshing.delete(dir); }
+    }
+    // Fallback for disks where folder watching is unreliable (network shares): re-read open folders on focus.
+    async function refreshTree() { if (!S.tree || !adapter.listDir) return; for (const n of openFolders()) await refreshFolder(n.dataset.path); }
+    adapter.onDirChange && adapter.onDirChange((dir) => refreshFolder(dir));
+    let lastFocusRefresh = 0;
+    addEventListener('focus', () => { const now = Date.now(); if (now - lastFocusRefresh < 2000) return; lastFocusRefresh = now; refreshTree(); });
     async function openDialog() { const p = await adapter.openDialog(); if (p) loadFile(p); }
 
     // ---------- save ----------

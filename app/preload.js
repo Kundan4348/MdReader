@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld('mdreader', {
   confirmDiscard: (name) => ipcRenderer.invoke('confirm-discard', name),
   onOpenFile: (cb) => ipcRenderer.on('open-file', (e, p) => cb(p)),
   onExternalChange: (cb) => ipcRenderer.on('external-change', (e, p) => cb(p)),
+  watchDirs: (dirs) => ipcRenderer.send('watch-dirs', dirs),
+  onDirChange: (cb) => ipcRenderer.on('dir-change', (e, d) => cb(d)),
   onCmd: (cb) => ipcRenderer.on('cmd', (e, c) => cb(c)),
   pathForFile: (f) => webUtils.getPathForFile(f),
   home: ipcRenderer.sendSync('get-home'),

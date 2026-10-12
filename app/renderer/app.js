@@ -16,6 +16,8 @@ const adapter = {
   setPref: api.setPref,
   openExternal: api.openExternal,
   onExternalChange: api.onExternalChange,
+  watchDirs: api.watchDirs,
+  onDirChange: api.onDirChange,
   onDirty: api.setDirty,
   onTabsChanged: (st) => { api.tabsChanged(st); if (st.dirty.length) showEmpty(false); }, // dirty has one entry per tab, untitled included
   confirmDiscard: api.confirmDiscard,
