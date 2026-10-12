@@ -77,6 +77,8 @@ const isMarkdownPath = (p) => /\.(md|markdown|mdown|mkd|txt|json|sql|hql|psql|mm
 // Anything that is not a markdown/text document (a .py, .csv, a folder) is handed to the OS: default app for files,
 // Finder for folders. Falls back to revealing the item when no app claims it.
 async function openOther(p) {
+  // Tests set MDR_OPEN_LOG so a click on a .py link is recorded instead of launching an editor.
+  if (process.env.MDR_OPEN_LOG) { try { fs.appendFileSync(process.env.MDR_OPEN_LOG, p + '\n'); } catch {} return; }
   try {
     const st = await fsp.stat(p);
     if (st.isDirectory()) { shell.openPath(p); return; }
@@ -145,7 +147,7 @@ ipcMain.on('get-home', (e) => { e.returnValue = home; });
 ipcMain.on('dirty', (e, d) => { const w = BrowserWindow.fromWebContents(e.sender); const en = wins.get(w.id); if (en) { en.dirty = d; w.setDocumentEdited(d); } });
 ipcMain.on('open-external', (e, url) => { if (/^https?:/.test(url)) shell.openExternal(url); });
 ipcMain.on('close-window', (e) => { const w = BrowserWindow.fromWebContents(e.sender); const en = wins.get(w.id); if (en) en.dirty = false; w.close(); });
-ipcMain.on('reveal', (e, p) => p && shell.showItemInFolder(p));
+ipcMain.on('reveal', (e, p) => { if (!p) return; if (process.env.MDR_OPEN_LOG) { try { fs.appendFileSync(process.env.MDR_OPEN_LOG, 'reveal ' + p + '\n'); } catch {} return; } shell.showItemInFolder(p); });
 ipcMain.handle('get-recent', () => { const ok = (p) => { try { return fs.statSync(p).isFile(); } catch { return false; } }; return { files: (prefs.recent || []).filter(ok), lastSession: (prefs.lastSession && prefs.lastSession.paths || []).filter(ok) }; });
 ipcMain.on('open-path', (e, p) => { if (p) openOther(p); });
 ipcMain.handle('stat-path', async (e, p) => { try { const st = await fsp.stat(p); return { exists: true, dir: st.isDirectory() }; } catch { return { exists: false, dir: false }; } });

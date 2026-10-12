@@ -213,6 +213,8 @@ html[data-theme] .doc a.path:hover{text-decoration-style:solid}
 html[data-theme] .doc a.path.dir::after{content:"/";opacity:.5}
 html[data-theme] .doc a.path.dir{text-decoration:none}
 html[data-theme] .doc a.path.dir:hover{text-decoration:underline}
+html[data-theme] .doc a.lmissing{text-decoration-style:dashed;opacity:.65;cursor:help}
+html[data-theme] .doc a.path.rel code{color:inherit}
 html[data-theme] .doc a.path.missing{color:inherit;opacity:.7;text-decoration:none;cursor:default}
 html[data-theme] .doc a.path>code{font-size:inherit;color:inherit}
 /* Fenced code (core/md.js decorateCode + core/hl.js). The wrapper owns the header so it stays put while the <pre> scrolls

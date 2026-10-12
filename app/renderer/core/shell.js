@@ -2429,16 +2429,40 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
     const expandPath = (p) => (p.startsWith('~/') && adapter.home ? adapter.home + p.slice(1) : p);
     // Paths that do not exist on disk are shown as plain text, not links (app only: the extension has no fs access).
     async function checkPathLinks() {
+      doc.querySelectorAll('a, code').forEach((el) => { el.spellcheck = false; }); // no red squiggles under links and file names in Write
       if (!adapter.statPath) return;
-      const links = [...doc.querySelectorAll('a.path')];
       const seen = new Map();
-      for (const a of links) {
+      const stat = (p) => { if (!seen.has(p)) seen.set(p, adapter.statPath(p).catch(() => null)); return seen.get(p); };
+      // Bare file names in code chips (`notes.csv`, `sub/x.py`) become links when that file sits next to this one.
+      if (S.path) {
+        for (const code of [...doc.querySelectorAll('code')]) {
+          if (code.closest('pre, a, .jd, .jdiff')) continue;
+          const t = code.textContent.trim();
+          if (!/^(?:\.{0,2}\/)?(?:[\w.@+\-]+\/)*[\w@+\-][\w.@+\-]*\.[A-Za-z0-9]{1,8}$/.test(t) || t.startsWith('/')) continue;
+          const p = resolveHref(t); const st = p && await stat(p);
+          if (!st || !st.exists || st.dir || !code.isConnected) continue;
+          const a = document.createElement('a');
+          a.className = 'path rel'; a.href = '#'; a.dataset.path = p; a.spellcheck = false;
+          a.title = (IS_MD(p) ? 'Open in a new tab' : 'Open with its default app') + ' · ⌘-click to show in Finder';
+          code.replaceWith(a); a.appendChild(code);
+        }
+      }
+      for (const a of [...doc.querySelectorAll('a.path')]) {
         const p = expandPath(a.dataset.path);
-        if (!seen.has(p)) seen.set(p, adapter.statPath(p).catch(() => null));
-        const st = await seen.get(p);
+        const st = await stat(p);
         if (!a.isConnected) continue;
         if (!st || !st.exists) { a.classList.add('missing'); a.title = 'Not found on disk'; }
         else if (st.dir) { if (!a.dataset.path.endsWith('/')) a.classList.add('dir'); a.title = 'Show in Finder'; }
+      }
+      // Ordinary [text](file) links: say where they point, and flag the ones whose file is gone.
+      for (const a of [...doc.querySelectorAll('a[href]:not(.path)')]) {
+        const href = a.getAttribute('href');
+        if (!href || href.startsWith('#') || (/^[a-z][\w+.-]*:/i.test(href) && !/^file:/i.test(href))) continue;
+        const p = /^file:/i.test(href) ? fileHref(href) : resolveHref(href); if (!p) continue;
+        const st = await stat(expandPath(p));
+        if (!a.isConnected) continue;
+        if (!st || !st.exists) { a.classList.add('lmissing'); a.title = 'Not found on disk: ' + p; }
+        else a.title = (st.dir ? 'Show in Finder' : IS_MD(p) ? 'Open in a new tab' : 'Open with its default app · ⌘-click to show in Finder') + '\n' + p;
       }
     }
     async function openPathLink(raw, reveal) {
@@ -3177,17 +3201,31 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
       const href = a.getAttribute('href');
       if (href.startsWith('#')) { e.preventDefault(); scrollTo(href.slice(1)); }
       else if (/^https?:/.test(href)) { e.preventDefault(); adapter.openExternal && adapter.openExternal(href); }
-      else if (/^[a-z]+:/i.test(href)) { e.preventDefault(); } // mailto:, file:, etc. -- never navigate the shell
+      else if (/^file:/i.test(href)) { e.preventDefault(); const p = fileHref(href); if (p) openPathLink(p, e.metaKey || e.ctrlKey); }
+      else if (/^(mailto|tel):/i.test(href)) { e.preventDefault(); adapter.openExternal && adapter.openExternal(href); }
+      else if (/^[a-z][\w+.-]*:/i.test(href)) { e.preventDefault(); } // unknown schemes: never navigate the shell
       else {
-        // Relative link: open sibling .md files in the reader; anything else is ignored rather than navigating away.
+        // Relative or absolute file link of ANY type: .md/.json/.sql open as a tab, everything else (.py, .csv,
+        // .png, folders...) goes to its default app; ⌘-click shows it in Finder. Missing targets say so.
         e.preventDefault();
-        if (/\.(md|markdown|mdown|mkd|json|sql|mmd|mermaid)(#.*)?$/i.test(href) && S.path && adapter.readFile) {
-          const base = S.path.slice(0, S.path.lastIndexOf('/') + 1);
-          const target = href.split('#')[0].split('/').reduce((acc, seg) => { if (seg === '..') acc.pop(); else if (seg && seg !== '.') acc.push(seg); return acc; }, base.split('/').filter(Boolean));
-          loadFile('/' + target.join('/')).catch(() => flash('Could not open ' + href));
-        }
+        const p = resolveHref(href);
+        if (p) openPathLink(p, e.metaKey || e.ctrlKey);
+        else flash('Save this file first so "' + href + '" can be found next to it');
       }
     });
+    // "file:///Users/me/a%20b.py" -> "/Users/me/a b.py"
+    function fileHref(href) { try { return decodeURIComponent(new URL(href).pathname) || null; } catch { return null; } }
+    // A link target relative to this file's folder (or absolute / ~/) -> absolute path; drops #anchors and ?queries.
+    function resolveHref(href) {
+      let h = href.split('#')[0].split('?')[0];
+      try { h = decodeURIComponent(h); } catch {}
+      if (!h) return null;
+      if (h.startsWith('/') || h.startsWith('~/')) return h;
+      if (!S.path) return null;
+      const base = S.path.slice(0, S.path.lastIndexOf('/') + 1);
+      const parts = h.split('/').reduce((acc, seg) => { if (seg === '..') acc.pop(); else if (seg && seg !== '.') acc.push(seg); return acc; }, base.split('/').filter(Boolean));
+      return '/' + parts.join('/') + (h.endsWith('/') ? '/' : '');
+    }
     adapter.onExternalChange && adapter.onExternalChange(async (path) => {
       const i = S.tabs.findIndex((t) => t.path === path); if (i < 0) return;
       const text = await adapter.readFile(path);
