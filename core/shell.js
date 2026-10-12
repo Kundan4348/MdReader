@@ -94,6 +94,50 @@
     root.append(top, files, centre, outline, toast, hint, wbar);
     setTimeout(() => hint.classList.add('gone'), 6000);
 
+    // ---------- resizable side panels ----------
+    // A thin handle on the inner edge of the Files pane and of the Outline. Drag it to set the width (kept across
+    // launches), double-click it to go back to the theme's own width, or focus it and use ← →. The width is stored
+    // as --files-user / --outline-user on the app; CSS falls back to the theme width when they are not set.
+    const PANE = { files: { min: 140, max: 640, pref: 'filesW', edge: 'left' }, outline: { min: 150, max: 560, pref: 'outlineW', edge: 'right' } };
+    const paneW = (p) => (p === 'files' ? files : outline).getBoundingClientRect().width / (parseFloat(getComputedStyle(root).getPropertyValue('--ui-zoom')) || 1);
+    function setPaneW(p, w, save) {
+      const c = PANE[p];
+      if (w == null) root.style.removeProperty(`--${p}-user`);
+      else {
+        const other = S[p === 'files' ? 'outline' : 'files'] ? paneW(p === 'files' ? 'outline' : 'files') : 0;
+        const room = root.clientWidth / (parseFloat(getComputedStyle(root).getPropertyValue('--ui-zoom')) || 1) - other - 360; // the page keeps at least 360px
+        w = Math.round(Math.max(c.min, Math.min(c.max, room, w)));
+        root.style.setProperty(`--${p}-user`, w + 'px');
+      }
+      if (save) adapter.setPref && adapter.setPref(c.pref, w == null ? null : w);
+      root.dispatchEvent(new Event('mdr-pane-resize'));
+    }
+    for (const p of ['files', 'outline']) {
+      const c = PANE[p];
+      const grip = h('div', { class: 'rz rz-' + p, role: 'separator', 'aria-orientation': 'vertical', tabindex: '0', 'aria-label': p === 'files' ? 'Resize the Files pane' : 'Resize the Outline', title: 'Drag to resize · double-click to reset' });
+      grip.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault(); grip.setPointerCapture(e.pointerId); root.classList.add('resizing'); grip.classList.add('on');
+        const move = (ev) => {
+          const r = root.getBoundingClientRect(), z = parseFloat(getComputedStyle(root).getPropertyValue('--ui-zoom')) || 1;
+          setPaneW(p, (c.edge === 'left' ? ev.clientX - r.left : r.right - ev.clientX) / z, false);
+        };
+        const up = () => {
+          grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up); grip.removeEventListener('pointercancel', up);
+          root.classList.remove('resizing'); grip.classList.remove('on');
+          setPaneW(p, paneW(p), true);
+        };
+        grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', up); grip.addEventListener('pointercancel', up);
+      });
+      grip.addEventListener('dblclick', () => { setPaneW(p, null, true); flash(p === 'files' ? 'Files pane: default width' : 'Outline: default width'); });
+      grip.addEventListener('keydown', (e) => {
+        const d = { ArrowLeft: -16, ArrowRight: 16 }[e.key];
+        if (!d) return;
+        e.preventDefault(); setPaneW(p, paneW(p) + (c.edge === 'left' ? d : -d), true);
+      });
+      root.append(grip);
+    }
+
     // ---------- Write mode ----------
     // Read's page, editable in place (core/write.js turns a block back into markdown). Every top-level block keeps the
     // source lines it came from (md.js stamps). Typing marks that block; ~0.4 s later, or when you leave it, only that
@@ -3356,6 +3400,7 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
       setTheme(await g('theme', DEFAULT_THEME));
       togglePanel('files', adapter.listDir ? await g('files', true) : false);
       togglePanel('outline', await g('outline', true));
+      for (const p of ['files', 'outline']) { const w = +(await g(PANE[p].pref, 0)); if (w > 0) root.style.setProperty(`--${p}-user`, Math.round(Math.max(PANE[p].min, Math.min(PANE[p].max, w))) + 'px'); }
       { const z = +(await g('zoom', 1)); S.zoom = z >= ZOOM_STEPS[0] && z <= ZOOM_STEPS[ZOOM_STEPS.length - 1] ? Math.round(z * 100) / 100 : 1; } applyZoom();
       setWidth(await g('width', 'auto'));
       setMode(DEFAULT_MODE, true); // opens ready to type on the page; Read / Edit / Split stay one click (⌘1-3) away
