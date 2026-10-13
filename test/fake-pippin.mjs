@@ -16,6 +16,23 @@ const tools = {
     return a.quick_create ? { project: { projectId, quickCreateDesignId: designId, isQuickCreate: true, name: 'Quick Create', createdBy: ME } } : { design: { projectId, designId, name: a.name } };
   },
   pippin_get_artifact: (s, a) => { const m = a.designId ? [0, a.designId] : /artifact=([\w-]+)/.exec(a.url || '') || /docs\/([\w-]+)/.exec(a.url || ''); const d = m && s.docs[m[1]]; if (!d) throw new Error('Artifact not found'); return { design: { projectId: d.projectId, designId: d.designId, name: d.name, content: d.marked || d.content } }; },
+  // same contract as the real tool: exact string, nth occurrence, "not found" refuses the edit
+  pippin_update_artifact: (s, a) => {
+    const d = s.docs[a.designId]; if (!d) throw new Error('Artifact not found');
+    const k = d.marked != null ? 'marked' : 'content'; let t = d[k];
+    if (a.updateType === 'append') t = t.replace(/\n*$/, '') + '\n\n' + a.insertContent + '\n';
+    else {
+      let i = -1; for (let n = 0; n < (a.occurrence || 1); n++) { i = t.indexOf(a.searchString, i + 1); if (i < 0) throw new Error(`Search string not found at occurrence ${a.occurrence || 1}`); }
+      const e = i + a.searchString.length;
+      if (a.updateType === 'string_replace') t = t.slice(0, i) + a.replacementString + t.slice(e);
+      else if (a.updateType === 'insert_after_string') t = t.slice(0, e) + a.insertContent + t.slice(e);
+      else if (a.updateType === 'insert_before_string') t = t.slice(0, i) + a.insertContent + t.slice(i);
+      else throw new Error('unsupported updateType ' + a.updateType);
+    }
+    d[k] = t; if (k === 'marked') d.content = t.replace(/<!--\s*\/?comment:[\w-]+\s*-->/g, '');
+    d.version = (d.version || 1) + 1;
+    return { design: { projectId: d.projectId, designId: d.designId, name: d.name, version: d.version } };
+  },
   pippin_get_artifact_comments: (s, a) => {
     const d = s.docs[a.designId]; if (!d) throw new Error('Artifact not found');
     const out = { open: [], resolved: [] };

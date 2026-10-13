@@ -1923,6 +1923,7 @@
       W.enable();
       WD.enable(r);
       TC.apply();
+      CM.apply();
       DR.redraw();
     }
     function copyJsonSection(i) { navigator.clipboard.writeText(JV.sectionSource(S.text, i)).then(() => flash('JSON copied')); }
@@ -2215,7 +2216,715 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
       function hidePicker() { pop.hidden = true; }
       document.addEventListener('mousedown', (e) => { if (!pop.hidden && !pop.contains(e.target) && !e.target.closest('[data-act=tcolour], [data-act=tc]')) hidePicker(); }, true);
       document.addEventListener('keydown', (e) => { if (!pop.hidden && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); hidePicker(); } }, true);
-      return { apply, toggle, open, hide: hidePicker, get isOpen() { return !pop.hidden; } };
+      return { apply, toggle, open, hide: hidePicker, textMap, rangeAt, posOf, get isOpen() { return !pop.hidden; } };
+    })();
+
+    // ---------- Comments: select text, comment on it, reply, react; the same for .md, .json and .sql ----------
+    // A thread is pinned to the words it was made on: the quoted text, which occurrence it was, and up to 40
+    // characters on each side. When the file changes, the thread finds its words again by the closest surrounding
+    // text, so edits elsewhere never move it; a thread whose words are gone is listed as "text no longer in the file".
+    // Stored next to the document (notes.md -> notes.md.mdr-comments.json) by the desktop app, or in the browser by
+    // the extension. Every change re-reads that file first, so two people on a shared folder don't overwrite each
+    // other. Only the person who wrote a comment can edit or delete it (matched by their Mac login); anyone can
+    // reply, react or resolve.
+    const CM = (() => {
+      const LS = 'mdr-comments', OFF = 'mdr-cmt-hidden';
+      const REACTS = ['👍', '❤️', '😄', '🎉', '👀', '✅', '🙏', '🔥'];
+      const me = (() => {
+        const sys = adapter.whoami ? adapter.whoami() : null;
+        let id = sys && sys.id;
+        if (!id) { id = localStorage.getItem('mdr-me-id'); if (!id) { id = 'me-' + Math.random().toString(36).slice(2, 10); localStorage.setItem('mdr-me-id', id); } }
+        return { id, name: localStorage.getItem('mdr-me-name') || (sys && sys.name) || 'You' };
+      })();
+      const st = { path: null, data: null, open: null, draft: null, pos: new Map(), filter: 'open', q: '', editing: null, editText: '', replyText: '', confirm: null, pickFor: null, wasFiles: false };
+      const empty = () => ({ version: 1, comments: [] });
+      const fileKey = () => { const t = curTab(); return t && !isUntitled(t) ? t.path : null; };
+      const hidden = () => localStorage.getItem(OFF) === '1';
+      const lsAll = () => { try { return JSON.parse(localStorage.getItem(LS) || '{}') || {}; } catch { return {}; } };
+      const valid = (d) => (d && Array.isArray(d.comments) ? d : empty());
+      async function read(p) { return valid(adapter.readComments ? await adapter.readComments(p) : lsAll()[p]); }
+      async function write(p, d) {
+        d.version = 1; d.file = String(p).split('/').pop();
+        if (adapter.writeComments) return adapter.writeComments(p, d);
+        const a = lsAll(); if (d.comments.length) a[p] = d; else delete a[p]; localStorage.setItem(LS, JSON.stringify(a));
+      }
+      async function load(force) {
+        const p = fileKey();
+        if (!p) { st.path = null; st.data = empty(); return after(); }
+        if (!force && st.path === p && st.data) return after();
+        st.path = p; if (!force) st.data = null;
+        let d; try { d = await read(p); } catch (e) { d = empty(); flash('Could not read the comments for this file: ' + (e.message || e), 3500); }
+        if (fileKey() !== p) return;
+        const same = st.data && JSON.stringify(st.data) === JSON.stringify(d);
+        st.data = d; if (!same) after();
+        if (typeof PP !== 'undefined' && PP.link() && (!PP.state.last || Date.now() - PP.state.last > 60000)) PP.syncSoon();
+      }
+      // read the newest copy, change it, write it back
+      async function mutate(fn, msg) {
+        const p = fileKey(); if (!p) { flash('Save this file first -- comments are kept with the saved file', 3200); return false; }
+        let d; try { d = await read(p); } catch { d = st.data || empty(); }
+        if (fn(d) === false) return false;
+        try { await write(p, d); } catch (e) { flash('Could not save the comment: ' + (e.message || e), 4000); return false; }
+        if (fileKey() === p) { st.path = p; st.data = d; after(); }
+        if (msg) flash(msg, 1600);
+        return true;
+      }
+      const uid = (p) => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      const iso = () => new Date().toISOString();
+      const who = () => ({ id: me.id, name: me.name });
+      function find(d, id) {
+        for (const c of (d && d.comments) || []) { if (c.id === id) return { x: c, root: c }; for (const r of c.replies || []) if (r.id === id) return { x: r, root: c }; }
+        return null;
+      }
+
+      // ---- where a thread sits on the page ----
+      function anchorOf(r) {
+        const m = TC.textMap();
+        const at = (node, off) => {
+          if (node.nodeType === 3) { const p = TC.posOf(m, node, off); if (p >= 0) return p; }
+          const pr = document.createRange(); pr.setStart(node, off);
+          for (const [n, s] of m.nodes) if (pr.comparePoint(n, 0) >= 0) return s;
+          return m.all.length;
+        };
+        let a = at(r.startContainer, r.startOffset); const b0 = at(r.endContainer, r.endOffset);
+        let q = m.all.slice(a, b0); const lead = q.length - q.trimStart().length; a += lead; q = q.trim();
+        if (!q) return null;
+        const b = a + q.length;
+        let n = 0, i = -1; while ((i = m.all.indexOf(q, i + 1)) >= 0 && i < a) { const nd = nodeAt(m, i); if (!(nd && nd.parentElement && nd.parentElement.closest(CHROME))) n++; }
+        return { q, n, pre: m.all.slice(Math.max(0, a - 40), a), post: m.all.slice(b, b + 40) };
+      }
+      const sameEnd = (x, y) => { let k = 0; while (k < x.length && k < y.length && x[x.length - 1 - k] === y[y.length - 1 - k]) k++; return k; };
+      const sameStart = (x, y) => { let k = 0; while (k < x.length && k < y.length && x[k] === y[k]) k++; return k; };
+      // where on the page a thread's words are: the occurrence whose surrounding text matches best (only letters and
+      // digits compared, since the page drops the source's markup and line breaks); never inside the page's own navigation
+      const sq = (t) => String(t || '').replace(/[^\p{L}\p{N}]+/gu, '').toLowerCase(); // letters and digits only: markup like ## or ** never breaks a match
+      const CHROME = 'nav, .chips, .toc, .sqllegend, .jhead-tools';
+      function nodeAt(m, p) { let lo = 0, hi = m.nodes.length - 1; while (lo < hi) { const md = (lo + hi + 1) >> 1; if (m.nodes[md][1] <= p) lo = md; else hi = md - 1; } return m.nodes[lo] && m.nodes[lo][0]; }
+      function locate(m, an) {
+        if (!an || !an.q) return -1;
+        const pre = sq(an.pre), post = sq(an.post);
+        let best = -1, bs = -Infinity, i = -1, k = 0, real = 0;
+        while ((i = m.all.indexOf(an.q, i + 1)) >= 0 && k < 2000) {
+          k++;
+          const nd = nodeAt(m, i); if (nd && nd.parentElement && nd.parentElement.closest(CHROME)) continue;
+          const s = sameEnd(pre, sq(m.all.slice(Math.max(0, i - 120), i))) + sameStart(post, sq(m.all.slice(i + an.q.length, i + an.q.length + 120))) - Math.abs(real - (an.n || 0)) * 0.01;
+          real++;
+          if (s > bs) { bs = s; best = i; }
+        }
+        return best;
+      }
+      const hasHL = () => !!(global.CSS && CSS.highlights && global.Highlight);
+      // after every repaint: find each thread's words again and highlight them
+      function apply() {
+        st.pos.clear();
+        if (hasHL()) { CSS.highlights.delete('mdr-cmt'); CSS.highlights.delete('mdr-cmt-on'); }
+        const d = st.data;
+        if (d && d.comments.length && st.path === fileKey() && S.mode !== 'edit') {
+          const m = TC.textMap();
+          for (const c of d.comments) { const p = locate(m, c.anchor); if (p < 0) continue; const r = TC.rangeAt(m, p, c.anchor.q.length); if (r) st.pos.set(c.id, { start: p, end: p + c.anchor.q.length, range: r }); }
+          if (hasHL() && !hidden()) {
+            const live = d.comments.filter((c) => !c.resolved && st.pos.has(c.id));
+            if (live.length) CSS.highlights.set('mdr-cmt', new Highlight(...live.map((c) => st.pos.get(c.id).range)));
+          }
+        }
+        markActive(); syncCount(); markers();
+      }
+      // a small numbered pin at the end of each commented passage, in the commenter's colour; click it to open the thread
+      const pins = h('div', { class: 'cmt-pins', 'aria-hidden': 'true' }); content.append(pins);
+      function markers() {
+        const d = st.data, out = [];
+        if (d && !hidden() && S.mode !== 'edit') {
+          const z = pins.currentCSSZoom || 1, pr = pins.getBoundingClientRect(), used = [];
+          ordered(true).forEach((c, i) => {
+            if (c.resolved) return; const p = st.pos.get(c.id); if (!p) return;
+            const rs = p.range.getClientRects(); const r = rs[0]; if (!r || (!r.width && !r.height)) return;
+            // in the margin to the right of the text column, level with the line the comment starts on
+            const el = p.range.startContainer.nodeType === 1 ? p.range.startContainer : p.range.startContainer.parentElement;
+            const col = (el && (el.closest('.sec .body') || el.closest('.head'))) || doc;
+            const cr = col.getBoundingClientRect();
+            let x = cr.right + 10, y = r.top + r.height / 2 - 9;
+            const n = c.replies && c.replies.length;
+            out.push(h('button', { type: 'button', class: 'cmt-pin' + (c.id === st.open ? ' on' : ''), style: `--hue:${hueOf(c.author)};left:${(x - pr.left) / z}px;top:${(y - pr.top) / z}px`,
+              title: `${(c.author && c.author.name) || 'Someone'}: ${short(c.text, 80)}${n ? ` (+${n} repl${n === 1 ? 'y' : 'ies'})` : ''}`, tabindex: '-1', onmousedown: (e) => e.preventDefault(), onclick: (e) => { e.stopPropagation(); open(c.id); } },
+              String(i + 1)));
+          });
+        }
+        pins.replaceChildren(...out);
+        // two on one line sit side by side, each after the previous one's real width
+        const placed = [];
+        for (const b of out) {
+          let l = parseFloat(b.style.left); const t = parseFloat(b.style.top), w = b.offsetWidth;
+          for (const q of placed) if (Math.abs(q.t - t) < 14 && l < q.l + q.w + 4 && l + w > q.l - 4) l = q.l + q.w + 4;
+          b.style.left = l + 'px'; placed.push({ l, t, w });
+        }
+      }
+      addEventListener('resize', debounce(() => { if (st.pos.size) apply(); }, 150));
+      root.addEventListener('mdr-pane-resize', debounce(() => { if (st.pos.size) apply(); }, 150));
+      function markActive() {
+        if (!hasHL()) return;
+        CSS.highlights.delete('mdr-cmt-on');
+        const r = st.draft ? st.draft.range : st.open && st.pos.get(st.open) ? st.pos.get(st.open).range : null;
+        if (r && r.startContainer.isConnected) CSS.highlights.set('mdr-cmt-on', new Highlight(r));
+        pins.querySelectorAll('.cmt-pin').forEach((b) => b.classList.toggle('on', b.firstChild.textContent === String(numOf(st.open))));
+      }
+      function after() { apply(); renderPanel(); if (typeof PP !== 'undefined') PP.sync(); if (st.open) { if (st.data && st.data.comments.some((c) => c.id === st.open)) renderPop(); else closePop(); } }
+      // threads in page order (threads whose words are gone go last)
+      const at0 = (c) => (st.pos.has(c.id) ? st.pos.get(c.id).start : 1e15);
+      const numOf = (id) => ordered(true).findIndex((c) => c.id === id) + 1; // a thread's number: its place on the page, the same in the list, the popup and the margin marker
+      const ordered = (withResolved) => ((st.data && st.data.comments) || []).filter((c) => withResolved || !c.resolved).sort((a, b) => at0(a) - at0(b) || String(a.at).localeCompare(String(b.at)));
+
+      // ---- changes ----
+      const addThread = (anchor, text) => { const id = uid('c'); return mutate((d) => { d.comments.push({ id, anchor, author: who(), at: iso(), text, reactions: {}, replies: [] }); }, 'Comment added').then((ok) => { if (ok && PP.link()) PP.syncSoon(); return ok && id; }); };
+      const addReply = (rootId, text) => mutate((d) => { const c = d.comments.find((x) => x.id === rootId); if (!c) return false; (c.replies = c.replies || []).push({ id: uid('r'), author: who(), at: iso(), text, reactions: {} }); }, 'Reply sent').then((ok) => { if (ok && PP.link()) PP.syncSoon(); return ok; });
+      function own(d, id) { const f = find(d, id); if (!f) return null; if (!f.x.author || f.x.author.id !== me.id) { flash('Only ' + ((f.x.author && f.x.author.name) || 'its author') + ' can change this comment', 2600); return null; } return f; }
+      const editOne = (id, text) => mutate((d) => { const f = own(d, id); if (!f) return false; f.x.text = text; f.x.edited = iso(); }, 'Comment updated');
+      const delOne = (id) => mutate((d) => { const f = own(d, id); if (!f) return false; if (f.x === f.root) d.comments = d.comments.filter((c) => c !== f.root); else f.root.replies = f.root.replies.filter((r) => r !== f.x); }, 'Deleted');
+      const react = (id, e) => mutate((d) => {
+        const f = find(d, id); if (!f) return false; const rs = (f.x.reactions = f.x.reactions || {}); const u = (rs[e] = rs[e] || []);
+        const i = u.findIndex((p) => p.id === me.id); if (i >= 0) u.splice(i, 1); else u.push(who()); if (!u.length) delete rs[e];
+      });
+      const resolve = (id, v) => mutate((d) => { const c = d.comments.find((x) => x.id === id); if (!c) return false; if (v) c.resolved = { by: who(), at: iso() }; else delete c.resolved; }, v ? 'Resolved -- it stays in the Comments list' : 'Reopened');
+
+      // ---- small pieces ----
+      function rel(t) {
+        const s = (Date.now() - new Date(t).getTime()) / 1000; if (!isFinite(s)) return '';
+        if (s < 45) return 'just now'; if (s < 3600) return Math.round(s / 60) + ' min ago'; if (s < 86400) return Math.round(s / 3600) + ' h ago';
+        if (s < 172800) return 'yesterday'; const d = new Date(t); return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
+      }
+      const fullTime = (t) => { const d = new Date(t); return isNaN(d) ? '' : d.toLocaleString(); };
+      // each person gets one steady hue (from their login), used on their avatar, their cards and their replies
+      const HUES = [215, 160, 270, 32, 190, 320, 95, 245, 48, 175, 290, 135]; // calm, well apart, no reds (red reads as an error)
+      // on one file, people get palette colours in the order they first commented, so two people never share one
+      let hueMap = null, hueFor = null;
+      const hueOf = (p) => {
+        const id = (p && (p.id || p.name)) || '?';
+        if (hueFor !== st.data) {
+          hueFor = st.data; hueMap = new Map();
+          const all = []; for (const c of (st.data && st.data.comments) || []) { all.push(c); for (const r of c.replies || []) all.push(r); }
+          all.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+          for (const x of all) { const k = x.author && (x.author.id || x.author.name); if (k && !hueMap.has(k)) hueMap.set(k, HUES[hueMap.size % HUES.length]); }
+        }
+        if (!hueMap.has(id)) { let x = 7; for (const ch of id) x = (x * 31 + ch.charCodeAt(0)) >>> 0; return HUES[(hueMap.size + x) % HUES.length]; }
+        return hueMap.get(id);
+      };
+      function avatar(p, cls) {
+        const nm = (p && p.name) || '?', hsh = hueOf(p);
+        const ini = nm.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
+        return h('span', { class: 'cmt-av' + (cls ? ' ' + cls : ''), style: `--hue:${hsh}`, title: nm + (p && p.id ? ' (' + p.id + ')' : ''), 'aria-hidden': 'true' }, ini);
+      }
+      const grow = (t) => { t.style.height = 'auto'; t.style.height = Math.min(180, t.scrollHeight + 2) + 'px'; };
+      const ICON = '<svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><path d="M4 4.5h12a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 16 14.5H9l-3.5 3v-3H4A1.5 1.5 0 0 1 2.5 13V6A1.5 1.5 0 0 1 4 4.5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>';
+      const short = (q, n) => (q.length > n ? q.slice(0, n - 1) + '…' : q);
+      // ---- the popup: one thread, its replies, reactions, Reply, ‹ › to the previous / next thread ----
+      const pop = h('div', { class: 'cmt-pop', hidden: '', role: 'dialog', 'aria-label': 'Comment' });
+      const bubble = h('button', { type: 'button', class: 'cmt-bubble', hidden: '', title: 'Comment on the selected text (⌘⌥M)', onmousedown: (e) => e.preventDefault(), onclick: () => startNew() });
+      bubble.innerHTML = ICON; bubble.append(h('span', {}, 'Comment'));
+      root.append(pop, bubble);
+      const btn = (cls, label, title, fn, dis) => h('button', { type: 'button', class: cls, title, disabled: dis ? '' : null, onclick: (e) => { e.stopPropagation(); fn(e); } }, label);
+      function entry(x, c) {
+        const mine = x.author && x.author.id === me.id, isRoot = x === c;
+        let body;
+        if (st.editing === x.id) {
+          const ed = h('textarea', { class: 'cmt-in', rows: '2', 'aria-label': 'Edit comment' }); ed.value = st.editText;
+          const ok = btn('cmt-send', 'Save', 'Save (⌘↩)', () => { const v = ed.value.trim(); if (!v) return; st.editing = null; editOne(x.id, v); }, !ed.value.trim());
+          ed.oninput = () => { st.editText = ed.value; ok.disabled = !ed.value.trim(); grow(ed); };
+          ed.onkeydown = (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); ok.click(); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); st.editing = null; renderPop(); } };
+          body = h('div', { class: 'cmt-edit' }, ed, h('div', { class: 'cmt-btns' }, btn('cmt-ghost', 'Cancel', 'Cancel (Esc)', () => { st.editing = null; renderPop(); }), ok));
+          setTimeout(() => { ed.focus(); ed.setSelectionRange(ed.value.length, ed.value.length); grow(ed); });
+        } else body = h('div', { class: 'cmt-text' }, x.text);
+        const rs = Object.entries(x.reactions || {}).filter(([, u]) => u && u.length);
+        const picker = st.pickFor === x.id ? h('div', { class: 'cmt-pick', role: 'menu' }, ...REACTS.map((e) => btn('cmt-pe', e, 'React with ' + e, () => { st.pickFor = null; react(x.id, e); }))) : null;
+        const reacts = h('div', { class: 'cmt-reacts' },
+          ...rs.map(([e, u]) => h('button', { type: 'button', class: 'cmt-r' + (u.some((p) => p.id === me.id) ? ' mine' : ''), title: u.map((p) => p.name).join(', '), onclick: (ev) => { ev.stopPropagation(); react(x.id, e); } }, h('span', { class: 'e' }, e), h('span', { class: 'n' }, String(u.length)))),
+          btn('cmt-add', '☺+', 'Add a reaction', () => { st.pickFor = st.pickFor === x.id ? null : x.id; renderPop(); }), picker);
+        const confirming = st.confirm === x.id;
+        const synced = !!(x.pippin && x.pippin.id && !x.pippin.unlinked && st.data && st.data.pippin); // Pippin has no edit / delete: change it there
+        const acts = mine && !synced && st.editing !== x.id ? h('span', { class: 'cmt-acts' },
+          btn('cmt-link', 'Edit', 'Edit your comment', () => { st.editing = x.id; st.editText = x.text; st.confirm = null; renderPop(); }),
+          confirming ? btn('cmt-link danger', isRoot && (c.replies || []).length ? 'Delete thread?' : 'Delete?', 'Click again to delete', () => { st.confirm = null; delOne(x.id); })
+            : btn('cmt-link', 'Delete', isRoot ? 'Delete this comment and its replies' : 'Delete this reply', () => { st.confirm = x.id; renderPop(); })) : null;
+        return h('div', { class: 'cmt-e' + (isRoot ? ' root' : ' reply') + (mine ? ' mine' : ''), 'data-id': x.id, style: `--hue:${hueOf(x.author)}` },
+          avatar(x.author),
+          h('div', { class: 'cmt-main' },
+            h('div', { class: 'cmt-h' }, h('b', {}, (x.author && x.author.name) || 'Someone'), mine ? h('span', { class: 'cmt-you' }, 'you') : null, h('span', { class: 'cmt-t', title: fullTime(x.at) + (x.edited ? ' · edited ' + fullTime(x.edited) : '') }, rel(x.at) + (x.edited ? ' · edited' : '')),
+              x.pippin && x.pippin.id && !x.pippin.unlinked ? h('span', { class: 'cmt-pp', title: 'On Pippin too' }, 'Pippin') : (st.data && st.data.pippin && x.author && x.author.id === me.id ? h('span', { class: 'cmt-pp wait', title: 'Not on Pippin yet -- it goes with the next sync' }, 'sending…') : null), acts),
+            body, reacts));
+      }
+      function renderPop() {
+        const c = st.open && st.data && st.data.comments.find((x) => x.id === st.open);
+        if (!c) return closePop();
+        const list = ordered(!!c.resolved), i = list.indexOf(c), n = list.length;
+        const nav = h('div', { class: 'cmt-nav' },
+          h('span', { class: 'cmt-num', style: `--hue:${hueOf(c.author)}`, title: 'Comment ' + numOf(c.id) + ' on this page' }, String(numOf(c.id))),
+          btn('cmt-step cmt-prev', '‹', 'Previous comment (←)', () => step(-1), n < 2),
+          h('span', { class: 'cmt-of' }, n ? `${i + 1} of ${n}` : ''),
+          btn('cmt-step cmt-next', '›', 'Next comment (→)', () => step(1), n < 2),
+          h('span', { class: 'spacer' }),
+          c.resolved ? h('span', { class: 'cmt-done' }, '✓ Resolved by ' + ((c.resolved.by && c.resolved.by.name) || 'someone')) : null,
+          btn('cmt-resolve', c.resolved ? 'Reopen' : '✓ Resolve', c.resolved ? 'Reopen this thread' : 'Mark this thread done -- it stays in the Comments list', () => resolve(c.id, !c.resolved)),
+          btn('cmt-x', '✕', 'Close (Esc)', closePop));
+        const gone = !st.pos.has(c.id);
+        const quote = h('div', { class: 'cmt-quote' + (gone ? ' gone' : ''), title: c.anchor.q }, gone ? h('b', {}, 'Text no longer in the file: ') : null, short(c.anchor.q, 160));
+        const thread = h('div', { class: 'cmt-thread' }, entry(c, c), ...(c.replies || []).map((r) => entry(r, c)));
+        const rin = h('textarea', { class: 'cmt-in', rows: '1', placeholder: 'Reply…', 'aria-label': 'Reply' }); rin.value = st.replyText;
+        const send = btn('cmt-send', 'Reply', 'Send reply (⌘↩)', async () => { const v = rin.value.trim(); if (!v) return; st.replyText = ''; await addReply(c.id, v); const t = thread.parentNode && pop.querySelector('.cmt-thread'); if (t) t.scrollTop = t.scrollHeight; }, !rin.value.trim());
+        rin.oninput = () => { st.replyText = rin.value; send.disabled = !rin.value.trim(); grow(rin); };
+        rin.onkeydown = (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send.click(); } };
+        const keepFocus = pop.contains(document.activeElement) && document.activeElement.classList.contains('cmt-in') && document.activeElement.getAttribute('aria-label') === 'Reply';
+        const scrollY = (pop.querySelector('.cmt-thread') || {}).scrollTop || 0;
+        pop.replaceChildren(nav, quote, thread, h('div', { class: 'cmt-foot' }, avatar(me, 's'), rin, send));
+        thread.scrollTop = scrollY;
+        pop.dataset.mode = 'thread'; pop.hidden = false; grow(rin); place();
+        if (keepFocus) { rin.focus(); rin.setSelectionRange(rin.value.length, rin.value.length); }
+      }
+      function renderNew() {
+        const ta2 = h('textarea', { class: 'cmt-in', rows: '3', placeholder: 'Add a comment…', 'aria-label': 'New comment' });
+        const ok = btn('cmt-send', 'Comment', 'Post (⌘↩)', async () => {
+          const v = ta2.value.trim(); if (!v || !st.draft) return;
+          const an = st.draft.anchor; st.draft = null;
+          const id = await addThread(an, v); if (id) open(id); else closePop();
+        }, true);
+        ta2.oninput = () => { ok.disabled = !ta2.value.trim(); grow(ta2); };
+        ta2.onkeydown = (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); ok.click(); } };
+        pop.replaceChildren(
+          h('div', { class: 'cmt-nav' }, h('span', { class: 'cmt-of' }, 'New comment'), h('span', { class: 'spacer' }), btn('cmt-x', '✕', 'Cancel (Esc)', closePop)),
+          h('div', { class: 'cmt-quote', title: st.draft.anchor.q }, short(st.draft.anchor.q, 160)),
+          h('div', { class: 'cmt-new' }, h('div', { class: 'cmt-h' }, avatar(me, 's'), h('b', {}, me.name)), ta2,
+            h('div', { class: 'cmt-btns' }, h('span', { class: 'cmt-hint' }, '⌘↩ to post'), btn('cmt-ghost', 'Cancel', 'Cancel (Esc)', closePop), ok)));
+        pop.dataset.mode = 'new'; pop.hidden = false; place(); ta2.focus();
+      }
+      // under the words (or above them when there is no room); centred on the page when the words are gone
+      function place() {
+        if (pop.hidden) return;
+        const r = st.draft ? st.draft.range : st.pos.get(st.open) ? st.pos.get(st.open).range : null;
+        const w = pop.offsetWidth, ph = pop.offsetHeight, cr = content.getBoundingClientRect();
+        let rc = r && r.startContainer.isConnected ? r.getClientRects()[0] : null;
+        if (rc && !rc.width && !rc.height) rc = null;
+        if (!rc) { pop.style.left = Math.max(8, cr.left + (cr.width - w) / 2) + 'px'; pop.style.top = Math.max(8, cr.top + 60) + 'px'; pop.classList.remove('up'); return; }
+        const last = r.getClientRects()[r.getClientRects().length - 1] || rc;
+        let top = last.bottom + 8, up = false;
+        if (top + ph > innerHeight - 8) { top = rc.top - ph - 8; up = true; }
+        pop.style.left = Math.max(8, Math.min(rc.left - 12, innerWidth - w - 8)) + 'px';
+        pop.style.top = Math.max(8, top) + 'px'; pop.classList.toggle('up', up);
+      }
+      function reveal(r) {
+        for (let el = r.startContainer.parentElement; el; el = el.parentElement) if (el.tagName === 'DETAILS' && !el.open) el.open = true;
+        const rr = r.getBoundingClientRect(), cr = content.getBoundingClientRect();
+        if (rr.top < cr.top + 40 || rr.bottom > cr.bottom - 260) content.scrollTop += rr.top - cr.top - Math.min(140, cr.height / 4);
+      }
+      function open(id, scroll) {
+        st.open = id; st.draft = null; st.editing = null; st.confirm = null; st.pickFor = null; st.replyText = '';
+        const p = st.pos.get(id); if (scroll && p) reveal(p.range);
+        markActive(); renderPop(); renderPanel();
+      }
+      function step(dir) {
+        const c = st.data && st.data.comments.find((x) => x.id === st.open); const list = ordered(!!(c && c.resolved)); if (!list.length) return;
+        const i = list.indexOf(c); open(list[(i + dir + list.length) % list.length].id, true);
+      }
+      function closePop() {
+        const was = !pop.hidden; pop.hidden = true; st.open = null; st.draft = null; st.editing = null; st.confirm = null; st.pickFor = null;
+        markActive(); if (was) renderPanel();
+      }
+      // ---- starting a comment from a selection ----
+      const selRange = () => { const s = getSelection(); return s.rangeCount && !s.isCollapsed && doc.contains(s.anchorNode) && doc.contains(s.focusNode) ? s.getRangeAt(0).cloneRange() : null; };
+      function startNew() {
+        bubble.hidden = true;
+        if (S.mode === 'edit') return flash('Switch to Read or Write to comment on the page', 2600);
+        const r = selRange(); if (!r || !r.toString().trim()) return flash('Select some text on the page first, then comment', 2600);
+        if (!fileKey()) return flash('Save this file first -- comments are kept with the saved file', 3200);
+        const an = anchorOf(r); if (!an) return flash('Select some text on the page first, then comment', 2600);
+        const m = TC.textMap(), p = locate(m, an), rr = p >= 0 ? TC.rangeAt(m, p, an.q.length) : r;
+        st.open = null; st.editing = null; st.draft = { anchor: an, range: rr };
+        getSelection().removeAllRanges(); markActive(); renderNew();
+      }
+      document.addEventListener('selectionchange', debounce(() => {
+        const r = selRange();
+        if (!r || !r.toString().trim() || S.mode === 'edit' || !fileKey() || (!pop.hidden && pop.dataset.mode === 'new')) { bubble.hidden = true; return; }
+        if (!pop.hidden && pop.dataset.mode === 'thread' && !pop.contains(document.activeElement)) closePop(); // a new selection on the page: you've moved on from that thread
+        const rs = r.getClientRects(), last = rs[rs.length - 1] || r.getBoundingClientRect();
+        bubble.hidden = false;
+        const bw = bubble.offsetWidth, bh = bubble.offsetHeight;
+        bubble.style.left = Math.max(8, Math.min(last.right - bw / 2, innerWidth - bw - 8)) + 'px';
+        bubble.style.top = (last.bottom + 6 + bh < innerHeight ? last.bottom + 6 : last.top - bh - 6) + 'px';
+      }, 140));
+      // click on highlighted words: open that thread (the shortest one when threads overlap)
+      doc.addEventListener('click', (e) => {
+        if (e.button !== 0 || hidden() || !st.pos.size || e.target.closest('button, a, input, textarea, select, .tools, summary')) return;
+        const s = getSelection(); if (s && !s.isCollapsed) return;
+        let hit = null, hl = Infinity;
+        for (const c of st.data.comments) {
+          if (c.resolved) continue; const p = st.pos.get(c.id); if (!p) continue;
+          for (const rc of p.range.getClientRects()) if (e.clientX >= rc.left - 1 && e.clientX <= rc.right + 1 && e.clientY >= rc.top - 1 && e.clientY <= rc.bottom + 1) { if (p.end - p.start < hl) { hit = c; hl = p.end - p.start; } break; }
+        }
+        if (hit && hit.id !== st.open) open(hit.id);
+      }, true);
+      document.addEventListener('mousedown', (e) => {
+        if (!pop.hidden && !pop.contains(e.target) && !bubble.contains(e.target) && !e.target.closest('.cpane, .cmtb')) {
+          if (pop.dataset.mode === 'new' && pop.querySelector('textarea').value.trim()) return; // never drop a half-written comment on a stray click
+          closePop();
+        }
+      }, true);
+      pop.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closePop(); return; }
+        if (e.target.tagName === 'TEXTAREA') return;
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); step(e.key === 'ArrowLeft' ? -1 : 1); }
+      });
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !pop.hidden && !pop.contains(document.activeElement)) { e.preventDefault(); closePop(); } }, true);
+      content.addEventListener('scroll', () => { bubble.hidden = true; place(); }, { passive: true });
+      addEventListener('resize', () => place());
+      // ---- Pippin: create a doc from this file, keep it linked, sync comments both ways ----
+      // The link lives in the comments file next to the document ({pippin:{projectId,designId,url,name}}), so it holds
+      // until someone presses Disconnect. A sync pulls every Pippin thread (new ones, replies, edits, resolved state)
+      // and posts what was written here and is not on Pippin yet: a new thread as a comment on the same words, a reply
+      // into its Pippin thread. Only your own comments are posted, because Pippin posts them under your Midway login.
+      // Pippin has no edit, delete, reaction or resolve calls, so those stay in MdReader for synced comments.
+      const PP = (() => {
+        const can = !!adapter.pippin;
+        const call = async (op, args) => { const r = await adapter.pippin(op, args); if (!r || !r.ok) throw new Error((r && r.error) || 'Pippin is not reachable'); return r.value; };
+        const link = () => (st.data && st.data.pippin) || null;
+        const ps = { busy: false, last: null, err: null, folders: null, view: 'menu', q: '', timer: 0 };
+        const btnEl = h('button', { class: 'icon ppb', title: 'Pippin', onclick: () => (pop2.hidden ? openMenu() : closeMenu()) });
+        btnEl.innerHTML = '<svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><path d="M6 17V3.5h5a4 4 0 0 1 0 8H6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        btnEl.append(h('span', { class: 'ppb-dot' }));
+        if (can) top.insertBefore(btnEl, themeSel);
+        const pop2 = h('div', { class: 'cmt-pop pp-pop', hidden: '', role: 'dialog', 'aria-label': 'Pippin' }); root.append(pop2);
+        const isMd = () => docKind() === 'md';
+        function sync() {
+          const l = link(); btnEl.classList.toggle('on', !!l); btnEl.classList.toggle('busy', ps.busy); btnEl.classList.toggle('err', !!(l && ps.err));
+          btnEl.title = l ? `Linked to Pippin: ${l.name}${ps.err ? ' -- last sync failed: ' + ps.err : ps.last ? ' · synced ' + rel(ps.last) : ''}` : 'Create a Pippin doc from this file, or link one';
+          if (!pop2.hidden) render();
+        }
+        // what goes up to Pippin: the markdown without MdReader's own hidden lines and colour tags
+        const forPippin = (t) => t.replace(/^\s*<!--\s*mdr-colours\s+\{.*\}\s*-->\s*\n?/gm, '').replace(/<span data-(?:c|hl)="[^"]*"(?: data-(?:c|hl)="[^"]*")?>([\s\S]*?)<\/span>/g, '$1');
+        const titleOf = () => { const m = /^#\s+(.+)$/m.exec(S.text); return (m ? m[1].replace(/[*_`]/g, '').trim() : '') || String(curDisp().name || 'Untitled').replace(/\.(md|markdown|mdown|mkd)$/i, ''); };
+        async function create(projectId, folderName) {
+          if (!fileKey()) return flash('Save this file first', 2400);
+          ps.busy = true; ps.view = 'working'; ps.working = 'Creating the Pippin doc' + (folderName ? ' in ' + folderName : '') + '…'; sync();
+          try {
+            const r = await call('create', { name: titleOf(), content: forPippin(S.text), projectId: projectId || undefined });
+            const sentText = S.dirty ? null : S.saved;
+            const remote = sentText !== null ? await call('content', { projectId: r.projectId, designId: r.designId }).catch(() => null) : null;
+            await mutate((d) => { d.pippin = { ...r, folder: folderName || 'Quick Create', linkedAt: iso(), linkedBy: who() }; if (remote !== null) d.pippin.base = { local: sentText, remote, at: iso() }; });
+            ps.view = 'menu'; flash('Pippin doc created and linked', 2400);
+            await syncNow(true);
+          } catch (e) { ps.view = 'menu'; ps.err = e.message; flash('Could not create the Pippin doc: ' + e.message, 5000); }
+          ps.busy = false; sync();
+        }
+        async function linkExisting(url) {
+          ps.busy = true; ps.view = 'working'; ps.working = 'Looking up that Pippin doc…'; sync();
+          try { const r = await call('resolve', { url }); await mutate((d) => { d.pippin = { ...r, linkedAt: iso(), linkedBy: who() }; }); ps.view = 'menu'; flash('Linked to ' + r.name, 2400); await syncNow(true); }
+          catch (e) { ps.view = 'link'; ps.err = e.message; flash(e.message, 5000); }
+          ps.busy = false; sync();
+        }
+        async function disconnect() {
+          await mutate((d) => { delete d.pippin; for (const c of d.comments) { if (c.pippin) c.pippin.unlinked = true; for (const r of c.replies || []) if (r.pippin) r.pippin.unlinked = true; } }, 'Disconnected from Pippin -- comments stay here');
+          ps.err = null; ps.last = null; ps.view = 'menu'; sync();
+        }
+        const ms = (t) => new Date(typeof t === 'number' ? t : Date.parse(t) || Date.now()).toISOString();
+        const person = (alias) => ({ id: alias, name: alias === me.id ? me.name : alias, pippin: true });
+        // merge Pippin's threads into ours (d is the freshly read comments file)
+        // Pippin's document marks each anchored comment: <!-- comment:X -->words<!-- /comment:X -->. Read the plain
+        // text around each marked passage, so a comment lands on the right copy of its words (a heading, not the
+        // section link at the top of the page; the second "Field", not the first).
+        const plain = (t) => String(t || '').replace(/<!--[\s\S]*?-->/g, '').replace(/<\/?(?:t[hdr]|table|tbody|thead|br|p|div|span|code|strong|em|b|i)\b[^>]*>/gi, ' ')
+          .replace(/^\s{0,3}#{1,6}\s+/gm, '').replace(/^\s*(?:[-*+]|\d+[.)])\s+/gm, '').replace(/(\*\*|__|\*|`|~~)/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/^\s*\|?\s*:?-{2,}.*$/gm, '').replace(/\|/g, ' ');
+        function contexts(content) {
+          const out = [], re = /<!--\s*comment:([\w-]+)\s*-->/g; let m;
+          const seen = new Set();
+          while ((m = re.exec(content))) {
+            const id = m[1]; if (seen.has(id)) continue; seen.add(id);
+            const close = '<!-- /comment:' + id + ' -->';
+            let end = content.lastIndexOf(close); if (end < m.index) continue; // a split span runs to its LAST close marker
+            const inner = plain(content.slice(m.index + m[0].length, end)).replace(/\s+/g, ' ').trim();
+            out.push({ q: inner, pre: plain(content.slice(Math.max(0, m.index - 600), m.index)).replace(/\s+/g, ' ').slice(-60), post: plain(content.slice(end + close.length, end + close.length + 600)).replace(/\s+/g, ' ').slice(0, 60) });
+          }
+          return out;
+        }
+        function pull(d, j, content) {
+          const ctx = content ? contexts(content) : [], used = new Set();
+          const placeOf = (q) => { const sel = sq(q); const k = ctx.findIndex((x, i) => !used.has(i) && sq(x.q) === sel); if (k < 0) return null; used.add(k); return ctx[k]; };
+          const groups = [['open', (j.threads && j.threads.open) || []], ['resolved', (j.threads && j.threads.resolved) || []]];
+          const seen = new Set();
+          const byId = new Map(); for (const c of d.comments) { if (c.pippin && c.pippin.id) byId.set(c.pippin.id, c); for (const r of c.replies || []) if (r.pippin && r.pippin.id) byId.set(r.pippin.id, r); }
+          let added = 0;
+          for (const [state, threads] of groups) for (const th of threads) {
+            const pc = th.parentComment; if (!pc || !pc.commentId) continue; seen.add(pc.commentId);
+            const q = (pc.textAnchor && pc.textAnchor.selectedText) || '';
+            let c = byId.get(pc.commentId);
+            // a comment we posted whose id never made it into the file (closed mid-sync): adopt it instead of duplicating it
+            if (!c) c = d.comments.find((x) => !x.pippin && x.author && x.author.id === pc.createdBy && x.text === pc.content);
+            if (!c) {
+              c = { id: 'p' + pc.commentId.slice(0, 12), anchor: { q, n: 0, pre: '', post: '' }, author: person(pc.createdBy), at: ms(pc.createdAt), text: pc.content, reactions: {}, replies: [] };
+              d.comments.push(c); added++;
+            }
+            c.pippin = { id: pc.commentId, at: pc.updatedAt };
+            // a Pippin comment takes its surrounding words from Pippin's own text; ours keep the ones they were made with
+            if (c.author && c.author.pippin && q) { const at = placeOf(q); if (at) c.anchor = { q, n: 0, pre: at.pre, post: at.post }; } else if (q) placeOf(q);
+            if (c.text !== pc.content && c.author && c.author.pippin) { c.text = pc.content; if (pc.updatedAt > pc.createdAt) c.edited = ms(pc.updatedAt); }
+            if (state === 'resolved' && !c.resolved) c.resolved = { by: { id: 'pippin', name: 'Pippin' }, at: iso(), pippin: true };
+            if (state === 'open' && c.resolved && c.resolved.pippin) delete c.resolved;
+            c.replies = c.replies || [];
+            for (const pr of th.replies || []) {
+              seen.add(pr.commentId);
+              let r = byId.get(pr.commentId) || c.replies.find((x) => !x.pippin && x.author && x.author.id === pr.createdBy && x.text === pr.content);
+              if (!r) { r = { id: 'p' + pr.commentId.slice(0, 12), author: person(pr.createdBy), at: ms(pr.createdAt), text: pr.content, reactions: {} }; c.replies.push(r); added++; }
+              r.pippin = { id: pr.commentId, at: pr.updatedAt };
+              if (r.text !== pr.content && r.author && r.author.pippin) r.text = pr.content;
+            }
+            c.replies.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+          }
+          // removed on Pippin: drop the synced copies (anything still unsynced stays)
+          d.comments = d.comments.filter((c) => !(c.pippin && c.pippin.id && !c.pippin.unlinked && !seen.has(c.pippin.id)));
+          for (const c of d.comments) c.replies = (c.replies || []).filter((r) => !(r.pippin && r.pippin.id && !r.pippin.unlinked && !seen.has(r.pippin.id)));
+          return added;
+        }
+        const mineUnsent = (x) => !x.pippin && x.author && x.author.id === me.id;
+        // ---- the document text (core/psync.js plans a three-way merge against the last synced state) ----
+        // Runs on the SAVED file only: with unsaved edits it waits for the save. Parts changed only here go to Pippin as
+        // targeted edits (comment markers and table cells kept); parts changed only on Pippin are written into the file;
+        // a part changed on both sides is held until the user picks a side in the P menu, and nothing else is applied
+        // meanwhile. The synced state is kept as d.pippin.base = {local, remote} in the comments file.
+        const textOn = () => { const l = link(); return !!l && l.text !== false && !!global.PSYNC; };
+        ps.choices = {}; ps.conflicts = []; ps.textNote = '';
+        async function syncText(l, remote, p) {
+          if (!textOn() || fileKey() !== p) return null;
+          if (S.dirty) { ps.textNote = 'Save the file to sync its text'; return null; }
+          const t = curTab(), local = S.saved;
+          const r = PSYNC.plan({ local, remote, base: l.base || null, clean: forPippin, choices: ps.choices });
+          if (r.conflicts.length) { ps.conflicts = r.conflicts; ps.textNote = ''; return { conflicts: r.conflicts.length }; }
+          ps.conflicts = [];
+          if (r.newLocal !== null) {
+            await adapter.writeFile(p, r.newLocal, { ext: 'md' });
+            if (fileKey() === p && !S.dirty) { S.saved = r.newLocal; setText(r.newLocal); t.text = t.saved = r.newLocal; paint(); }
+          }
+          for (const x of r.pushes) await call('update', { projectId: l.projectId, designId: l.designId, type: x.type, search: x.search, content: x.content, occurrence: x.occurrence });
+          const fresh = r.pushes.length ? await call('content', { projectId: l.projectId, designId: l.designId }) : remote;
+          const now = r.newLocal !== null ? r.newLocal : local;
+          if (!l.base || l.base.local !== now || l.base.remote !== fresh) await mutate((d) => { if (!d.pippin) return false; d.pippin.base = { local: now, remote: fresh, at: iso() }; });
+          ps.choices = {}; ps.textNote = r.lost ? `${r.lost} Pippin comment highlight${r.lost === 1 ? '' : 's'} lost: the words they marked were removed` : '';
+          ps.textLast = Date.now();
+          return { pushed: r.pushed, pulled: r.pulled };
+        }
+        function choose(id, side) { if (id === '*') for (const c of ps.conflicts) ps.choices[c.id] = side; else ps.choices[id] = side; syncNow(false); }
+        async function setTextSync(on) { await mutate((d) => { if (!d.pippin) return false; if (on) delete d.pippin.text; else d.pippin.text = false; /* the last synced state stays, so switched on again edits from either side merge as usual */ }); ps.conflicts = []; ps.choices = {}; if (on) syncNow(false); else render(); }
+        async function syncNow(quiet) {
+          const l = link(); if (!can || !l || ps.busy && !quiet) return;
+          const p = fileKey(); ps.busy = true; sync();
+          let added = 0, sent = 0, kept = 0, tx = null;
+          try {
+            const j = await call('comments', { projectId: l.projectId, designId: l.designId });
+            const content = await call('content', { projectId: l.projectId, designId: l.designId }).catch(() => ''); // only for placing comments; a failure just means less precise placing
+            await mutate((d) => { if (!d.pippin) return false; added = pull(d, j, content); });
+            // the document text, before our new comments go up (their markers would make Pippin's copy stale)
+            if (content) tx = await syncText(l, content, p);
+            // post ours, one at a time, saving each Pippin id as soon as it exists
+            const d0 = st.data || empty();
+            for (const c of d0.comments) {
+              if (fileKey() !== p) break;
+              if (mineUnsent(c) && !c.pippin) {
+                let r = c.anchor.q ? await call('post', { projectId: l.projectId, designId: l.designId, comment: c.text, anchorText: c.anchor.q, contextBefore: (c.anchor.pre || '').slice(-60) || undefined }).catch(() => null) : null;
+                if (!r || !r.commentId || r.status === 'anchor_not_placed') r = await call('post', { projectId: l.projectId, designId: l.designId, comment: c.anchor.q ? `> ${c.anchor.q.slice(0, 300)}\n\n${c.text}` : c.text });
+                if (r && r.commentId) { sent++; await mutate((d) => { const x = d.comments.find((y) => y.id === c.id); if (x) x.pippin = { id: r.commentId, anchored: !!r.anchored }; }); }
+              } else if (!c.pippin && c.author && c.author.id !== me.id) kept++;
+              const root = (st.data.comments.find((y) => y.id === c.id) || {}).pippin;
+              if (!root || !root.id) continue;
+              for (const rp of c.replies || []) {
+                if (!mineUnsent(rp)) { if (!rp.pippin && rp.author && rp.author.id !== me.id) kept++; continue; }
+                const r = await call('post', { projectId: l.projectId, designId: l.designId, comment: rp.text, replyToCommentId: root.id });
+                if (r && r.commentId) { sent++; await mutate((d) => { const x = d.comments.find((y) => y.id === c.id); const y = x && (x.replies || []).find((z) => z.id === rp.id); if (y) y.pippin = { id: r.commentId }; }); }
+              }
+            }
+            ps.err = null; ps.last = Date.now(); ps.kept = kept;
+            const tp = tx ? [tx.pulled ? `text updated from Pippin (${tx.pulled} part${tx.pulled === 1 ? '' : 's'})` : '', tx.pushed ? `your text sent (${tx.pushed} part${tx.pushed === 1 ? '' : 's'})` : ''].filter(Boolean).join(' · ') : '';
+            if (tx && tx.conflicts) flash(`Pippin and this file both changed the same ${tx.conflicts === 1 ? 'part' : tx.conflicts + ' parts'} -- open the P menu to choose`, 5000);
+            else if (!quiet || added || sent || tp) flash(`Synced with Pippin${added ? ` · ${added} new from Pippin` : ''}${sent ? ` · ${sent} sent` : ''}${tp ? ' · ' + tp : ''}${!added && !sent && !tp ? ' · up to date' : ''}`, 2600);
+          } catch (e) { ps.err = e.message; if (!quiet) flash('Pippin sync failed: ' + e.message, 5000); }
+          ps.busy = false; sync();
+        }
+        const syncSoon = debounce(() => syncNow(true), 1500);
+        setInterval(() => { if (link() && document.visibilityState === 'visible') syncNow(true); }, 3 * 60 * 1000);
+
+        // ---- the Pippin menu ----
+        function render() {
+          const l = link(), rows = [];
+          const nav = (title, back) => h('div', { class: 'cmt-nav' }, back ? btn('cmt-step', '‹', 'Back', () => { ps.view = 'menu'; render(); }) : null, h('span', { class: 'cmt-of pp-title' }, title), h('span', { class: 'spacer' }), btn('cmt-x', '✕', 'Close (Esc)', closeMenu));
+          if (ps.view === 'working') rows.push(nav('Pippin'), h('div', { class: 'pp-body' }, h('div', { class: 'pp-spin' }), h('div', {}, ps.working)));
+          else if (!fileKey()) rows.push(nav('Pippin'), h('div', { class: 'pp-body' }, 'Save this file first, then create its Pippin doc.'));
+          else if (l) {
+            rows.push(nav('Linked to Pippin'),
+              h('div', { class: 'pp-body' },
+                h('a', { class: 'pp-doc', href: l.url, title: l.url, onclick: (e) => { e.preventDefault(); adapter.openExternal && adapter.openExternal(l.url); } }, h('b', {}, l.name), h('span', {}, (l.folder ? l.folder + ' · ' : '') + 'Open in Pippin ↗')),
+                h('div', { class: 'pp-st' + (ps.err ? ' err' : '') }, ps.busy ? 'Syncing…' : ps.err ? 'Last sync failed: ' + ps.err : ps.last ? (textOn() ? 'Text and comments' : 'Comments') + ' synced ' + rel(ps.last) + ' · every 3 min while open, and when you save' : 'Not synced yet'),
+                textOn() && ps.conflicts.length ? conflictBox() : null,
+                textOn() && ps.textNote ? h('div', { class: 'pp-note warn' }, ps.textNote) : null,
+                h('label', { class: 'pp-sw', title: 'Keep the document text the same here and on Pippin' }, (() => { const c = h('input', { type: 'checkbox' }); c.checked = textOn(); c.onchange = () => setTextSync(c.checked); return c; })(), h('span', {}, 'Sync the text too'), h('span', { class: 'pp-sw-h' }, textOn() ? 'Edits go both ways' : 'Only comments sync')),
+                ps.kept ? h('div', { class: 'pp-note' }, `${ps.kept} comment${ps.kept === 1 ? '' : 's'} by others stay here only -- Pippin would post them under your name.`) : null,
+                h('div', { class: 'pp-note' }, 'Edits, deletions, reactions and Resolve on synced comments stay in MdReader -- Pippin has no way to receive them.'),
+                h('div', { class: 'cmt-btns' },
+                  ps.confirm ? btn('cmt-ghost danger', 'Disconnect?', 'Click again: the link is removed, your comments stay', () => { ps.confirm = false; disconnect(); }) : btn('cmt-ghost', 'Disconnect', 'Stop syncing with this Pippin doc', () => { ps.confirm = true; render(); }),
+                  btn('cmt-send', ps.busy ? 'Syncing…' : 'Sync now', 'Sync comments now', () => syncNow(false), ps.busy))));
+          } else if (!isMd()) rows.push(nav('Pippin'), h('div', { class: 'pp-body' }, 'Pippin docs are Markdown, so this is offered for .md files.'));
+          else if (ps.view === 'folder') {
+            const qIn = h('input', { class: 'cp-search', type: 'search', placeholder: 'Find a Pippin folder', value: ps.q, 'aria-label': 'Find a folder' });
+            qIn.oninput = () => { ps.q = qIn.value; const list = pop2.querySelector('.pp-list'); if (list) list.replaceWith(folderList()); };
+            rows.push(nav('Create in a folder', true), h('div', { class: 'pp-body' }, qIn, ps.folders ? folderList() : h('div', { class: 'pp-list' }, h('div', { class: 'pp-st' }, ps.folderErr || 'Loading your Pippin folders…'))));
+            setTimeout(() => qIn.focus());
+          } else if (ps.view === 'link') {
+            const u = h('input', { class: 'cp-search', placeholder: 'https://pippin.amazon.dev/docs/…', 'aria-label': 'Pippin link' });
+            const go = btn('cmt-send', 'Link', 'Link this file to that Pippin doc', () => u.value.trim() && linkExisting(u.value.trim()));
+            u.onkeydown = (e) => { if (e.key === 'Enter') go.click(); };
+            rows.push(nav('Link an existing doc', true), h('div', { class: 'pp-body' }, h('div', { class: 'pp-note' }, 'Paste the Pippin doc\'s link (Copy link in Pippin). Text and comments sync both ways; where the two differ you choose which to keep.'), u, h('div', { class: 'cmt-btns' }, go)));
+            setTimeout(() => u.focus());
+          } else {
+            rows.push(nav('Pippin'), h('div', { class: 'pp-body' },
+              h('div', { class: 'pp-note' }, `Make "${titleOf()}" a Pippin doc. It stays linked to this file until you disconnect it; text and comments sync both ways.`),
+              h('button', { type: 'button', class: 'pp-opt', onclick: () => create(null) }, h('b', {}, 'Create in my Pippin'), h('span', {}, 'A private Quick Create doc -- share it from Pippin')),
+              h('button', { type: 'button', class: 'pp-opt', onclick: () => { ps.view = 'folder'; render(); loadFolders(); } }, h('b', {}, 'Create in a folder…'), h('span', {}, 'Pick one of your Pippin folders; it gets that folder\'s sharing')),
+              h('button', { type: 'button', class: 'pp-opt', onclick: () => { ps.view = 'link'; render(); } }, h('b', {}, 'Link an existing Pippin doc…'), h('span', {}, 'This file and that doc already match'))));
+          }
+          pop2.replaceChildren(...rows);
+          const r = btnEl.getBoundingClientRect(), w = pop2.offsetWidth;
+          pop2.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + 'px'; pop2.style.top = r.bottom + 8 + 'px';
+        }
+        // the parts changed on both sides: each shows this file's version and Pippin's, with a choice per part
+        function conflictBox() {
+          const n = ps.conflicts.length, short = (t) => (t.length > 420 ? t.slice(0, 420) + '…' : t);
+          const view = (t) => short(PSYNC.strip(t).replace(/<[^>]+>/g, ' ').replace(/[ \t]+/g, ' ').trim()) || '(removed)';
+          return h('div', { class: 'pp-cf' },
+            h('div', { class: 'pp-cf-h' }, h('b', {}, `${n} part${n === 1 ? '' : 's'} changed both here and on Pippin`), h('span', {}, 'Nothing else is applied until you choose')),
+            ...ps.conflicts.map((c, i) => h('div', { class: 'pp-cf-i' },
+              n > 1 ? h('div', { class: 'pp-cf-n' }, `Part ${i + 1}`) : null,
+              h('div', { class: 'pp-cf-v mine' }, h('span', { class: 'pp-cf-t' }, 'This file'), h('div', {}, view(c.mine))),
+              h('div', { class: 'pp-cf-v theirs' }, h('span', { class: 'pp-cf-t' }, 'Pippin'), h('div', {}, view(c.theirs))),
+              h('div', { class: 'cmt-btns' }, btn('cmt-ghost', 'Keep Pippin\'s', 'Write Pippin\'s version into this file', () => choose(c.id, 'theirs'), ps.busy), btn('cmt-send', 'Keep mine', 'Send this file\'s version to Pippin', () => choose(c.id, 'mine'), ps.busy)))),
+            n > 1 ? h('div', { class: 'cmt-btns pp-cf-all' }, btn('cmt-ghost', 'Pippin\'s for all', 'Keep Pippin\'s version of every part', () => choose('*', 'theirs'), ps.busy), btn('cmt-ghost', 'Mine for all', 'Keep this file\'s version of every part', () => choose('*', 'mine'), ps.busy)) : null);
+        }
+        function folderList() {
+          const q = ps.q.trim().toLowerCase(), fs = (ps.folders || []).filter((f) => !q || f.name.toLowerCase().includes(q)).slice(0, 80);
+          return h('div', { class: 'pp-list' }, ...(fs.length ? fs.map((f) => h('button', { type: 'button', class: 'pp-f', title: f.name + (f.mine ? '' : ' -- shared by ' + f.by), onclick: () => create(f.id, f.name) }, h('span', { class: 'n' }, f.name), h('span', { class: 't' }, f.mine ? (f.private ? 'yours · private' : 'yours') : 'shared by ' + f.by))) : [h('div', { class: 'pp-st' }, q ? 'No folder matches.' : 'No folders.')]));
+        }
+        async function loadFolders() {
+          if (ps.folders) return;
+          try { ps.folders = await call('folders', {}); ps.folderErr = null; } catch (e) { ps.folderErr = 'Could not list folders: ' + e.message; }
+          if (ps.view === 'folder') render();
+        }
+        function openMenu() { ps.confirm = false; if (ps.view !== 'working') ps.view = 'menu'; pop2.hidden = false; render(); }
+        function closeMenu() { pop2.hidden = true; ps.confirm = false; }
+        document.addEventListener('mousedown', (e) => { if (!pop2.hidden && !pop2.contains(e.target) && !btnEl.contains(e.target)) closeMenu(); }, true);
+        pop2.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeMenu(); } });
+        return { sync, syncNow, syncSoon, link, textOn, get can() { return can; }, state: ps };
+      })();
+
+      // ---- the left panel: every thread on this file ----
+      const tabFiles = h('button', { type: 'button', class: 'lt', 'data-t': 'files', title: 'Files (⌘\\)', onclick: () => setLeft('files') }, 'Files');
+      const tabCmt = h('button', { type: 'button', class: 'lt', 'data-t': 'comments', title: 'Comments on this file (⌘⇧M)', onclick: () => setLeft('comments') }, 'Comments', h('span', { class: 'lt-n' }));
+      const ltabs = h('span', { class: 'ltabs' + (adapter.listDir ? '' : ' only-c') }, tabFiles, tabCmt);
+      files.querySelector('h6').firstChild.replaceWith(ltabs);
+      const cpane = h('div', { class: 'cpane' }); files.append(cpane);
+      const cmtBtn = h('button', { class: 'icon cmtb', title: 'Comments (⌘⇧M)', onclick: () => toggle() }); cmtBtn.innerHTML = ICON; cmtBtn.append(h('span', { class: 'cmtb-n' }));
+      top.insertBefore(cmtBtn, themeSel);
+      S.left = 'files';
+      function setLeft(t) {
+        if (t === 'files' && !adapter.listDir) t = 'comments';
+        S.left = t; files.classList.toggle('cm', t === 'comments');
+        tabFiles.classList.toggle('on', t === 'files'); tabCmt.classList.toggle('on', t === 'comments');
+        if (!S.files) togglePanel('files', true);
+        cmtBtn.classList.toggle('on', S.files && t === 'comments');
+        renderPanel();
+      }
+      function toggle() {
+        if (S.files && S.left === 'comments') {
+          if (st.wasFiles && adapter.listDir) setLeft('files'); else { S.left = 'files'; files.classList.remove('cm'); togglePanel('files', false); }
+          cmtBtn.classList.remove('on');
+        } else { st.wasFiles = S.files; setLeft('comments'); }
+      }
+      function syncCount() {
+        const n = ((st.data && st.data.comments) || []).filter((c) => !c.resolved).length;
+        tabCmt.lastChild.textContent = n ? String(n) : '';
+        cmtBtn.lastChild.textContent = n ? String(n) : '';
+        cmtBtn.classList.toggle('has', n > 0);
+        cmtBtn.title = n ? `Comments (⌘⇧M) -- ${n} open on this file` : 'Comments (⌘⇧M)';
+      }
+      // the part of the document a thread sits in (its ## section), for the list's group headings
+      function sectionOf(c) {
+        const p = st.pos.get(c.id); if (!p) return null;
+        const el = p.range.startContainer.parentElement, sec = el && el.closest('.sec');
+        const hd = sec ? sec.querySelector('h2 .t, h2') : head.querySelector('h1');
+        return (hd ? hd.textContent : '').replace(/^#+\s*/, '').replace(/\s+/g, ' ').trim() || 'Top of the page';
+      }
+      function card(c) {
+        const gone = !st.pos.has(c.id), rp = c.replies || [], nr = rp.length;
+        const rs = Object.entries(c.reactions || {}).filter(([, u]) => u && u.length);
+        const people = []; for (const p of [c.author, ...rp.map((r) => r.author)]) if (p && !people.some((q) => q.id === p.id)) people.push(p);
+        const last = nr ? rp[nr - 1] : null;
+        return h('div', { class: 'cp-card' + (c.id === st.open ? ' on' : '') + (c.resolved ? ' res' : '') + (gone ? ' gone' : ''), role: 'button', tabindex: '0', 'data-id': c.id, style: `--hue:${hueOf(c.author)}`,
+          onclick: () => open(c.id, true), onkeydown: (e) => { if (e.key === 'Enter') open(c.id, true); } },
+          h('div', { class: 'cp-h' },
+            h('span', { class: 'cp-n', title: 'Comment ' + numOf(c.id) + ' on this page' }, c.resolved ? '✓' : String(numOf(c.id))),
+            avatar(c.author, 's'), h('b', {}, (c.author && c.author.name) || 'Someone'), h('span', { class: 'cp-t', title: fullTime(c.at) }, rel(c.at))),
+          h('div', { class: 'cp-q', title: c.anchor.q }, h('span', {}, short(c.anchor.q, 70))),
+          h('div', { class: 'cp-x' }, c.text),
+          last ? h('div', { class: 'cp-last', style: `--hue:${hueOf(last.author)}`, title: nr + (nr === 1 ? ' reply' : ' replies') },
+            h('b', {}, ((last.author && last.author.name) || 'Someone').split(/[\s,]+/)[0] + ':'), ' ', short(last.text, 90)) : null,
+          h('div', { class: 'cp-m' },
+            people.length > 1 ? h('span', { class: 'cp-ppl', title: people.map((p) => p.name).join(', ') }, ...people.slice(0, 4).map((p) => avatar(p, 'xs'))) : null,
+            nr ? h('span', {}, nr + (nr === 1 ? ' reply' : ' replies')) : null,
+            rs.length ? h('span', { class: 'cp-rs' }, rs.map(([e, u]) => e + (u.length > 1 ? u.length : '')).join(' ')) : null,
+            c.pippin && c.pippin.id && st.data && st.data.pippin ? h('span', { class: 'cmt-pp' }, 'Pippin') : null,
+            c.resolved ? h('span', { class: 'cp-tag ok' }, 'Resolved') : null,
+            gone ? h('span', { class: 'cp-tag warn', title: 'The words this comment was on are no longer in the file' }, 'Text gone') : null));
+      }
+      // cards grouped under the section they sit in, in page order
+      function grouped(list) {
+        const out = []; let cur = null;
+        for (const c of list) {
+          const sec = sectionOf(c) || 'No longer in the file';
+          if (sec !== cur) { cur = sec; out.push(h('div', { class: 'cp-sec' + (st.pos.has(c.id) ? '' : ' gone') }, h('span', {}, sec), h('i', {}, String(list.filter((x) => (sectionOf(x) || 'No longer in the file') === sec).length)))); }
+          out.push(card(c));
+        }
+        return out;
+      }
+      function renderPanel() {
+        if (!S.files || S.left !== 'comments') return;
+        const all = (st.data && st.data.comments) || [], nOpen = all.filter((c) => !c.resolved).length;
+        const chip = (f, label) => h('button', { type: 'button', class: 'cp-chip' + (st.filter === f ? ' on' : ''), onclick: () => { st.filter = f; renderPanel(); } }, label);
+        const qIn = h('input', { class: 'cp-search', type: 'search', placeholder: 'Search comments', 'aria-label': 'Search comments', value: st.q });
+        qIn.oninput = debounce(() => { st.q = qIn.value; renderPanel(); const n = cpane.querySelector('.cp-search'); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 200);
+        const q = st.q.trim().toLowerCase();
+        const match = (c) => !q || [c.text, c.anchor.q, c.author && c.author.name, ...(c.replies || []).flatMap((r) => [r.text, r.author && r.author.name])].some((s) => String(s || '').toLowerCase().includes(q));
+        const list = ordered(true).filter((c) => (st.filter === 'all' || (st.filter === 'open' ? !c.resolved : !!c.resolved)) && match(c));
+        let body;
+        if (!fileKey()) body = h('div', { class: 'cp-empty' }, 'Save this file to comment on it.');
+        else if (S.mode === 'edit') body = h('div', { class: 'cp-empty' }, 'Comments show on the page. Switch to Read or Write (⌘1 / ⌘4) to see them.');
+        else if (!all.length) body = h('div', { class: 'cp-empty' }, h('b', {}, 'No comments yet'), h('br'), 'Select some words on the page, then click ', h('span', { class: 'cp-kb' }, 'Comment'), ' or press ⌘⌥M.');
+        else if (!list.length) body = h('div', { class: 'cp-empty' }, q ? 'No comments match.' : st.filter === 'resolved' ? 'Nothing resolved yet.' : 'All threads are resolved.');
+        else body = h('div', { class: 'cp-list' }, ...grouped(list));
+        const nameEl = h('button', { type: 'button', class: 'cp-me', title: 'Change the name others see on your comments' }, me.name, h('span', {}, ' ✎'));
+        nameEl.onclick = () => {
+          const inp = h('input', { class: 'cp-name', value: me.name, 'aria-label': 'Your name' });
+          const done = (ok) => { if (ok && inp.value.trim()) { me.name = inp.value.trim().slice(0, 60); localStorage.setItem('mdr-me-name', me.name); flash('New comments will show ' + me.name, 2000); } renderPanel(); };
+          inp.onkeydown = (e) => { if (e.key === 'Enter') done(true); else if (e.key === 'Escape') done(false); };
+          inp.onblur = () => done(true);
+          nameEl.replaceWith(inp); inp.focus(); inp.select();
+        };
+        const show = h('input', { type: 'checkbox' }); show.checked = !hidden();
+        show.onchange = () => { if (show.checked) localStorage.removeItem(OFF); else localStorage.setItem(OFF, '1'); apply(); flash(show.checked ? 'Comment highlights shown' : 'Comment highlights hidden -- the comments are still here', 2200); };
+        const where = adapter.writeComments ? `Saved next to the file as ${(curDisp().name || 'file')}.mdr-comments.json` : 'Kept in this browser';
+        cpane.replaceChildren(
+          h('div', { class: 'cp-top' }, h('div', { class: 'cp-chips' }, chip('open', `Open ${nOpen}`), chip('resolved', `Resolved ${all.length - nOpen}`), chip('all', `All ${all.length}`)), qIn),
+          body,
+          h('div', { class: 'cp-foot' },
+            h('div', {}, 'Commenting as ', nameEl),
+            h('label', { class: 'cp-show' }, show, h('span', {}, 'Highlight commented text')),
+            st.data && st.data.pippin ? h('div', { class: 'cp-where' }, 'Synced with Pippin: ', h('a', { href: st.data.pippin.url, onclick: (e) => { e.preventDefault(); adapter.openExternal && adapter.openExternal(st.data.pippin.url); } }, st.data.pippin.name)) : null,
+            h('div', { class: 'cp-where' }, where)));
+        const on = cpane.querySelector('.cp-card.on'); if (on) on.scrollIntoView({ block: 'nearest' });
+      }
+      tabFiles.classList.add('on');
+      if (!adapter.listDir) { /* the extension has no Files tab: the pane shows Comments only */ }
+      addEventListener('focus', () => { if (fileKey()) load(true); }); // someone else may have replied while you were away
+      return { load, apply, toggle, startNew, close: closePop, place, me, pippin: PP,
+        get isOpen() { return !pop.hidden; }, get data() { return st.data; }, _open: open, _step: step };
     })();
 
     // ---------- Draw: pencil, marker, highlighter, arrow, eraser and a fading pointer, over any page ----------
@@ -2812,6 +3521,8 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
       fitEditor(); if (srcShown()) requestAnimationFrame(buildMirror);
       if (srcShown()) setTimeout(() => ta.focus(), 0);
       if (!quiet) adapter.setPref && adapter.setPref('mode', m);
+      if (m === 'edit') CM.close();
+      CM.load();
     }
     function setTheme(t) {
       if (!THEMES.some((x) => x.id === t)) t = DEFAULT_THEME;
@@ -2912,11 +3623,12 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
     }
     function cycleTheme() { const i = THEMES.findIndex((t) => t.id === S.theme); setTheme(THEMES[(i + 1) % THEMES.length].id); flash('Theme: ' + THEMES[(i + 1) % THEMES.length].name); }
     function togglePanel(p, force) {
-      if (p === 'files' && !adapter.listDir) force = false;
+      if (p === 'files' && !adapter.listDir && S.left !== 'comments') force = false;
       S[p] = force === undefined ? !S[p] : force;
       root.classList.toggle('no-' + p, !S[p]);
       if (p === 'outline') outlineBtn.classList.toggle('off', !S[p]);
       if (p === 'files' && filesBtn) filesBtn.classList.toggle('off', !S[p]);
+      if (p === 'files' && typeof CM !== 'undefined') { root.querySelector('.cmtb')?.classList.toggle('on', S.files && S.left === 'comments'); if (S.files) CM.apply(); }
       if (!(p === 'files' && !adapter.listDir)) adapter.setPref && adapter.setPref(p, S[p]);
     }
     function flash(msg, ms = 1600) { toast.textContent = msg; toast.classList.add('show'); clearTimeout(flash.t); flash.t = setTimeout(() => toast.classList.remove('show'), ms); }
@@ -3020,13 +3732,14 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
     }
     async function showTab(i, fresh) {
       if (i < 0 || i >= S.tabs.length) return;
-      if (i !== S.tab) { stashActive(); CMP.close(); DR.close(); }
+      if (i !== S.tab) { stashActive(); CMP.close(); DR.close(); CM.close(); }
       S.tab = i; const t = S.tabs[i];
       S.path = t.path; S.saved = t.saved; S.filters = t.filters || {}; setText(t.text); setDirty(t.text !== t.saved);
       const d = dispOf(t);
       ta.placeholder = isUntitled(t) ? 'Paste or type Markdown or JSON here…' : '';
       renderCrumbs(d);
       paint();
+      CM.load();
       content.scrollTop = fresh ? 0 : t.scroll;
       [...tabsEl.querySelectorAll('.tab')].forEach((el, j) => { el.classList.toggle('on', j === i); el.setAttribute('aria-selected', j === i); });
       revealActiveTab();
@@ -3261,7 +3974,7 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
       let entries = [];
       try { entries = await adapter.listDir(dir); } catch (e) { kids.replaceChildren(h('div', { class: 'empty' }, 'not readable')); return; }
       const dirs = entries.filter((e) => e.dir && !e.name.startsWith('.')).sort((a, b) => a.name.localeCompare(b.name));
-      const mds = entries.filter((e) => !e.dir && TREE_FILE.test(e.name)).sort((a, b) => a.name.localeCompare(b.name));
+      const mds = entries.filter((e) => !e.dir && TREE_FILE.test(e.name) && !/\.mdr-comments\.json$/i.test(e.name)).sort((a, b) => a.name.localeCompare(b.name));
       const old = new Map();
       for (const el of kids.children) if (el.dataset.path) old.set((el.classList.contains('folder') ? 'd:' : 'f:') + el.dataset.path, el);
       const next = [];
@@ -3307,6 +4020,7 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
         await writeTab(t);
         S.saved = S.text; setDirty(false); notifyTabs();
         flash('Saved ' + dispOf(t).name);
+        if (CM.pippin && CM.pippin.link() && CM.pippin.textOn()) CM.pippin.syncSoon();
       } catch (e) { if (!/cancel/i.test(e && e.message || '')) flash('Save failed: ' + (e && e.message || e), 4000); }
     }
 
@@ -3333,6 +4047,8 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
       else if (k === 'f' && e.shiftKey) { e.preventDefault(); formatDoc(e.altKey); }
       else if (k === 'd' && e.shiftKey) { e.preventDefault(); CMP.toggle(); }
       else if (k === 'h' && e.shiftKey) { e.preventDefault(); TC.toggle(); }
+      else if (e.code === 'KeyM' && e.altKey && !e.shiftKey) { e.preventDefault(); CM.startNew(); }
+      else if (k === 'm' && e.shiftKey) { e.preventDefault(); CM.toggle(); }
       else if (k === 'e' && e.shiftKey) { e.preventDefault(); DR.toggle(); }
       else if (k === 't' && e.shiftKey) { e.preventDefault(); reopenClosed(); } // standard "reopen closed tab"
       else if (k === 'arrowup' && e.altKey) { e.preventDefault(); treeUp(); }
@@ -3390,6 +4106,7 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
     adapter.onExternalChange && adapter.onExternalChange(async (path) => {
       const i = S.tabs.findIndex((t) => t.path === path); if (i < 0) return;
       const text = await adapter.readFile(path);
+      if (text === S.tabs[i].saved && (i !== S.tab || text === S.saved)) return;
       if (i === S.tab) { if (S.dirty) return; S.saved = text; setText(text); S.tabs[i].text = S.tabs[i].saved = text; paint(); flash('Reloaded (changed on disk)'); }
       else { const t = S.tabs[i]; if (t.text === t.saved) { t.text = t.saved = text; } }
     });

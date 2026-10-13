@@ -95,6 +95,18 @@ const ops = {
   },
   content: async (a, t) => { const j = await call('pippin_get_artifact', { projectId: str(a.projectId, 64), designId: str(a.designId, 64) }, t); const d = j.design || j.artifact || j; return String(d.content || ''); },
   comments: async (a, t) => call('pippin_get_artifact_comments', { projectId: str(a.projectId, 64), designId: str(a.designId, 64) }, t),
+  // one targeted text edit (core/psync.js plans them); Pippin's own diff-merge refuses it if that block changed since
+  update: async (a, t) => {
+    const type = ['string_replace', 'insert_after_string', 'insert_before_string', 'append'].includes(a.type) ? a.type : null;
+    if (!type) throw new Error('Unknown edit type');
+    const args = { projectId: str(a.projectId, 64), designId: str(a.designId, 64), updateType: type, changeDescription: 'Synced from MdReader' };
+    if (type !== 'append') { args.searchString = str(a.search, 2000000); if (!args.searchString) throw new Error('Nothing to find'); if (a.occurrence > 1) args.occurrence = Math.floor(a.occurrence); }
+    if (type === 'string_replace') args.replacementString = typeof a.content === 'string' ? a.content.slice(0, 2000000) : '';
+    else args.insertContent = str(a.content, 2000000) || '';
+    const j = await call('pippin_update_artifact', args, t);
+    if (j && typeof j === 'object' && /CONFLICT/i.test(j.code || j.error || j.status || '')) throw new Error('Pippin changed while syncing -- trying again on the next sync');
+    return { ok: true };
+  },
   post: async (a, t) => {
     const args = { projectId: str(a.projectId, 64), designId: str(a.designId, 64), comment: str(a.comment, 20000) };
     if (a.replyToCommentId) args.replyToCommentId = str(a.replyToCommentId, 128);

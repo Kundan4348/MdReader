@@ -2602,7 +2602,9 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
           ps.busy = true; ps.view = 'working'; ps.working = 'Creating the Pippin doc' + (folderName ? ' in ' + folderName : '') + '…'; sync();
           try {
             const r = await call('create', { name: titleOf(), content: forPippin(S.text), projectId: projectId || undefined });
-            await mutate((d) => { d.pippin = { ...r, folder: folderName || 'Quick Create', linkedAt: iso(), linkedBy: who() }; });
+            const sentText = S.dirty ? null : S.saved;
+            const remote = sentText !== null ? await call('content', { projectId: r.projectId, designId: r.designId }).catch(() => null) : null;
+            await mutate((d) => { d.pippin = { ...r, folder: folderName || 'Quick Create', linkedAt: iso(), linkedBy: who() }; if (remote !== null) d.pippin.base = { local: sentText, remote, at: iso() }; });
             ps.view = 'menu'; flash('Pippin doc created and linked', 2400);
             await syncNow(true);
           } catch (e) { ps.view = 'menu'; ps.err = e.message; flash('Could not create the Pippin doc: ' + e.message, 5000); }
@@ -2677,14 +2679,44 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
           return added;
         }
         const mineUnsent = (x) => !x.pippin && x.author && x.author.id === me.id;
+        // ---- the document text (core/psync.js plans a three-way merge against the last synced state) ----
+        // Runs on the SAVED file only: with unsaved edits it waits for the save. Parts changed only here go to Pippin as
+        // targeted edits (comment markers and table cells kept); parts changed only on Pippin are written into the file;
+        // a part changed on both sides is held until the user picks a side in the P menu, and nothing else is applied
+        // meanwhile. The synced state is kept as d.pippin.base = {local, remote} in the comments file.
+        const textOn = () => { const l = link(); return !!l && l.text !== false && !!global.PSYNC; };
+        ps.choices = {}; ps.conflicts = []; ps.textNote = '';
+        async function syncText(l, remote, p) {
+          if (!textOn() || fileKey() !== p) return null;
+          if (S.dirty) { ps.textNote = 'Save the file to sync its text'; return null; }
+          const t = curTab(), local = S.saved;
+          const r = PSYNC.plan({ local, remote, base: l.base || null, clean: forPippin, choices: ps.choices });
+          if (r.conflicts.length) { ps.conflicts = r.conflicts; ps.textNote = ''; return { conflicts: r.conflicts.length }; }
+          ps.conflicts = [];
+          if (r.newLocal !== null) {
+            await adapter.writeFile(p, r.newLocal, { ext: 'md' });
+            if (fileKey() === p && !S.dirty) { S.saved = r.newLocal; setText(r.newLocal); t.text = t.saved = r.newLocal; paint(); }
+          }
+          for (const x of r.pushes) await call('update', { projectId: l.projectId, designId: l.designId, type: x.type, search: x.search, content: x.content, occurrence: x.occurrence });
+          const fresh = r.pushes.length ? await call('content', { projectId: l.projectId, designId: l.designId }) : remote;
+          const now = r.newLocal !== null ? r.newLocal : local;
+          if (!l.base || l.base.local !== now || l.base.remote !== fresh) await mutate((d) => { if (!d.pippin) return false; d.pippin.base = { local: now, remote: fresh, at: iso() }; });
+          ps.choices = {}; ps.textNote = r.lost ? `${r.lost} Pippin comment highlight${r.lost === 1 ? '' : 's'} lost: the words they marked were removed` : '';
+          ps.textLast = Date.now();
+          return { pushed: r.pushed, pulled: r.pulled };
+        }
+        function choose(id, side) { if (id === '*') for (const c of ps.conflicts) ps.choices[c.id] = side; else ps.choices[id] = side; syncNow(false); }
+        async function setTextSync(on) { await mutate((d) => { if (!d.pippin) return false; if (on) delete d.pippin.text; else d.pippin.text = false; /* the last synced state stays, so switched on again edits from either side merge as usual */ }); ps.conflicts = []; ps.choices = {}; if (on) syncNow(false); else render(); }
         async function syncNow(quiet) {
           const l = link(); if (!can || !l || ps.busy && !quiet) return;
           const p = fileKey(); ps.busy = true; sync();
-          let added = 0, sent = 0, kept = 0;
+          let added = 0, sent = 0, kept = 0, tx = null;
           try {
             const j = await call('comments', { projectId: l.projectId, designId: l.designId });
             const content = await call('content', { projectId: l.projectId, designId: l.designId }).catch(() => ''); // only for placing comments; a failure just means less precise placing
             await mutate((d) => { if (!d.pippin) return false; added = pull(d, j, content); });
+            // the document text, before our new comments go up (their markers would make Pippin's copy stale)
+            if (content) tx = await syncText(l, content, p);
             // post ours, one at a time, saving each Pippin id as soon as it exists
             const d0 = st.data || empty();
             for (const c of d0.comments) {
@@ -2703,7 +2735,9 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
               }
             }
             ps.err = null; ps.last = Date.now(); ps.kept = kept;
-            if (!quiet || added || sent) flash(`Synced with Pippin${added ? ` · ${added} new from Pippin` : ''}${sent ? ` · ${sent} sent` : ''}${!added && !sent ? ' · up to date' : ''}`, 2600);
+            const tp = tx ? [tx.pulled ? `text updated from Pippin (${tx.pulled} part${tx.pulled === 1 ? '' : 's'})` : '', tx.pushed ? `your text sent (${tx.pushed} part${tx.pushed === 1 ? '' : 's'})` : ''].filter(Boolean).join(' · ') : '';
+            if (tx && tx.conflicts) flash(`Pippin and this file both changed the same ${tx.conflicts === 1 ? 'part' : tx.conflicts + ' parts'} -- open the P menu to choose`, 5000);
+            else if (!quiet || added || sent || tp) flash(`Synced with Pippin${added ? ` · ${added} new from Pippin` : ''}${sent ? ` · ${sent} sent` : ''}${tp ? ' · ' + tp : ''}${!added && !sent && !tp ? ' · up to date' : ''}`, 2600);
           } catch (e) { ps.err = e.message; if (!quiet) flash('Pippin sync failed: ' + e.message, 5000); }
           ps.busy = false; sync();
         }
@@ -2720,9 +2754,12 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
             rows.push(nav('Linked to Pippin'),
               h('div', { class: 'pp-body' },
                 h('a', { class: 'pp-doc', href: l.url, title: l.url, onclick: (e) => { e.preventDefault(); adapter.openExternal && adapter.openExternal(l.url); } }, h('b', {}, l.name), h('span', {}, (l.folder ? l.folder + ' · ' : '') + 'Open in Pippin ↗')),
-                h('div', { class: 'pp-st' + (ps.err ? ' err' : '') }, ps.busy ? 'Syncing comments…' : ps.err ? 'Last sync failed: ' + ps.err : ps.last ? 'Comments synced ' + rel(ps.last) + ' · every 3 min while open' : 'Not synced yet'),
+                h('div', { class: 'pp-st' + (ps.err ? ' err' : '') }, ps.busy ? 'Syncing…' : ps.err ? 'Last sync failed: ' + ps.err : ps.last ? (textOn() ? 'Text and comments' : 'Comments') + ' synced ' + rel(ps.last) + ' · every 3 min while open, and when you save' : 'Not synced yet'),
+                textOn() && ps.conflicts.length ? conflictBox() : null,
+                textOn() && ps.textNote ? h('div', { class: 'pp-note warn' }, ps.textNote) : null,
+                h('label', { class: 'pp-sw', title: 'Keep the document text the same here and on Pippin' }, (() => { const c = h('input', { type: 'checkbox' }); c.checked = textOn(); c.onchange = () => setTextSync(c.checked); return c; })(), h('span', {}, 'Sync the text too'), h('span', { class: 'pp-sw-h' }, textOn() ? 'Edits go both ways' : 'Only comments sync')),
                 ps.kept ? h('div', { class: 'pp-note' }, `${ps.kept} comment${ps.kept === 1 ? '' : 's'} by others stay here only -- Pippin would post them under your name.`) : null,
-                h('div', { class: 'pp-note' }, 'Edits, deletions, reactions and Resolve on synced comments stay in MdReader -- Pippin has no way to receive them. The document text itself is not synced after creation.'),
+                h('div', { class: 'pp-note' }, 'Edits, deletions, reactions and Resolve on synced comments stay in MdReader -- Pippin has no way to receive them.'),
                 h('div', { class: 'cmt-btns' },
                   ps.confirm ? btn('cmt-ghost danger', 'Disconnect?', 'Click again: the link is removed, your comments stay', () => { ps.confirm = false; disconnect(); }) : btn('cmt-ghost', 'Disconnect', 'Stop syncing with this Pippin doc', () => { ps.confirm = true; render(); }),
                   btn('cmt-send', ps.busy ? 'Syncing…' : 'Sync now', 'Sync comments now', () => syncNow(false), ps.busy))));
@@ -2736,11 +2773,11 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
             const u = h('input', { class: 'cp-search', placeholder: 'https://pippin.amazon.dev/docs/…', 'aria-label': 'Pippin link' });
             const go = btn('cmt-send', 'Link', 'Link this file to that Pippin doc', () => u.value.trim() && linkExisting(u.value.trim()));
             u.onkeydown = (e) => { if (e.key === 'Enter') go.click(); };
-            rows.push(nav('Link an existing doc', true), h('div', { class: 'pp-body' }, h('div', { class: 'pp-note' }, 'Paste the Pippin doc\'s link (Copy link in Pippin). Comments sync both ways; the text is not changed.'), u, h('div', { class: 'cmt-btns' }, go)));
+            rows.push(nav('Link an existing doc', true), h('div', { class: 'pp-body' }, h('div', { class: 'pp-note' }, 'Paste the Pippin doc\'s link (Copy link in Pippin). Text and comments sync both ways; where the two differ you choose which to keep.'), u, h('div', { class: 'cmt-btns' }, go)));
             setTimeout(() => u.focus());
           } else {
             rows.push(nav('Pippin'), h('div', { class: 'pp-body' },
-              h('div', { class: 'pp-note' }, `Make "${titleOf()}" a Pippin doc. It stays linked to this file until you disconnect it, and comments sync both ways.`),
+              h('div', { class: 'pp-note' }, `Make "${titleOf()}" a Pippin doc. It stays linked to this file until you disconnect it; text and comments sync both ways.`),
               h('button', { type: 'button', class: 'pp-opt', onclick: () => create(null) }, h('b', {}, 'Create in my Pippin'), h('span', {}, 'A private Quick Create doc -- share it from Pippin')),
               h('button', { type: 'button', class: 'pp-opt', onclick: () => { ps.view = 'folder'; render(); loadFolders(); } }, h('b', {}, 'Create in a folder…'), h('span', {}, 'Pick one of your Pippin folders; it gets that folder\'s sharing')),
               h('button', { type: 'button', class: 'pp-opt', onclick: () => { ps.view = 'link'; render(); } }, h('b', {}, 'Link an existing Pippin doc…'), h('span', {}, 'This file and that doc already match'))));
@@ -2748,6 +2785,19 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
           pop2.replaceChildren(...rows);
           const r = btnEl.getBoundingClientRect(), w = pop2.offsetWidth;
           pop2.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + 'px'; pop2.style.top = r.bottom + 8 + 'px';
+        }
+        // the parts changed on both sides: each shows this file's version and Pippin's, with a choice per part
+        function conflictBox() {
+          const n = ps.conflicts.length, short = (t) => (t.length > 420 ? t.slice(0, 420) + '…' : t);
+          const view = (t) => short(PSYNC.strip(t).replace(/<[^>]+>/g, ' ').replace(/[ \t]+/g, ' ').trim()) || '(removed)';
+          return h('div', { class: 'pp-cf' },
+            h('div', { class: 'pp-cf-h' }, h('b', {}, `${n} part${n === 1 ? '' : 's'} changed both here and on Pippin`), h('span', {}, 'Nothing else is applied until you choose')),
+            ...ps.conflicts.map((c, i) => h('div', { class: 'pp-cf-i' },
+              n > 1 ? h('div', { class: 'pp-cf-n' }, `Part ${i + 1}`) : null,
+              h('div', { class: 'pp-cf-v mine' }, h('span', { class: 'pp-cf-t' }, 'This file'), h('div', {}, view(c.mine))),
+              h('div', { class: 'pp-cf-v theirs' }, h('span', { class: 'pp-cf-t' }, 'Pippin'), h('div', {}, view(c.theirs))),
+              h('div', { class: 'cmt-btns' }, btn('cmt-ghost', 'Keep Pippin\'s', 'Write Pippin\'s version into this file', () => choose(c.id, 'theirs'), ps.busy), btn('cmt-send', 'Keep mine', 'Send this file\'s version to Pippin', () => choose(c.id, 'mine'), ps.busy)))),
+            n > 1 ? h('div', { class: 'cmt-btns pp-cf-all' }, btn('cmt-ghost', 'Pippin\'s for all', 'Keep Pippin\'s version of every part', () => choose('*', 'theirs'), ps.busy), btn('cmt-ghost', 'Mine for all', 'Keep this file\'s version of every part', () => choose('*', 'mine'), ps.busy)) : null);
         }
         function folderList() {
           const q = ps.q.trim().toLowerCase(), fs = (ps.folders || []).filter((f) => !q || f.name.toLowerCase().includes(q)).slice(0, 80);
@@ -2762,7 +2812,7 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
         function closeMenu() { pop2.hidden = true; ps.confirm = false; }
         document.addEventListener('mousedown', (e) => { if (!pop2.hidden && !pop2.contains(e.target) && !btnEl.contains(e.target)) closeMenu(); }, true);
         pop2.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeMenu(); } });
-        return { sync, syncNow, syncSoon, link, get can() { return can; }, state: ps };
+        return { sync, syncNow, syncSoon, link, textOn, get can() { return can; }, state: ps };
       })();
 
       // ---- the left panel: every thread on this file ----
@@ -3970,6 +4020,7 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
         await writeTab(t);
         S.saved = S.text; setDirty(false); notifyTabs();
         flash('Saved ' + dispOf(t).name);
+        if (CM.pippin && CM.pippin.link() && CM.pippin.textOn()) CM.pippin.syncSoon();
       } catch (e) { if (!/cancel/i.test(e && e.message || '')) flash('Save failed: ' + (e && e.message || e), 4000); }
     }
 
@@ -4055,6 +4106,7 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
     adapter.onExternalChange && adapter.onExternalChange(async (path) => {
       const i = S.tabs.findIndex((t) => t.path === path); if (i < 0) return;
       const text = await adapter.readFile(path);
+      if (text === S.tabs[i].saved && (i !== S.tab || text === S.saved)) return;
       if (i === S.tab) { if (S.dirty) return; S.saved = text; setText(text); S.tabs[i].text = S.tabs[i].saved = text; paint(); flash('Reloaded (changed on disk)'); }
       else { const t = S.tabs[i]; if (t.text === t.saved) { t.text = t.saved = text; } }
     });

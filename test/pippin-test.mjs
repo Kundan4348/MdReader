@@ -12,7 +12,7 @@ const outdir = path.resolve(process.argv[2]); mkdirSync(outdir, { recursive: tru
 const root = path.resolve(import.meta.dirname, '..');
 const electron = path.join(root, 'app/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron');
 const busy = async (pt) => { try { await fetch(`http://127.0.0.1:${pt}/json/version`, { signal: AbortSignal.timeout(800) }); return true; } catch (e) { if (e.name === 'TypeError' || e.name === 'TimeoutError') return false; throw e; } };
-setTimeout(() => { console.error('FAIL: timeout'); process.exit(2); }, 170000);
+setTimeout(() => { console.error('FAIL: timeout'); process.exit(2); }, 260000);
 
 const dir = path.join(outdir, 'docs'); rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true });
 const MD = '# Switch sources\n\nThe quick brown fox jumps over the lazy dog.\n\nDeploy happens on Friday after the review.\n';
@@ -28,6 +28,7 @@ async function launch(files) {
   let port = 9603; while (await busy(port)) port++;
   const proc = spawn(electron, [`--remote-debugging-port=${port}`, `--user-data-dir=${udd}`, path.join(root, 'app'), ...files], { stdio: 'ignore',
     env: { ...process.env, MDR_TEST_USER: 'Alice Rao', MDR_TEST_USER_ID: 'alice', MDR_OPEN_LOG: path.join(outdir, 'opens.log'), MDR_PIPPIN_CMD: `${process.execPath} ${path.join(root, 'test/fake-pippin.mjs')}`, FAKE_PIPPIN_STATE: STATE } });
+  process.on('exit', () => { try { proc.kill('SIGKILL'); } catch {} }); // a crashed run must not leave its window holding the test profile
   let page;
   for (let i = 0; i < 60 && !page; i++) { try { page = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find((x) => x.type === 'page' && x.url.includes('index.html')); } catch {} if (!page) await sleep(500); }
   const ws = new WebSocket(page.webSocketDebuggerUrl); await new Promise((r) => (ws.onopen = r));
@@ -68,7 +69,7 @@ r.created = fake(); r.link1 = side(f1)?.pippin;
 const doc1 = Object.values(r.created.docs)[0];
 ok.createdQuick = !!doc1 && doc1.quick && doc1.name === 'Switch sources' && doc1.content === MD && r.created.calls[0].args.quick_create === true
   && r.link1?.designId === doc1.designId && r.link1.url.includes(doc1.designId) && r.link1.folder === 'Quick Create';
-r.menu1 = await menu(); ok.linkedMenu = r.menu1?.title === 'Linked to Pippin' && r.menu1.text.includes('Switch sources') && r.menu1.text.includes('Comments synced');
+r.menu1 = await menu(); ok.linkedMenu = r.menu1?.title === 'Linked to Pippin' && r.menu1.text.includes('Switch sources') && r.menu1.text.includes('Text and comments synced');
 ok.badge = await ev(`document.querySelector('#app .top .ppb').classList.contains('on')`);
 await shot('pp-linked.png');
 await key('Escape', 'Escape', 27);
@@ -155,8 +156,82 @@ r.place = await ev(`(()=>{const h=CSS.highlights.get('mdr-cmt'); return h?[...h]
 const want = ['Sources per field @ H2:', 'Field @ TD:Field', 'Sources disagree: a person decides. @ LI:'];
 ok.placedByPippin = r.place.length === 3 && want.every((w) => r.place.some((p) => p.startsWith(w)));
 
+// ---- 10. text sync: edits here go up, edits on Pippin come down, the same paragraph on both sides waits for a choice ----
+const MD4 = '# Text sync\n\nFirst paragraph here.\n\nSecond paragraph here.\n\n| Name | Value |\n|---|---|\n| one | 1 |\n| two | 2 |\n\nLast paragraph.\n';
+const f4 = path.join(dir, 'text.md'); writeFileSync(f4, MD4);
+r.logs2b = A.logs.slice(); A.stop(); await sleep(600);
+use(await launch([f4])); await tab(f4);
+const tdoc = () => Object.values(fake().docs).find((d) => d.name === 'Text sync');
+const syncClick = async () => { await openMenu(); await clickText('#app .pp-pop .cmt-send', 'Sync now'); await sleep(500); await waitFor(`!document.querySelector('#app .top .ppb').classList.contains('busy')`); await sleep(300); };
+const onDisk = () => readFileSync(f4, 'utf8');
+const shown = () => ev(`document.querySelector('#app .doc').textContent.replace(/\\s+/g,' ')`);
+await openMenu(); await clickText('#app .pp-opt', 'Create in my Pippin');
+await waitFor(`!!document.querySelector('#app .pp-pop .pp-doc')`); await waitFor(`!document.querySelector('#app .top .ppb').classList.contains('busy')`);
+r.t0 = { base: side(f4)?.pippin?.base, menu: (await menu())?.text };
+ok.textBaseOnCreate = r.t0.base?.local === MD4 && r.t0.base.remote === tdoc().content && /Sync the text too/.test(r.t0.menu) && await ev(`document.querySelector('#app .pp-sw input').checked`);
+await key('Escape', 'Escape', 27);
+// (a) edited here (another app saves the file): goes up as a targeted edit, nothing else on Pippin touched
+writeFileSync(f4, MD4.replace('Second paragraph here.', 'Second paragraph, edited in MdReader.')); await sleep(800);
+await syncClick();
+r.ta = { pippin: tdoc().content, upd: fake().calls.filter((c) => c.name === 'pippin_update_artifact').map((c) => c.args.updateType) };
+ok.textPushed = r.ta.pippin === MD4.replace('Second paragraph here.', 'Second paragraph, edited in MdReader.') && r.ta.upd.join() === 'string_replace' && side(f4).pippin.base.local === onDisk();
+// (b) edited on Pippin: written into the file and shown
+editFake((s) => { const d = Object.values(s.docs).find((x) => x.name === 'Text sync'); d.content = d.content.replace('| two | 2 |', '| two | 22 |').replace('Last paragraph.', 'Last paragraph, edited on Pippin.'); });
+await syncClick();
+r.tb = { disk: onDisk(), shown: await shown(), dirty: await ev(`document.querySelector('#app .tabs .tab.on').classList.contains('dirty')`) };
+ok.textPulled = r.tb.disk === MD4.replace('Second paragraph here.', 'Second paragraph, edited in MdReader.').replace('| two | 2 |', '| two | 22 |').replace('Last paragraph.', 'Last paragraph, edited on Pippin.') && r.tb.shown.includes('edited on Pippin') && r.tb.shown.includes('22') && !r.tb.dirty;
+// (c) the same paragraph changed on both sides: nothing applied, both versions shown, then "Keep mine" sends ours
+const before = { disk: onDisk(), pippin: tdoc().content };
+writeFileSync(f4, before.disk.replace('First paragraph here.', 'First paragraph, my version.')); await sleep(800);
+editFake((s) => { const d = Object.values(s.docs).find((x) => x.name === 'Text sync'); d.content = d.content.replace('First paragraph here.', 'First paragraph, Pippin version.').replace('| one | 1 |', '| one | 100 |'); });
+await syncClick();
+r.tc = { menu: (await menu())?.text, disk: onDisk(), pippin: tdoc().content };
+ok.conflictHeld = /1 part changed both here and on Pippin/.test(r.tc.menu) && r.tc.menu.includes('First paragraph, my version.') && r.tc.menu.includes('First paragraph, Pippin version.')
+  && r.tc.disk === before.disk.replace('First paragraph here.', 'First paragraph, my version.') && !r.tc.pippin.includes('my version') && !r.tc.disk.includes('100'); // the unrelated Pippin edit waits too
+await shot('pp-conflict.png');
+await clickText('#app .pp-pop .cmt-send', 'Keep mine'); await sleep(500); await waitFor(`!document.querySelector('#app .top .ppb').classList.contains('busy')`); await sleep(300);
+r.tc2 = { disk: onDisk(), pippin: tdoc().content, menu: (await menu())?.text };
+ok.keepMine = r.tc2.pippin.includes('First paragraph, my version.') && !r.tc2.pippin.includes('Pippin version') && r.tc2.disk.includes('| one | 100 |') && r.tc2.disk.includes('my version') && !/changed both/.test(r.tc2.menu);
+// (d) "Keep Pippin's" writes theirs into the file
+writeFileSync(f4, onDisk().replace('Last paragraph, edited on Pippin.', 'Last paragraph, mine again.')); await sleep(800);
+editFake((s) => { const d = Object.values(s.docs).find((x) => x.name === 'Text sync'); d.content = d.content.replace('Last paragraph, edited on Pippin.', 'Last paragraph, theirs again.'); });
+await syncClick(); await clickText('#app .pp-pop .cmt-ghost', "Keep Pippin's"); await sleep(500); await waitFor(`!document.querySelector('#app .top .ppb').classList.contains('busy')`); await sleep(300);
+ok.keepTheirs = onDisk().includes('Last paragraph, theirs again.') && tdoc().content.includes('theirs again') && !tdoc().content.includes('mine again');
+await key('Escape', 'Escape', 27);
+// (e) unsaved edits wait for the save; saving sends them
+await key('2', 'Digit2', 50, 4); await sleep(400);
+await ev(`(()=>{const t=document.querySelector('#app textarea.src, #app .editor textarea, #app textarea'); t.focus(); t.setSelectionRange(t.value.length,t.value.length); return 1})()`);
+await typeText('\nTyped, not saved yet.\n'); await sleep(300);
+await syncClick();
+r.te = { menu: (await menu())?.text, pippin: tdoc().content };
+ok.waitsForSave = /Save the file to sync its text/.test(r.te.menu) && !r.te.pippin.includes('Typed, not saved');
+await key('Escape', 'Escape', 27);
+await key('s', 'KeyS', 83, 4); await sleep(2600); await waitFor(`!document.querySelector('#app .top .ppb').classList.contains('busy')`); await sleep(300);
+ok.saveSends = tdoc().content.includes('Typed, not saved yet.') && side(f4).pippin.base.local === onDisk();
+// (f) switched off: Pippin edits stay on Pippin; switched on again the Pippin edit made meanwhile comes down
+await key('1', 'Digit1', 49, 4); await sleep(300);
+await openMenu(); await ev(`document.querySelector('#app .pp-sw input').click()`); await sleep(600);
+editFake((s) => { const d = Object.values(s.docs).find((x) => x.name === 'Text sync'); d.content = d.content.replace('Typed, not saved yet.', 'Typed, then changed on Pippin.'); });
+await syncClick();
+r.tf = { side: side(f4).pippin, disk: onDisk() };
+ok.switchOff = r.tf.side.text === false && !r.tf.disk.includes('changed on Pippin');
+await ev(`document.querySelector('#app .pp-sw input').click()`); await sleep(500); await waitFor(`!document.querySelector('#app .top .ppb').classList.contains('busy')`); await sleep(300);
+r.tf2 = (await menu())?.text;
+ok.switchOnPulls = onDisk().includes('Typed, then changed on Pippin.') && !/changed both/.test(r.tf2 || '') && side(f4).pippin.text === undefined;
+// (g) a doc linked by URL whose text differs: every differing part is a choice, never a silent overwrite
+const url4 = side(f4).pippin.url;
+await clickText('#app .pp-pop .cmt-ghost', 'Disconnect'); await sleep(150); await clickText('#app .pp-pop .cmt-ghost', 'Disconnect?'); await sleep(600);
+writeFileSync(f4, onDisk().replace('Second paragraph, edited in MdReader.', 'Second paragraph, local only.')); await sleep(800);
+await openMenu(); await clickText('#app .pp-opt', 'Link an existing');
+await ev(`document.querySelector('#app .pp-pop input').focus()`); await typeText(url4); await key('Enter', 'Enter', 13);
+await waitFor(`!!document.querySelector('#app .pp-pop .pp-doc')`); await sleep(600); await waitFor(`!document.querySelector('#app .top .ppb').classList.contains('busy')`); await sleep(300);
+r.tg = (await menu())?.text;
+ok.linkAsks = /1 part changed both here and on Pippin/.test(r.tg || '') && r.tg.includes('local only') && onDisk().includes('local only') && !tdoc().content.includes('local only');
+
+await key('Escape', 'Escape', 27);
+
 r.logs2 = A.logs.slice(); A.stop();
-ok.noErrors = !r.logs1.length && !r.logs2a.length && !r.logs2.length;
+ok.noErrors = !r.logs1.length && !r.logs2a.length && !r.logs2b.length && !r.logs2.length;
 writeFileSync(path.join(outdir, 'report.json'), JSON.stringify({ ok, r }, null, 2));
 console.log(JSON.stringify({ ok }, null, 2));
 process.exit(Object.values(ok).every(Boolean) ? 0 : 1);
