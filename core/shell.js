@@ -2257,6 +2257,7 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
         if (fileKey() !== p) return;
         const same = st.data && JSON.stringify(st.data) === JSON.stringify(d);
         st.data = d; if (!same) after();
+        if (typeof PP !== 'undefined' && PP.link() && (!PP.state.last || Date.now() - PP.state.last > 60000)) PP.syncSoon();
       }
       // read the newest copy, change it, write it back
       async function mutate(fn, msg) {
@@ -2325,14 +2326,14 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
         const r = st.draft ? st.draft.range : st.open && st.pos.get(st.open) ? st.pos.get(st.open).range : null;
         if (r && r.startContainer.isConnected) CSS.highlights.set('mdr-cmt-on', new Highlight(r));
       }
-      function after() { apply(); renderPanel(); if (st.open) { if (st.data && st.data.comments.some((c) => c.id === st.open)) renderPop(); else closePop(); } }
+      function after() { apply(); renderPanel(); if (typeof PP !== 'undefined') PP.sync(); if (st.open) { if (st.data && st.data.comments.some((c) => c.id === st.open)) renderPop(); else closePop(); } }
       // threads in page order (threads whose words are gone go last)
       const at0 = (c) => (st.pos.has(c.id) ? st.pos.get(c.id).start : 1e15);
       const ordered = (withResolved) => ((st.data && st.data.comments) || []).filter((c) => withResolved || !c.resolved).sort((a, b) => at0(a) - at0(b) || String(a.at).localeCompare(String(b.at)));
 
       // ---- changes ----
-      const addThread = (anchor, text) => { const id = uid('c'); return mutate((d) => { d.comments.push({ id, anchor, author: who(), at: iso(), text, reactions: {}, replies: [] }); }, 'Comment added').then((ok) => ok && id); };
-      const addReply = (rootId, text) => mutate((d) => { const c = d.comments.find((x) => x.id === rootId); if (!c) return false; (c.replies = c.replies || []).push({ id: uid('r'), author: who(), at: iso(), text, reactions: {} }); }, 'Reply sent');
+      const addThread = (anchor, text) => { const id = uid('c'); return mutate((d) => { d.comments.push({ id, anchor, author: who(), at: iso(), text, reactions: {}, replies: [] }); }, 'Comment added').then((ok) => { if (ok && PP.link()) PP.syncSoon(); return ok && id; }); };
+      const addReply = (rootId, text) => mutate((d) => { const c = d.comments.find((x) => x.id === rootId); if (!c) return false; (c.replies = c.replies || []).push({ id: uid('r'), author: who(), at: iso(), text, reactions: {} }); }, 'Reply sent').then((ok) => { if (ok && PP.link()) PP.syncSoon(); return ok; });
       function own(d, id) { const f = find(d, id); if (!f) return null; if (!f.x.author || f.x.author.id !== me.id) { flash('Only ' + ((f.x.author && f.x.author.name) || 'its author') + ' can change this comment', 2600); return null; } return f; }
       const editOne = (id, text) => mutate((d) => { const f = own(d, id); if (!f) return false; f.x.text = text; f.x.edited = iso(); }, 'Comment updated');
       const delOne = (id) => mutate((d) => { const f = own(d, id); if (!f) return false; if (f.x === f.root) d.comments = d.comments.filter((c) => c !== f.root); else f.root.replies = f.root.replies.filter((r) => r !== f.x); }, 'Deleted');
@@ -2381,14 +2382,16 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
           ...rs.map(([e, u]) => h('button', { type: 'button', class: 'cmt-r' + (u.some((p) => p.id === me.id) ? ' mine' : ''), title: u.map((p) => p.name).join(', '), onclick: (ev) => { ev.stopPropagation(); react(x.id, e); } }, h('span', { class: 'e' }, e), h('span', { class: 'n' }, String(u.length)))),
           btn('cmt-add', '☺+', 'Add a reaction', () => { st.pickFor = st.pickFor === x.id ? null : x.id; renderPop(); }), picker);
         const confirming = st.confirm === x.id;
-        const acts = mine && st.editing !== x.id ? h('span', { class: 'cmt-acts' },
+        const synced = !!(x.pippin && x.pippin.id && !x.pippin.unlinked && st.data && st.data.pippin); // Pippin has no edit / delete: change it there
+        const acts = mine && !synced && st.editing !== x.id ? h('span', { class: 'cmt-acts' },
           btn('cmt-link', 'Edit', 'Edit your comment', () => { st.editing = x.id; st.editText = x.text; st.confirm = null; renderPop(); }),
           confirming ? btn('cmt-link danger', isRoot && (c.replies || []).length ? 'Delete thread?' : 'Delete?', 'Click again to delete', () => { st.confirm = null; delOne(x.id); })
             : btn('cmt-link', 'Delete', isRoot ? 'Delete this comment and its replies' : 'Delete this reply', () => { st.confirm = x.id; renderPop(); })) : null;
         return h('div', { class: 'cmt-e' + (isRoot ? ' root' : ' reply') + (mine ? ' mine' : ''), 'data-id': x.id },
           avatar(x.author),
           h('div', { class: 'cmt-main' },
-            h('div', { class: 'cmt-h' }, h('b', {}, (x.author && x.author.name) || 'Someone'), h('span', { class: 'cmt-t', title: fullTime(x.at) + (x.edited ? ' · edited ' + fullTime(x.edited) : '') }, rel(x.at) + (x.edited ? ' · edited' : '')), acts),
+            h('div', { class: 'cmt-h' }, h('b', {}, (x.author && x.author.name) || 'Someone'), h('span', { class: 'cmt-t', title: fullTime(x.at) + (x.edited ? ' · edited ' + fullTime(x.edited) : '') }, rel(x.at) + (x.edited ? ' · edited' : '')),
+              x.pippin && x.pippin.id && !x.pippin.unlinked ? h('span', { class: 'cmt-pp', title: 'On Pippin too' }, 'Pippin') : (st.data && st.data.pippin && x.author && x.author.id === me.id ? h('span', { class: 'cmt-pp wait', title: 'Not on Pippin yet -- it goes with the next sync' }, 'sending…') : null), acts),
             body, reacts));
       }
       function renderPop() {
@@ -2512,6 +2515,177 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
       document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !pop.hidden && !pop.contains(document.activeElement)) { e.preventDefault(); closePop(); } }, true);
       content.addEventListener('scroll', () => { bubble.hidden = true; place(); }, { passive: true });
       addEventListener('resize', () => place());
+      // ---- Pippin: create a doc from this file, keep it linked, sync comments both ways ----
+      // The link lives in the comments file next to the document ({pippin:{projectId,designId,url,name}}), so it holds
+      // until someone presses Disconnect. A sync pulls every Pippin thread (new ones, replies, edits, resolved state)
+      // and posts what was written here and is not on Pippin yet: a new thread as a comment on the same words, a reply
+      // into its Pippin thread. Only your own comments are posted, because Pippin posts them under your Midway login.
+      // Pippin has no edit, delete, reaction or resolve calls, so those stay in MdReader for synced comments.
+      const PP = (() => {
+        const can = !!adapter.pippin;
+        const call = async (op, args) => { const r = await adapter.pippin(op, args); if (!r || !r.ok) throw new Error((r && r.error) || 'Pippin is not reachable'); return r.value; };
+        const link = () => (st.data && st.data.pippin) || null;
+        const ps = { busy: false, last: null, err: null, folders: null, view: 'menu', q: '', timer: 0 };
+        const btnEl = h('button', { class: 'icon ppb', title: 'Pippin', onclick: () => (pop2.hidden ? openMenu() : closeMenu()) });
+        btnEl.innerHTML = '<svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><path d="M6 17V3.5h5a4 4 0 0 1 0 8H6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        btnEl.append(h('span', { class: 'ppb-dot' }));
+        if (can) top.insertBefore(btnEl, themeSel);
+        const pop2 = h('div', { class: 'cmt-pop pp-pop', hidden: '', role: 'dialog', 'aria-label': 'Pippin' }); root.append(pop2);
+        const isMd = () => docKind() === 'md';
+        function sync() {
+          const l = link(); btnEl.classList.toggle('on', !!l); btnEl.classList.toggle('busy', ps.busy); btnEl.classList.toggle('err', !!(l && ps.err));
+          btnEl.title = l ? `Linked to Pippin: ${l.name}${ps.err ? ' -- last sync failed: ' + ps.err : ps.last ? ' · synced ' + rel(ps.last) : ''}` : 'Create a Pippin doc from this file, or link one';
+          if (!pop2.hidden) render();
+        }
+        // what goes up to Pippin: the markdown without MdReader's own hidden lines and colour tags
+        const forPippin = (t) => t.replace(/^\s*<!--\s*mdr-colours\s+\{.*\}\s*-->\s*\n?/gm, '').replace(/<span data-(?:c|hl)="[^"]*"(?: data-(?:c|hl)="[^"]*")?>([\s\S]*?)<\/span>/g, '$1');
+        const titleOf = () => { const m = /^#\s+(.+)$/m.exec(S.text); return (m ? m[1].replace(/[*_`]/g, '').trim() : '') || String(curDisp().name || 'Untitled').replace(/\.(md|markdown|mdown|mkd)$/i, ''); };
+        async function create(projectId, folderName) {
+          if (!fileKey()) return flash('Save this file first', 2400);
+          ps.busy = true; ps.view = 'working'; ps.working = 'Creating the Pippin doc' + (folderName ? ' in ' + folderName : '') + '…'; sync();
+          try {
+            const r = await call('create', { name: titleOf(), content: forPippin(S.text), projectId: projectId || undefined });
+            await mutate((d) => { d.pippin = { ...r, folder: folderName || 'Quick Create', linkedAt: iso(), linkedBy: who() }; });
+            ps.view = 'menu'; flash('Pippin doc created and linked', 2400);
+            await syncNow(true);
+          } catch (e) { ps.view = 'menu'; ps.err = e.message; flash('Could not create the Pippin doc: ' + e.message, 5000); }
+          ps.busy = false; sync();
+        }
+        async function linkExisting(url) {
+          ps.busy = true; ps.view = 'working'; ps.working = 'Looking up that Pippin doc…'; sync();
+          try { const r = await call('resolve', { url }); await mutate((d) => { d.pippin = { ...r, linkedAt: iso(), linkedBy: who() }; }); ps.view = 'menu'; flash('Linked to ' + r.name, 2400); await syncNow(true); }
+          catch (e) { ps.view = 'link'; ps.err = e.message; flash(e.message, 5000); }
+          ps.busy = false; sync();
+        }
+        async function disconnect() {
+          await mutate((d) => { delete d.pippin; for (const c of d.comments) { if (c.pippin) c.pippin.unlinked = true; for (const r of c.replies || []) if (r.pippin) r.pippin.unlinked = true; } }, 'Disconnected from Pippin -- comments stay here');
+          ps.err = null; ps.last = null; ps.view = 'menu'; sync();
+        }
+        const ms = (t) => new Date(typeof t === 'number' ? t : Date.parse(t) || Date.now()).toISOString();
+        const person = (alias) => ({ id: alias, name: alias === me.id ? me.name : alias, pippin: true });
+        // merge Pippin's threads into ours (d is the freshly read comments file)
+        function pull(d, j) {
+          const groups = [['open', (j.threads && j.threads.open) || []], ['resolved', (j.threads && j.threads.resolved) || []]];
+          const seen = new Set();
+          const byId = new Map(); for (const c of d.comments) { if (c.pippin && c.pippin.id) byId.set(c.pippin.id, c); for (const r of c.replies || []) if (r.pippin && r.pippin.id) byId.set(r.pippin.id, r); }
+          let added = 0;
+          for (const [state, threads] of groups) for (const th of threads) {
+            const pc = th.parentComment; if (!pc || !pc.commentId) continue; seen.add(pc.commentId);
+            const q = (pc.textAnchor && pc.textAnchor.selectedText) || '';
+            let c = byId.get(pc.commentId);
+            // a comment we posted whose id never made it into the file (closed mid-sync): adopt it instead of duplicating it
+            if (!c) c = d.comments.find((x) => !x.pippin && x.author && x.author.id === pc.createdBy && x.text === pc.content);
+            if (!c) {
+              c = { id: 'p' + pc.commentId.slice(0, 12), anchor: { q, n: 0, pre: '', post: '' }, author: person(pc.createdBy), at: ms(pc.createdAt), text: pc.content, reactions: {}, replies: [] };
+              d.comments.push(c); added++;
+            }
+            c.pippin = { id: pc.commentId, at: pc.updatedAt };
+            if (c.text !== pc.content && c.author && c.author.pippin) { c.text = pc.content; if (pc.updatedAt > pc.createdAt) c.edited = ms(pc.updatedAt); }
+            if (state === 'resolved' && !c.resolved) c.resolved = { by: { id: 'pippin', name: 'Pippin' }, at: iso(), pippin: true };
+            if (state === 'open' && c.resolved && c.resolved.pippin) delete c.resolved;
+            c.replies = c.replies || [];
+            for (const pr of th.replies || []) {
+              seen.add(pr.commentId);
+              let r = byId.get(pr.commentId) || c.replies.find((x) => !x.pippin && x.author && x.author.id === pr.createdBy && x.text === pr.content);
+              if (!r) { r = { id: 'p' + pr.commentId.slice(0, 12), author: person(pr.createdBy), at: ms(pr.createdAt), text: pr.content, reactions: {} }; c.replies.push(r); added++; }
+              r.pippin = { id: pr.commentId, at: pr.updatedAt };
+              if (r.text !== pr.content && r.author && r.author.pippin) r.text = pr.content;
+            }
+            c.replies.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+          }
+          // removed on Pippin: drop the synced copies (anything still unsynced stays)
+          d.comments = d.comments.filter((c) => !(c.pippin && c.pippin.id && !c.pippin.unlinked && !seen.has(c.pippin.id)));
+          for (const c of d.comments) c.replies = (c.replies || []).filter((r) => !(r.pippin && r.pippin.id && !r.pippin.unlinked && !seen.has(r.pippin.id)));
+          return added;
+        }
+        const mineUnsent = (x) => !x.pippin && x.author && x.author.id === me.id;
+        async function syncNow(quiet) {
+          const l = link(); if (!can || !l || ps.busy && !quiet) return;
+          const p = fileKey(); ps.busy = true; sync();
+          let added = 0, sent = 0, kept = 0;
+          try {
+            const j = await call('comments', { projectId: l.projectId, designId: l.designId });
+            await mutate((d) => { if (!d.pippin) return false; added = pull(d, j); });
+            // post ours, one at a time, saving each Pippin id as soon as it exists
+            const d0 = st.data || empty();
+            for (const c of d0.comments) {
+              if (fileKey() !== p) break;
+              if (mineUnsent(c) && !c.pippin) {
+                let r = c.anchor.q ? await call('post', { projectId: l.projectId, designId: l.designId, comment: c.text, anchorText: c.anchor.q, contextBefore: (c.anchor.pre || '').slice(-60) || undefined }).catch(() => null) : null;
+                if (!r || !r.commentId || r.status === 'anchor_not_placed') r = await call('post', { projectId: l.projectId, designId: l.designId, comment: c.anchor.q ? `> ${c.anchor.q.slice(0, 300)}\n\n${c.text}` : c.text });
+                if (r && r.commentId) { sent++; await mutate((d) => { const x = d.comments.find((y) => y.id === c.id); if (x) x.pippin = { id: r.commentId, anchored: !!r.anchored }; }); }
+              } else if (!c.pippin && c.author && c.author.id !== me.id) kept++;
+              const root = (st.data.comments.find((y) => y.id === c.id) || {}).pippin;
+              if (!root || !root.id) continue;
+              for (const rp of c.replies || []) {
+                if (!mineUnsent(rp)) { if (!rp.pippin && rp.author && rp.author.id !== me.id) kept++; continue; }
+                const r = await call('post', { projectId: l.projectId, designId: l.designId, comment: rp.text, replyToCommentId: root.id });
+                if (r && r.commentId) { sent++; await mutate((d) => { const x = d.comments.find((y) => y.id === c.id); const y = x && (x.replies || []).find((z) => z.id === rp.id); if (y) y.pippin = { id: r.commentId }; }); }
+              }
+            }
+            ps.err = null; ps.last = Date.now(); ps.kept = kept;
+            if (!quiet || added || sent) flash(`Synced with Pippin${added ? ` · ${added} new from Pippin` : ''}${sent ? ` · ${sent} sent` : ''}${!added && !sent ? ' · up to date' : ''}`, 2600);
+          } catch (e) { ps.err = e.message; if (!quiet) flash('Pippin sync failed: ' + e.message, 5000); }
+          ps.busy = false; sync();
+        }
+        const syncSoon = debounce(() => syncNow(true), 1500);
+        setInterval(() => { if (link() && document.visibilityState === 'visible') syncNow(true); }, 3 * 60 * 1000);
+
+        // ---- the Pippin menu ----
+        function render() {
+          const l = link(), rows = [];
+          const nav = (title, back) => h('div', { class: 'cmt-nav' }, back ? btn('cmt-step', '‹', 'Back', () => { ps.view = 'menu'; render(); }) : null, h('span', { class: 'cmt-of pp-title' }, title), h('span', { class: 'spacer' }), btn('cmt-x', '✕', 'Close (Esc)', closeMenu));
+          if (ps.view === 'working') rows.push(nav('Pippin'), h('div', { class: 'pp-body' }, h('div', { class: 'pp-spin' }), h('div', {}, ps.working)));
+          else if (!fileKey()) rows.push(nav('Pippin'), h('div', { class: 'pp-body' }, 'Save this file first, then create its Pippin doc.'));
+          else if (l) {
+            rows.push(nav('Linked to Pippin'),
+              h('div', { class: 'pp-body' },
+                h('a', { class: 'pp-doc', href: l.url, title: l.url, onclick: (e) => { e.preventDefault(); adapter.openExternal && adapter.openExternal(l.url); } }, h('b', {}, l.name), h('span', {}, (l.folder ? l.folder + ' · ' : '') + 'Open in Pippin ↗')),
+                h('div', { class: 'pp-st' + (ps.err ? ' err' : '') }, ps.busy ? 'Syncing comments…' : ps.err ? 'Last sync failed: ' + ps.err : ps.last ? 'Comments synced ' + rel(ps.last) + ' · every 3 min while open' : 'Not synced yet'),
+                ps.kept ? h('div', { class: 'pp-note' }, `${ps.kept} comment${ps.kept === 1 ? '' : 's'} by others stay here only -- Pippin would post them under your name.`) : null,
+                h('div', { class: 'pp-note' }, 'Edits, deletions, reactions and Resolve on synced comments stay in MdReader -- Pippin has no way to receive them. The document text itself is not synced after creation.'),
+                h('div', { class: 'cmt-btns' },
+                  ps.confirm ? btn('cmt-ghost danger', 'Disconnect?', 'Click again: the link is removed, your comments stay', () => { ps.confirm = false; disconnect(); }) : btn('cmt-ghost', 'Disconnect', 'Stop syncing with this Pippin doc', () => { ps.confirm = true; render(); }),
+                  btn('cmt-send', ps.busy ? 'Syncing…' : 'Sync now', 'Sync comments now', () => syncNow(false), ps.busy))));
+          } else if (!isMd()) rows.push(nav('Pippin'), h('div', { class: 'pp-body' }, 'Pippin docs are Markdown, so this is offered for .md files.'));
+          else if (ps.view === 'folder') {
+            const qIn = h('input', { class: 'cp-search', type: 'search', placeholder: 'Find a Pippin folder', value: ps.q, 'aria-label': 'Find a folder' });
+            qIn.oninput = () => { ps.q = qIn.value; const list = pop2.querySelector('.pp-list'); if (list) list.replaceWith(folderList()); };
+            rows.push(nav('Create in a folder', true), h('div', { class: 'pp-body' }, qIn, ps.folders ? folderList() : h('div', { class: 'pp-list' }, h('div', { class: 'pp-st' }, ps.folderErr || 'Loading your Pippin folders…'))));
+            setTimeout(() => qIn.focus());
+          } else if (ps.view === 'link') {
+            const u = h('input', { class: 'cp-search', placeholder: 'https://pippin.amazon.dev/docs/…', 'aria-label': 'Pippin link' });
+            const go = btn('cmt-send', 'Link', 'Link this file to that Pippin doc', () => u.value.trim() && linkExisting(u.value.trim()));
+            u.onkeydown = (e) => { if (e.key === 'Enter') go.click(); };
+            rows.push(nav('Link an existing doc', true), h('div', { class: 'pp-body' }, h('div', { class: 'pp-note' }, 'Paste the Pippin doc\'s link (Copy link in Pippin). Comments sync both ways; the text is not changed.'), u, h('div', { class: 'cmt-btns' }, go)));
+            setTimeout(() => u.focus());
+          } else {
+            rows.push(nav('Pippin'), h('div', { class: 'pp-body' },
+              h('div', { class: 'pp-note' }, `Make "${titleOf()}" a Pippin doc. It stays linked to this file until you disconnect it, and comments sync both ways.`),
+              h('button', { type: 'button', class: 'pp-opt', onclick: () => create(null) }, h('b', {}, 'Create in my Pippin'), h('span', {}, 'A private Quick Create doc -- share it from Pippin')),
+              h('button', { type: 'button', class: 'pp-opt', onclick: () => { ps.view = 'folder'; render(); loadFolders(); } }, h('b', {}, 'Create in a folder…'), h('span', {}, 'Pick one of your Pippin folders; it gets that folder\'s sharing')),
+              h('button', { type: 'button', class: 'pp-opt', onclick: () => { ps.view = 'link'; render(); } }, h('b', {}, 'Link an existing Pippin doc…'), h('span', {}, 'This file and that doc already match'))));
+          }
+          pop2.replaceChildren(...rows);
+          const r = btnEl.getBoundingClientRect(), w = pop2.offsetWidth;
+          pop2.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + 'px'; pop2.style.top = r.bottom + 8 + 'px';
+        }
+        function folderList() {
+          const q = ps.q.trim().toLowerCase(), fs = (ps.folders || []).filter((f) => !q || f.name.toLowerCase().includes(q)).slice(0, 80);
+          return h('div', { class: 'pp-list' }, ...(fs.length ? fs.map((f) => h('button', { type: 'button', class: 'pp-f', title: f.name + (f.mine ? '' : ' -- shared by ' + f.by), onclick: () => create(f.id, f.name) }, h('span', { class: 'n' }, f.name), h('span', { class: 't' }, f.mine ? (f.private ? 'yours · private' : 'yours') : 'shared by ' + f.by))) : [h('div', { class: 'pp-st' }, q ? 'No folder matches.' : 'No folders.')]));
+        }
+        async function loadFolders() {
+          if (ps.folders) return;
+          try { ps.folders = await call('folders', {}); ps.folderErr = null; } catch (e) { ps.folderErr = 'Could not list folders: ' + e.message; }
+          if (ps.view === 'folder') render();
+        }
+        function openMenu() { ps.confirm = false; if (ps.view !== 'working') ps.view = 'menu'; pop2.hidden = false; render(); }
+        function closeMenu() { pop2.hidden = true; ps.confirm = false; }
+        document.addEventListener('mousedown', (e) => { if (!pop2.hidden && !pop2.contains(e.target) && !btnEl.contains(e.target)) closeMenu(); }, true);
+        pop2.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeMenu(); } });
+        return { sync, syncNow, syncSoon, link, get can() { return can; }, state: ps };
+      })();
+
       // ---- the left panel: every thread on this file ----
       const tabFiles = h('button', { type: 'button', class: 'lt', 'data-t': 'files', title: 'Files (⌘\\)', onclick: () => setLeft('files') }, 'Files');
       const tabCmt = h('button', { type: 'button', class: 'lt', 'data-t': 'comments', title: 'Comments on this file (⌘⇧M)', onclick: () => setLeft('comments') }, 'Comments', h('span', { class: 'lt-n' }));
@@ -2588,13 +2762,14 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
           h('div', { class: 'cp-foot' },
             h('div', {}, 'Commenting as ', nameEl),
             h('label', { class: 'cp-show' }, show, h('span', {}, 'Highlight commented text')),
+            st.data && st.data.pippin ? h('div', { class: 'cp-where' }, 'Synced with Pippin: ', h('a', { href: st.data.pippin.url, onclick: (e) => { e.preventDefault(); adapter.openExternal && adapter.openExternal(st.data.pippin.url); } }, st.data.pippin.name)) : null,
             h('div', { class: 'cp-where' }, where)));
         const on = cpane.querySelector('.cp-card.on'); if (on) on.scrollIntoView({ block: 'nearest' });
       }
       tabFiles.classList.add('on');
       if (!adapter.listDir) { /* the extension has no Files tab: the pane shows Comments only */ }
       addEventListener('focus', () => { if (fileKey()) load(true); }); // someone else may have replied while you were away
-      return { load, apply, toggle, startNew, close: closePop, place, me,
+      return { load, apply, toggle, startNew, close: closePop, place, me, pippin: PP,
         get isOpen() { return !pop.hidden; }, get data() { return st.data; }, _open: open, _step: step };
     })();
 

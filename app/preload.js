@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('mdreader', {
   readComments: (p) => ipcRenderer.invoke('comments-read', p),
   writeComments: (p, data) => ipcRenderer.invoke('comments-write', p, data),
   whoami: () => ipcRenderer.sendSync('whoami'),
+  pippin: (op, args) => ipcRenderer.invoke('pippin', op, args),
   home: ipcRenderer.sendSync('get-home'),
   platform: process.platform,
 });

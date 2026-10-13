@@ -160,12 +160,19 @@ ipcMain.handle('comments-read', async (e, p) => {
 });
 ipcMain.handle('comments-write', async (e, p, data) => {
   const f = commentsPath(p);
-  if (!data || !data.comments || !data.comments.length) { await fsp.rm(f, { force: true }); return null; } // last comment gone: no empty file left behind
+  if (!data || ((!data.comments || !data.comments.length) && !data.pippin)) { await fsp.rm(f, { force: true }); return null; } // nothing left to keep: no empty file left behind
   const tmp = f + '.tmp-' + process.pid;
   await fsp.writeFile(tmp, JSON.stringify(data, null, 2) + '\n', 'utf8');
   await fsp.rename(tmp, f); // atomic: a reader never sees half a file
   return f;
 });
+// Pippin: create a doc from a file, link it, and sync comments (app/pippin.js runs pippin-mcp-server).
+const pippin = require('./pippin');
+ipcMain.handle('pippin', async (e, op, args) => {
+  try { return { ok: true, value: await pippin.handle(op, args, TEST_HIDE && !process.env.MDR_PIPPIN_CMD) }; }
+  catch (err) { return { ok: false, error: String(err && err.message || err) }; }
+});
+app.on('will-quit', () => pippin.stop());
 // Who is commenting: the Mac login is the id (it decides who may edit a comment), the full name is what others see.
 let me = null;
 ipcMain.on('whoami', (e) => {

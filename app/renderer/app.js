@@ -45,6 +45,7 @@ const adapter = {
   readComments: api.readComments,
   writeComments: api.writeComments,
   whoami: api.whoami,
+  pippin: api.pippin,
   home,
 };
 
