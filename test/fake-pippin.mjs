@@ -15,7 +15,7 @@ const tools = {
     s.docs[designId] = { projectId, designId, name: a.name, content: a.content, quick: !!a.quick_create, threads: [] };
     return a.quick_create ? { project: { projectId, quickCreateDesignId: designId, isQuickCreate: true, name: 'Quick Create', createdBy: ME } } : { design: { projectId, designId, name: a.name } };
   },
-  pippin_get_artifact: (s, a) => { const m = /artifact=([\w-]+)/.exec(a.url || '') || /docs\/([\w-]+)/.exec(a.url || ''); const d = m && s.docs[m[1]]; if (!d) throw new Error('Artifact not found'); return { design: { projectId: d.projectId, designId: d.designId, name: d.name, content: d.content } }; },
+  pippin_get_artifact: (s, a) => { const m = a.designId ? [0, a.designId] : /artifact=([\w-]+)/.exec(a.url || '') || /docs\/([\w-]+)/.exec(a.url || ''); const d = m && s.docs[m[1]]; if (!d) throw new Error('Artifact not found'); return { design: { projectId: d.projectId, designId: d.designId, name: d.name, content: d.marked || d.content } }; },
   pippin_get_artifact_comments: (s, a) => {
     const d = s.docs[a.designId]; if (!d) throw new Error('Artifact not found');
     const out = { open: [], resolved: [] };

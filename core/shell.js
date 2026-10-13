@@ -2290,17 +2290,26 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
         let q = m.all.slice(a, b0); const lead = q.length - q.trimStart().length; a += lead; q = q.trim();
         if (!q) return null;
         const b = a + q.length;
-        let n = 0, i = -1; while ((i = m.all.indexOf(q, i + 1)) >= 0 && i < a) n++;
+        let n = 0, i = -1; while ((i = m.all.indexOf(q, i + 1)) >= 0 && i < a) { const nd = nodeAt(m, i); if (!(nd && nd.parentElement && nd.parentElement.closest(CHROME))) n++; }
         return { q, n, pre: m.all.slice(Math.max(0, a - 40), a), post: m.all.slice(b, b + 40) };
       }
       const sameEnd = (x, y) => { let k = 0; while (k < x.length && k < y.length && x[x.length - 1 - k] === y[y.length - 1 - k]) k++; return k; };
       const sameStart = (x, y) => { let k = 0; while (k < x.length && k < y.length && x[k] === y[k]) k++; return k; };
+      // where on the page a thread's words are: the occurrence whose surrounding text matches best (only letters and
+      // digits compared, since the page drops the source's markup and line breaks); never inside the page's own navigation
+      const sq = (t) => String(t || '').replace(/[^\p{L}\p{N}]+/gu, '').toLowerCase(); // letters and digits only: markup like ## or ** never breaks a match
+      const CHROME = 'nav, .chips, .toc, .sqllegend, .jhead-tools';
+      function nodeAt(m, p) { let lo = 0, hi = m.nodes.length - 1; while (lo < hi) { const md = (lo + hi + 1) >> 1; if (m.nodes[md][1] <= p) lo = md; else hi = md - 1; } return m.nodes[lo] && m.nodes[lo][0]; }
       function locate(m, an) {
         if (!an || !an.q) return -1;
-        let best = -1, bs = -Infinity, i = -1, k = 0;
+        const pre = sq(an.pre), post = sq(an.post);
+        let best = -1, bs = -Infinity, i = -1, k = 0, real = 0;
         while ((i = m.all.indexOf(an.q, i + 1)) >= 0 && k < 2000) {
-          const s = sameEnd(an.pre || '', m.all.slice(Math.max(0, i - 40), i)) + sameStart(an.post || '', m.all.slice(i + an.q.length, i + an.q.length + 40)) - Math.abs(k - (an.n || 0)) * 0.01;
-          if (s > bs) { bs = s; best = i; } k++;
+          k++;
+          const nd = nodeAt(m, i); if (nd && nd.parentElement && nd.parentElement.closest(CHROME)) continue;
+          const s = sameEnd(pre, sq(m.all.slice(Math.max(0, i - 120), i))) + sameStart(post, sq(m.all.slice(i + an.q.length, i + an.q.length + 120))) - Math.abs(real - (an.n || 0)) * 0.01;
+          real++;
+          if (s > bs) { bs = s; best = i; }
         }
         return best;
       }
@@ -2612,7 +2621,26 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
         const ms = (t) => new Date(typeof t === 'number' ? t : Date.parse(t) || Date.now()).toISOString();
         const person = (alias) => ({ id: alias, name: alias === me.id ? me.name : alias, pippin: true });
         // merge Pippin's threads into ours (d is the freshly read comments file)
-        function pull(d, j) {
+        // Pippin's document marks each anchored comment: <!-- comment:X -->words<!-- /comment:X -->. Read the plain
+        // text around each marked passage, so a comment lands on the right copy of its words (a heading, not the
+        // section link at the top of the page; the second "Field", not the first).
+        const plain = (t) => String(t || '').replace(/<!--[\s\S]*?-->/g, '').replace(/<\/?(?:t[hdr]|table|tbody|thead|br|p|div|span|code|strong|em|b|i)\b[^>]*>/gi, ' ')
+          .replace(/^\s{0,3}#{1,6}\s+/gm, '').replace(/^\s*(?:[-*+]|\d+[.)])\s+/gm, '').replace(/(\*\*|__|\*|`|~~)/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/^\s*\|?\s*:?-{2,}.*$/gm, '').replace(/\|/g, ' ');
+        function contexts(content) {
+          const out = [], re = /<!--\s*comment:([\w-]+)\s*-->/g; let m;
+          const seen = new Set();
+          while ((m = re.exec(content))) {
+            const id = m[1]; if (seen.has(id)) continue; seen.add(id);
+            const close = '<!-- /comment:' + id + ' -->';
+            let end = content.lastIndexOf(close); if (end < m.index) continue; // a split span runs to its LAST close marker
+            const inner = plain(content.slice(m.index + m[0].length, end)).replace(/\s+/g, ' ').trim();
+            out.push({ q: inner, pre: plain(content.slice(Math.max(0, m.index - 600), m.index)).replace(/\s+/g, ' ').slice(-60), post: plain(content.slice(end + close.length, end + close.length + 600)).replace(/\s+/g, ' ').slice(0, 60) });
+          }
+          return out;
+        }
+        function pull(d, j, content) {
+          const ctx = content ? contexts(content) : [], used = new Set();
+          const placeOf = (q) => { const sel = sq(q); const k = ctx.findIndex((x, i) => !used.has(i) && sq(x.q) === sel); if (k < 0) return null; used.add(k); return ctx[k]; };
           const groups = [['open', (j.threads && j.threads.open) || []], ['resolved', (j.threads && j.threads.resolved) || []]];
           const seen = new Set();
           const byId = new Map(); for (const c of d.comments) { if (c.pippin && c.pippin.id) byId.set(c.pippin.id, c); for (const r of c.replies || []) if (r.pippin && r.pippin.id) byId.set(r.pippin.id, r); }
@@ -2628,6 +2656,8 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
               d.comments.push(c); added++;
             }
             c.pippin = { id: pc.commentId, at: pc.updatedAt };
+            // a Pippin comment takes its surrounding words from Pippin's own text; ours keep the ones they were made with
+            if (c.author && c.author.pippin && q) { const at = placeOf(q); if (at) c.anchor = { q, n: 0, pre: at.pre, post: at.post }; } else if (q) placeOf(q);
             if (c.text !== pc.content && c.author && c.author.pippin) { c.text = pc.content; if (pc.updatedAt > pc.createdAt) c.edited = ms(pc.updatedAt); }
             if (state === 'resolved' && !c.resolved) c.resolved = { by: { id: 'pippin', name: 'Pippin' }, at: iso(), pippin: true };
             if (state === 'open' && c.resolved && c.resolved.pippin) delete c.resolved;
@@ -2653,7 +2683,8 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
           let added = 0, sent = 0, kept = 0;
           try {
             const j = await call('comments', { projectId: l.projectId, designId: l.designId });
-            await mutate((d) => { if (!d.pippin) return false; added = pull(d, j); });
+            const content = await call('content', { projectId: l.projectId, designId: l.designId }).catch(() => ''); // only for placing comments; a failure just means less precise placing
+            await mutate((d) => { if (!d.pippin) return false; added = pull(d, j, content); });
             // post ours, one at a time, saving each Pippin id as soon as it exists
             const d0 = st.data || empty();
             for (const c of d0.comments) {

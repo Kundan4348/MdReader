@@ -138,8 +138,25 @@ await waitFor(`!!document.querySelector('#app .pp-pop .pp-doc')`); await sleep(6
 r.relinked = side(f1);
 ok.linkExisting = r.relinked.pippin?.designId === doc1.designId && r.relinked.comments.length === 3 && fake().docs[doc1.designId].threads.length === 3; // re-adopted, nothing re-posted
 ok.docsUnchanged = readFileSync(f1, 'utf8') === MD;
+// ---- 9. placing Pippin comments: the same words appear several times; Pippin's markers say which one ----
+const MD3 = '# Placement\n\nWe list the field rules below.\n\n## Overview\n\nSee Sources per field for each Field and the sources.\n\n## Sources per field\n\n| Field | Source |\n|---|---|\n| Serial | NSM |\n| Field | AsBuilt |\n\n- **Sources disagree:** a person decides.\n';
+const f3 = path.join(dir, 'place.md'); writeFileSync(f3, MD3);
+const MARKED = '# Placement\n\nWe list the field rules below.\n\n## Overview\n\nSee Sources per field for each Field and the sources.\n\n## <!-- comment:m1 -->Sources per field<!-- /comment:m1 -->\n\n<table>\n  <tr>\n    <th>Field</th>\n    <th>Source</th>\n  </tr>\n  <tr>\n    <td>Serial</td>\n    <td>NSM</td>\n  </tr>\n  <tr>\n    <td><!-- comment:m2 -->Field<!-- /comment:m2 --></td>\n    <td>AsBuilt</td>\n  </tr>\n</table>\n\n- <!-- comment:m3 -->**Sources disagree:**<!-- /comment:m3 --><!-- comment:m3 --> a person decides.<!-- /comment:m3 -->\n';
+editFake((s) => { s.docs.PLACE = { projectId: 'QCP', designId: 'PLACE', name: 'Placement', content: MD3, marked: MARKED, threads: [
+  { parent: { commentId: 'C1', content: 'on the heading', createdAt: 1, updatedAt: 1, createdBy: 'wquankan', status: 'ACTIVE', textAnchor: { selectedText: 'Sources per field' } }, replies: [] },
+  { parent: { commentId: 'C2', content: 'on the second Field cell', createdAt: 2, updatedAt: 2, createdBy: 'wquankan', status: 'ACTIVE', textAnchor: { selectedText: 'Field' } }, replies: [] },
+  { parent: { commentId: 'C3', content: 'on the list item', createdAt: 3, updatedAt: 3, createdBy: 'wquankan', status: 'ACTIVE', textAnchor: { selectedText: 'Sources disagree: a person decides.' } }, replies: [] }] }; });
+r.logs2a = A.logs.slice(); A.stop(); await sleep(600);
+use(await launch([f3])); await tab(f3);
+await openMenu(); await clickText('#app .pp-opt', 'Link an existing');
+await ev(`document.querySelector('#app .pp-pop input').focus()`); await typeText('https://pippin.amazon.dev/architect/QCP?artifact=PLACE'); await key('Enter', 'Enter', 13);
+await waitFor(`!!document.querySelector('#app .pp-pop .pp-doc')`); await sleep(800); await waitFor(`!document.querySelector('#app .top .ppb').classList.contains('busy')`); await sleep(400);
+r.place = await ev(`(()=>{const h=CSS.highlights.get('mdr-cmt'); return h?[...h].map(r=>{const e=r.startContainer.parentElement; const blk=e.closest('h2,th,td,li,p,nav'); return r.toString()+' @ '+(blk?blk.tagName+':'+blk.textContent.replace(/\\s+/g,' ').trim().slice(0,40):'?')}):[]})()`);
+const want = ['Sources per field @ H2:', 'Field @ TD:Field', 'Sources disagree: a person decides. @ LI:'];
+ok.placedByPippin = r.place.length === 3 && want.every((w) => r.place.some((p) => p.startsWith(w)));
+
 r.logs2 = A.logs.slice(); A.stop();
-ok.noErrors = !r.logs1.length && !r.logs2.length;
+ok.noErrors = !r.logs1.length && !r.logs2a.length && !r.logs2.length;
 writeFileSync(path.join(outdir, 'report.json'), JSON.stringify({ ok, r }, null, 2));
 console.log(JSON.stringify({ ok }, null, 2));
 process.exit(Object.values(ok).every(Boolean) ? 0 : 1);

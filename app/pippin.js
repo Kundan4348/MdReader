@@ -93,6 +93,7 @@ const ops = {
     if (!d.projectId || !d.designId) throw new Error('That link is not a Pippin document');
     return { projectId: d.projectId, designId: d.designId, url: docUrl(d.projectId, d.designId), name: d.name || d.title || 'Pippin document' };
   },
+  content: async (a, t) => { const j = await call('pippin_get_artifact', { projectId: str(a.projectId, 64), designId: str(a.designId, 64) }, t); const d = j.design || j.artifact || j; return String(d.content || ''); },
   comments: async (a, t) => call('pippin_get_artifact_comments', { projectId: str(a.projectId, 64), designId: str(a.designId, 64) }, t),
   post: async (a, t) => {
     const args = { projectId: str(a.projectId, 64), designId: str(a.designId, 64), comment: str(a.comment, 20000) };
