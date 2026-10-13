@@ -24,6 +24,9 @@ contextBridge.exposeInMainWorld('mdreader', {
   onDirChange: (cb) => ipcRenderer.on('dir-change', (e, d) => cb(d)),
   onCmd: (cb) => ipcRenderer.on('cmd', (e, c) => cb(c)),
   pathForFile: (f) => webUtils.getPathForFile(f),
+  readComments: (p) => ipcRenderer.invoke('comments-read', p),
+  writeComments: (p, data) => ipcRenderer.invoke('comments-write', p, data),
+  whoami: () => ipcRenderer.sendSync('whoami'),
   home: ipcRenderer.sendSync('get-home'),
   platform: process.platform,
 });

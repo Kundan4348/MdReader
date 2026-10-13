@@ -1923,6 +1923,7 @@
       W.enable();
       WD.enable(r);
       TC.apply();
+      CM.apply();
       DR.redraw();
     }
     function copyJsonSection(i) { navigator.clipboard.writeText(JV.sectionSource(S.text, i)).then(() => flash('JSON copied')); }
@@ -2215,7 +2216,386 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
       function hidePicker() { pop.hidden = true; }
       document.addEventListener('mousedown', (e) => { if (!pop.hidden && !pop.contains(e.target) && !e.target.closest('[data-act=tcolour], [data-act=tc]')) hidePicker(); }, true);
       document.addEventListener('keydown', (e) => { if (!pop.hidden && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); hidePicker(); } }, true);
-      return { apply, toggle, open, hide: hidePicker, get isOpen() { return !pop.hidden; } };
+      return { apply, toggle, open, hide: hidePicker, textMap, rangeAt, posOf, get isOpen() { return !pop.hidden; } };
+    })();
+
+    // ---------- Comments: select text, comment on it, reply, react; the same for .md, .json and .sql ----------
+    // A thread is pinned to the words it was made on: the quoted text, which occurrence it was, and up to 40
+    // characters on each side. When the file changes, the thread finds its words again by the closest surrounding
+    // text, so edits elsewhere never move it; a thread whose words are gone is listed as "text no longer in the file".
+    // Stored next to the document (notes.md -> notes.md.mdr-comments.json) by the desktop app, or in the browser by
+    // the extension. Every change re-reads that file first, so two people on a shared folder don't overwrite each
+    // other. Only the person who wrote a comment can edit or delete it (matched by their Mac login); anyone can
+    // reply, react or resolve.
+    const CM = (() => {
+      const LS = 'mdr-comments', OFF = 'mdr-cmt-hidden';
+      const REACTS = ['👍', '❤️', '😄', '🎉', '👀', '✅', '🙏', '🔥'];
+      const me = (() => {
+        const sys = adapter.whoami ? adapter.whoami() : null;
+        let id = sys && sys.id;
+        if (!id) { id = localStorage.getItem('mdr-me-id'); if (!id) { id = 'me-' + Math.random().toString(36).slice(2, 10); localStorage.setItem('mdr-me-id', id); } }
+        return { id, name: localStorage.getItem('mdr-me-name') || (sys && sys.name) || 'You' };
+      })();
+      const st = { path: null, data: null, open: null, draft: null, pos: new Map(), filter: 'open', q: '', editing: null, editText: '', replyText: '', confirm: null, pickFor: null, wasFiles: false };
+      const empty = () => ({ version: 1, comments: [] });
+      const fileKey = () => { const t = curTab(); return t && !isUntitled(t) ? t.path : null; };
+      const hidden = () => localStorage.getItem(OFF) === '1';
+      const lsAll = () => { try { return JSON.parse(localStorage.getItem(LS) || '{}') || {}; } catch { return {}; } };
+      const valid = (d) => (d && Array.isArray(d.comments) ? d : empty());
+      async function read(p) { return valid(adapter.readComments ? await adapter.readComments(p) : lsAll()[p]); }
+      async function write(p, d) {
+        d.version = 1; d.file = String(p).split('/').pop();
+        if (adapter.writeComments) return adapter.writeComments(p, d);
+        const a = lsAll(); if (d.comments.length) a[p] = d; else delete a[p]; localStorage.setItem(LS, JSON.stringify(a));
+      }
+      async function load(force) {
+        const p = fileKey();
+        if (!p) { st.path = null; st.data = empty(); return after(); }
+        if (!force && st.path === p && st.data) return after();
+        st.path = p; if (!force) st.data = null;
+        let d; try { d = await read(p); } catch (e) { d = empty(); flash('Could not read the comments for this file: ' + (e.message || e), 3500); }
+        if (fileKey() !== p) return;
+        const same = st.data && JSON.stringify(st.data) === JSON.stringify(d);
+        st.data = d; if (!same) after();
+      }
+      // read the newest copy, change it, write it back
+      async function mutate(fn, msg) {
+        const p = fileKey(); if (!p) { flash('Save this file first -- comments are kept with the saved file', 3200); return false; }
+        let d; try { d = await read(p); } catch { d = st.data || empty(); }
+        if (fn(d) === false) return false;
+        try { await write(p, d); } catch (e) { flash('Could not save the comment: ' + (e.message || e), 4000); return false; }
+        if (fileKey() === p) { st.path = p; st.data = d; after(); }
+        if (msg) flash(msg, 1600);
+        return true;
+      }
+      const uid = (p) => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      const iso = () => new Date().toISOString();
+      const who = () => ({ id: me.id, name: me.name });
+      function find(d, id) {
+        for (const c of (d && d.comments) || []) { if (c.id === id) return { x: c, root: c }; for (const r of c.replies || []) if (r.id === id) return { x: r, root: c }; }
+        return null;
+      }
+
+      // ---- where a thread sits on the page ----
+      function anchorOf(r) {
+        const m = TC.textMap();
+        const at = (node, off) => {
+          if (node.nodeType === 3) { const p = TC.posOf(m, node, off); if (p >= 0) return p; }
+          const pr = document.createRange(); pr.setStart(node, off);
+          for (const [n, s] of m.nodes) if (pr.comparePoint(n, 0) >= 0) return s;
+          return m.all.length;
+        };
+        let a = at(r.startContainer, r.startOffset); const b0 = at(r.endContainer, r.endOffset);
+        let q = m.all.slice(a, b0); const lead = q.length - q.trimStart().length; a += lead; q = q.trim();
+        if (!q) return null;
+        const b = a + q.length;
+        let n = 0, i = -1; while ((i = m.all.indexOf(q, i + 1)) >= 0 && i < a) n++;
+        return { q, n, pre: m.all.slice(Math.max(0, a - 40), a), post: m.all.slice(b, b + 40) };
+      }
+      const sameEnd = (x, y) => { let k = 0; while (k < x.length && k < y.length && x[x.length - 1 - k] === y[y.length - 1 - k]) k++; return k; };
+      const sameStart = (x, y) => { let k = 0; while (k < x.length && k < y.length && x[k] === y[k]) k++; return k; };
+      function locate(m, an) {
+        if (!an || !an.q) return -1;
+        let best = -1, bs = -Infinity, i = -1, k = 0;
+        while ((i = m.all.indexOf(an.q, i + 1)) >= 0 && k < 2000) {
+          const s = sameEnd(an.pre || '', m.all.slice(Math.max(0, i - 40), i)) + sameStart(an.post || '', m.all.slice(i + an.q.length, i + an.q.length + 40)) - Math.abs(k - (an.n || 0)) * 0.01;
+          if (s > bs) { bs = s; best = i; } k++;
+        }
+        return best;
+      }
+      const hasHL = () => !!(global.CSS && CSS.highlights && global.Highlight);
+      // after every repaint: find each thread's words again and highlight them
+      function apply() {
+        st.pos.clear();
+        if (hasHL()) { CSS.highlights.delete('mdr-cmt'); CSS.highlights.delete('mdr-cmt-on'); }
+        const d = st.data;
+        if (d && d.comments.length && st.path === fileKey() && S.mode !== 'edit') {
+          const m = TC.textMap();
+          for (const c of d.comments) { const p = locate(m, c.anchor); if (p < 0) continue; const r = TC.rangeAt(m, p, c.anchor.q.length); if (r) st.pos.set(c.id, { start: p, end: p + c.anchor.q.length, range: r }); }
+          if (hasHL() && !hidden()) {
+            const live = d.comments.filter((c) => !c.resolved && st.pos.has(c.id));
+            if (live.length) CSS.highlights.set('mdr-cmt', new Highlight(...live.map((c) => st.pos.get(c.id).range)));
+          }
+        }
+        markActive(); syncCount();
+      }
+      function markActive() {
+        if (!hasHL()) return;
+        CSS.highlights.delete('mdr-cmt-on');
+        const r = st.draft ? st.draft.range : st.open && st.pos.get(st.open) ? st.pos.get(st.open).range : null;
+        if (r && r.startContainer.isConnected) CSS.highlights.set('mdr-cmt-on', new Highlight(r));
+      }
+      function after() { apply(); renderPanel(); if (st.open) { if (st.data && st.data.comments.some((c) => c.id === st.open)) renderPop(); else closePop(); } }
+      // threads in page order (threads whose words are gone go last)
+      const at0 = (c) => (st.pos.has(c.id) ? st.pos.get(c.id).start : 1e15);
+      const ordered = (withResolved) => ((st.data && st.data.comments) || []).filter((c) => withResolved || !c.resolved).sort((a, b) => at0(a) - at0(b) || String(a.at).localeCompare(String(b.at)));
+
+      // ---- changes ----
+      const addThread = (anchor, text) => { const id = uid('c'); return mutate((d) => { d.comments.push({ id, anchor, author: who(), at: iso(), text, reactions: {}, replies: [] }); }, 'Comment added').then((ok) => ok && id); };
+      const addReply = (rootId, text) => mutate((d) => { const c = d.comments.find((x) => x.id === rootId); if (!c) return false; (c.replies = c.replies || []).push({ id: uid('r'), author: who(), at: iso(), text, reactions: {} }); }, 'Reply sent');
+      function own(d, id) { const f = find(d, id); if (!f) return null; if (!f.x.author || f.x.author.id !== me.id) { flash('Only ' + ((f.x.author && f.x.author.name) || 'its author') + ' can change this comment', 2600); return null; } return f; }
+      const editOne = (id, text) => mutate((d) => { const f = own(d, id); if (!f) return false; f.x.text = text; f.x.edited = iso(); }, 'Comment updated');
+      const delOne = (id) => mutate((d) => { const f = own(d, id); if (!f) return false; if (f.x === f.root) d.comments = d.comments.filter((c) => c !== f.root); else f.root.replies = f.root.replies.filter((r) => r !== f.x); }, 'Deleted');
+      const react = (id, e) => mutate((d) => {
+        const f = find(d, id); if (!f) return false; const rs = (f.x.reactions = f.x.reactions || {}); const u = (rs[e] = rs[e] || []);
+        const i = u.findIndex((p) => p.id === me.id); if (i >= 0) u.splice(i, 1); else u.push(who()); if (!u.length) delete rs[e];
+      });
+      const resolve = (id, v) => mutate((d) => { const c = d.comments.find((x) => x.id === id); if (!c) return false; if (v) c.resolved = { by: who(), at: iso() }; else delete c.resolved; }, v ? 'Resolved -- it stays in the Comments list' : 'Reopened');
+
+      // ---- small pieces ----
+      function rel(t) {
+        const s = (Date.now() - new Date(t).getTime()) / 1000; if (!isFinite(s)) return '';
+        if (s < 45) return 'just now'; if (s < 3600) return Math.round(s / 60) + ' min ago'; if (s < 86400) return Math.round(s / 3600) + ' h ago';
+        if (s < 172800) return 'yesterday'; const d = new Date(t); return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
+      }
+      const fullTime = (t) => { const d = new Date(t); return isNaN(d) ? '' : d.toLocaleString(); };
+      function avatar(p, cls) {
+        const nm = (p && p.name) || '?', id = (p && p.id) || nm;
+        let hsh = 0; for (const ch of id) hsh = (hsh * 31 + ch.charCodeAt(0)) % 360;
+        const ini = nm.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
+        return h('span', { class: 'cmt-av' + (cls ? ' ' + cls : ''), style: `--hue:${hsh}`, title: nm + (p && p.id ? ' (' + p.id + ')' : ''), 'aria-hidden': 'true' }, ini);
+      }
+      const grow = (t) => { t.style.height = 'auto'; t.style.height = Math.min(180, t.scrollHeight + 2) + 'px'; };
+      const ICON = '<svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><path d="M4 4.5h12a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 16 14.5H9l-3.5 3v-3H4A1.5 1.5 0 0 1 2.5 13V6A1.5 1.5 0 0 1 4 4.5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>';
+      const short = (q, n) => (q.length > n ? q.slice(0, n - 1) + '…' : q);
+      // ---- the popup: one thread, its replies, reactions, Reply, ‹ › to the previous / next thread ----
+      const pop = h('div', { class: 'cmt-pop', hidden: '', role: 'dialog', 'aria-label': 'Comment' });
+      const bubble = h('button', { type: 'button', class: 'cmt-bubble', hidden: '', title: 'Comment on the selected text (⌘⌥M)', onmousedown: (e) => e.preventDefault(), onclick: () => startNew() });
+      bubble.innerHTML = ICON; bubble.append(h('span', {}, 'Comment'));
+      root.append(pop, bubble);
+      const btn = (cls, label, title, fn, dis) => h('button', { type: 'button', class: cls, title, disabled: dis ? '' : null, onclick: (e) => { e.stopPropagation(); fn(e); } }, label);
+      function entry(x, c) {
+        const mine = x.author && x.author.id === me.id, isRoot = x === c;
+        let body;
+        if (st.editing === x.id) {
+          const ed = h('textarea', { class: 'cmt-in', rows: '2', 'aria-label': 'Edit comment' }); ed.value = st.editText;
+          const ok = btn('cmt-send', 'Save', 'Save (⌘↩)', () => { const v = ed.value.trim(); if (!v) return; st.editing = null; editOne(x.id, v); }, !ed.value.trim());
+          ed.oninput = () => { st.editText = ed.value; ok.disabled = !ed.value.trim(); grow(ed); };
+          ed.onkeydown = (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); ok.click(); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); st.editing = null; renderPop(); } };
+          body = h('div', { class: 'cmt-edit' }, ed, h('div', { class: 'cmt-btns' }, btn('cmt-ghost', 'Cancel', 'Cancel (Esc)', () => { st.editing = null; renderPop(); }), ok));
+          setTimeout(() => { ed.focus(); ed.setSelectionRange(ed.value.length, ed.value.length); grow(ed); });
+        } else body = h('div', { class: 'cmt-text' }, x.text);
+        const rs = Object.entries(x.reactions || {}).filter(([, u]) => u && u.length);
+        const picker = st.pickFor === x.id ? h('div', { class: 'cmt-pick', role: 'menu' }, ...REACTS.map((e) => btn('cmt-pe', e, 'React with ' + e, () => { st.pickFor = null; react(x.id, e); }))) : null;
+        const reacts = h('div', { class: 'cmt-reacts' },
+          ...rs.map(([e, u]) => h('button', { type: 'button', class: 'cmt-r' + (u.some((p) => p.id === me.id) ? ' mine' : ''), title: u.map((p) => p.name).join(', '), onclick: (ev) => { ev.stopPropagation(); react(x.id, e); } }, h('span', { class: 'e' }, e), h('span', { class: 'n' }, String(u.length)))),
+          btn('cmt-add', '☺+', 'Add a reaction', () => { st.pickFor = st.pickFor === x.id ? null : x.id; renderPop(); }), picker);
+        const confirming = st.confirm === x.id;
+        const acts = mine && st.editing !== x.id ? h('span', { class: 'cmt-acts' },
+          btn('cmt-link', 'Edit', 'Edit your comment', () => { st.editing = x.id; st.editText = x.text; st.confirm = null; renderPop(); }),
+          confirming ? btn('cmt-link danger', isRoot && (c.replies || []).length ? 'Delete thread?' : 'Delete?', 'Click again to delete', () => { st.confirm = null; delOne(x.id); })
+            : btn('cmt-link', 'Delete', isRoot ? 'Delete this comment and its replies' : 'Delete this reply', () => { st.confirm = x.id; renderPop(); })) : null;
+        return h('div', { class: 'cmt-e' + (isRoot ? ' root' : ' reply') + (mine ? ' mine' : ''), 'data-id': x.id },
+          avatar(x.author),
+          h('div', { class: 'cmt-main' },
+            h('div', { class: 'cmt-h' }, h('b', {}, (x.author && x.author.name) || 'Someone'), h('span', { class: 'cmt-t', title: fullTime(x.at) + (x.edited ? ' · edited ' + fullTime(x.edited) : '') }, rel(x.at) + (x.edited ? ' · edited' : '')), acts),
+            body, reacts));
+      }
+      function renderPop() {
+        const c = st.open && st.data && st.data.comments.find((x) => x.id === st.open);
+        if (!c) return closePop();
+        const list = ordered(!!c.resolved), i = list.indexOf(c), n = list.length;
+        const nav = h('div', { class: 'cmt-nav' },
+          btn('cmt-step cmt-prev', '‹', 'Previous comment (←)', () => step(-1), n < 2),
+          h('span', { class: 'cmt-of' }, n ? `${i + 1} of ${n}` : ''),
+          btn('cmt-step cmt-next', '›', 'Next comment (→)', () => step(1), n < 2),
+          h('span', { class: 'spacer' }),
+          c.resolved ? h('span', { class: 'cmt-done' }, '✓ Resolved by ' + ((c.resolved.by && c.resolved.by.name) || 'someone')) : null,
+          btn('cmt-resolve', c.resolved ? 'Reopen' : '✓ Resolve', c.resolved ? 'Reopen this thread' : 'Mark this thread done -- it stays in the Comments list', () => resolve(c.id, !c.resolved)),
+          btn('cmt-x', '✕', 'Close (Esc)', closePop));
+        const gone = !st.pos.has(c.id);
+        const quote = h('div', { class: 'cmt-quote' + (gone ? ' gone' : ''), title: c.anchor.q }, gone ? h('b', {}, 'Text no longer in the file: ') : null, short(c.anchor.q, 160));
+        const thread = h('div', { class: 'cmt-thread' }, entry(c, c), ...(c.replies || []).map((r) => entry(r, c)));
+        const rin = h('textarea', { class: 'cmt-in', rows: '1', placeholder: 'Reply…', 'aria-label': 'Reply' }); rin.value = st.replyText;
+        const send = btn('cmt-send', 'Reply', 'Send reply (⌘↩)', async () => { const v = rin.value.trim(); if (!v) return; st.replyText = ''; await addReply(c.id, v); const t = thread.parentNode && pop.querySelector('.cmt-thread'); if (t) t.scrollTop = t.scrollHeight; }, !rin.value.trim());
+        rin.oninput = () => { st.replyText = rin.value; send.disabled = !rin.value.trim(); grow(rin); };
+        rin.onkeydown = (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send.click(); } };
+        const keepFocus = pop.contains(document.activeElement) && document.activeElement.classList.contains('cmt-in') && document.activeElement.getAttribute('aria-label') === 'Reply';
+        const scrollY = (pop.querySelector('.cmt-thread') || {}).scrollTop || 0;
+        pop.replaceChildren(nav, quote, thread, h('div', { class: 'cmt-foot' }, avatar(me, 's'), rin, send));
+        thread.scrollTop = scrollY;
+        pop.dataset.mode = 'thread'; pop.hidden = false; grow(rin); place();
+        if (keepFocus) { rin.focus(); rin.setSelectionRange(rin.value.length, rin.value.length); }
+      }
+      function renderNew() {
+        const ta2 = h('textarea', { class: 'cmt-in', rows: '3', placeholder: 'Add a comment…', 'aria-label': 'New comment' });
+        const ok = btn('cmt-send', 'Comment', 'Post (⌘↩)', async () => {
+          const v = ta2.value.trim(); if (!v || !st.draft) return;
+          const an = st.draft.anchor; st.draft = null;
+          const id = await addThread(an, v); if (id) open(id); else closePop();
+        }, true);
+        ta2.oninput = () => { ok.disabled = !ta2.value.trim(); grow(ta2); };
+        ta2.onkeydown = (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); ok.click(); } };
+        pop.replaceChildren(
+          h('div', { class: 'cmt-nav' }, h('span', { class: 'cmt-of' }, 'New comment'), h('span', { class: 'spacer' }), btn('cmt-x', '✕', 'Cancel (Esc)', closePop)),
+          h('div', { class: 'cmt-quote', title: st.draft.anchor.q }, short(st.draft.anchor.q, 160)),
+          h('div', { class: 'cmt-new' }, h('div', { class: 'cmt-h' }, avatar(me, 's'), h('b', {}, me.name)), ta2,
+            h('div', { class: 'cmt-btns' }, h('span', { class: 'cmt-hint' }, '⌘↩ to post'), btn('cmt-ghost', 'Cancel', 'Cancel (Esc)', closePop), ok)));
+        pop.dataset.mode = 'new'; pop.hidden = false; place(); ta2.focus();
+      }
+      // under the words (or above them when there is no room); centred on the page when the words are gone
+      function place() {
+        if (pop.hidden) return;
+        const r = st.draft ? st.draft.range : st.pos.get(st.open) ? st.pos.get(st.open).range : null;
+        const w = pop.offsetWidth, ph = pop.offsetHeight, cr = content.getBoundingClientRect();
+        let rc = r && r.startContainer.isConnected ? r.getClientRects()[0] : null;
+        if (rc && !rc.width && !rc.height) rc = null;
+        if (!rc) { pop.style.left = Math.max(8, cr.left + (cr.width - w) / 2) + 'px'; pop.style.top = Math.max(8, cr.top + 60) + 'px'; pop.classList.remove('up'); return; }
+        const last = r.getClientRects()[r.getClientRects().length - 1] || rc;
+        let top = last.bottom + 8, up = false;
+        if (top + ph > innerHeight - 8) { top = rc.top - ph - 8; up = true; }
+        pop.style.left = Math.max(8, Math.min(rc.left - 12, innerWidth - w - 8)) + 'px';
+        pop.style.top = Math.max(8, top) + 'px'; pop.classList.toggle('up', up);
+      }
+      function reveal(r) {
+        for (let el = r.startContainer.parentElement; el; el = el.parentElement) if (el.tagName === 'DETAILS' && !el.open) el.open = true;
+        const rr = r.getBoundingClientRect(), cr = content.getBoundingClientRect();
+        if (rr.top < cr.top + 40 || rr.bottom > cr.bottom - 260) content.scrollTop += rr.top - cr.top - Math.min(140, cr.height / 4);
+      }
+      function open(id, scroll) {
+        st.open = id; st.draft = null; st.editing = null; st.confirm = null; st.pickFor = null; st.replyText = '';
+        const p = st.pos.get(id); if (scroll && p) reveal(p.range);
+        markActive(); renderPop(); renderPanel();
+      }
+      function step(dir) {
+        const c = st.data && st.data.comments.find((x) => x.id === st.open); const list = ordered(!!(c && c.resolved)); if (!list.length) return;
+        const i = list.indexOf(c); open(list[(i + dir + list.length) % list.length].id, true);
+      }
+      function closePop() {
+        const was = !pop.hidden; pop.hidden = true; st.open = null; st.draft = null; st.editing = null; st.confirm = null; st.pickFor = null;
+        markActive(); if (was) renderPanel();
+      }
+      // ---- starting a comment from a selection ----
+      const selRange = () => { const s = getSelection(); return s.rangeCount && !s.isCollapsed && doc.contains(s.anchorNode) && doc.contains(s.focusNode) ? s.getRangeAt(0).cloneRange() : null; };
+      function startNew() {
+        bubble.hidden = true;
+        if (S.mode === 'edit') return flash('Switch to Read or Write to comment on the page', 2600);
+        const r = selRange(); if (!r || !r.toString().trim()) return flash('Select some text on the page first, then comment', 2600);
+        if (!fileKey()) return flash('Save this file first -- comments are kept with the saved file', 3200);
+        const an = anchorOf(r); if (!an) return flash('Select some text on the page first, then comment', 2600);
+        const m = TC.textMap(), p = locate(m, an), rr = p >= 0 ? TC.rangeAt(m, p, an.q.length) : r;
+        st.open = null; st.editing = null; st.draft = { anchor: an, range: rr };
+        getSelection().removeAllRanges(); markActive(); renderNew();
+      }
+      document.addEventListener('selectionchange', debounce(() => {
+        const r = selRange();
+        if (!r || !r.toString().trim() || S.mode === 'edit' || !fileKey() || (!pop.hidden && pop.dataset.mode === 'new')) { bubble.hidden = true; return; }
+        if (!pop.hidden && pop.dataset.mode === 'thread' && !pop.contains(document.activeElement)) closePop(); // a new selection on the page: you've moved on from that thread
+        const rs = r.getClientRects(), last = rs[rs.length - 1] || r.getBoundingClientRect();
+        bubble.hidden = false;
+        const bw = bubble.offsetWidth, bh = bubble.offsetHeight;
+        bubble.style.left = Math.max(8, Math.min(last.right - bw / 2, innerWidth - bw - 8)) + 'px';
+        bubble.style.top = (last.bottom + 6 + bh < innerHeight ? last.bottom + 6 : last.top - bh - 6) + 'px';
+      }, 140));
+      // click on highlighted words: open that thread (the shortest one when threads overlap)
+      doc.addEventListener('click', (e) => {
+        if (e.button !== 0 || hidden() || !st.pos.size || e.target.closest('button, a, input, textarea, select, .tools, summary')) return;
+        const s = getSelection(); if (s && !s.isCollapsed) return;
+        let hit = null, hl = Infinity;
+        for (const c of st.data.comments) {
+          if (c.resolved) continue; const p = st.pos.get(c.id); if (!p) continue;
+          for (const rc of p.range.getClientRects()) if (e.clientX >= rc.left - 1 && e.clientX <= rc.right + 1 && e.clientY >= rc.top - 1 && e.clientY <= rc.bottom + 1) { if (p.end - p.start < hl) { hit = c; hl = p.end - p.start; } break; }
+        }
+        if (hit && hit.id !== st.open) open(hit.id);
+      }, true);
+      document.addEventListener('mousedown', (e) => {
+        if (!pop.hidden && !pop.contains(e.target) && !bubble.contains(e.target) && !e.target.closest('.cpane, .cmtb')) {
+          if (pop.dataset.mode === 'new' && pop.querySelector('textarea').value.trim()) return; // never drop a half-written comment on a stray click
+          closePop();
+        }
+      }, true);
+      pop.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closePop(); return; }
+        if (e.target.tagName === 'TEXTAREA') return;
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); step(e.key === 'ArrowLeft' ? -1 : 1); }
+      });
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !pop.hidden && !pop.contains(document.activeElement)) { e.preventDefault(); closePop(); } }, true);
+      content.addEventListener('scroll', () => { bubble.hidden = true; place(); }, { passive: true });
+      addEventListener('resize', () => place());
+      // ---- the left panel: every thread on this file ----
+      const tabFiles = h('button', { type: 'button', class: 'lt', 'data-t': 'files', title: 'Files (⌘\\)', onclick: () => setLeft('files') }, 'Files');
+      const tabCmt = h('button', { type: 'button', class: 'lt', 'data-t': 'comments', title: 'Comments on this file (⌘⇧M)', onclick: () => setLeft('comments') }, 'Comments', h('span', { class: 'lt-n' }));
+      const ltabs = h('span', { class: 'ltabs' + (adapter.listDir ? '' : ' only-c') }, tabFiles, tabCmt);
+      files.querySelector('h6').firstChild.replaceWith(ltabs);
+      const cpane = h('div', { class: 'cpane' }); files.append(cpane);
+      const cmtBtn = h('button', { class: 'icon cmtb', title: 'Comments (⌘⇧M)', onclick: () => toggle() }); cmtBtn.innerHTML = ICON; cmtBtn.append(h('span', { class: 'cmtb-n' }));
+      top.insertBefore(cmtBtn, themeSel);
+      S.left = 'files';
+      function setLeft(t) {
+        if (t === 'files' && !adapter.listDir) t = 'comments';
+        S.left = t; files.classList.toggle('cm', t === 'comments');
+        tabFiles.classList.toggle('on', t === 'files'); tabCmt.classList.toggle('on', t === 'comments');
+        if (!S.files) togglePanel('files', true);
+        cmtBtn.classList.toggle('on', S.files && t === 'comments');
+        renderPanel();
+      }
+      function toggle() {
+        if (S.files && S.left === 'comments') {
+          if (st.wasFiles && adapter.listDir) setLeft('files'); else { S.left = 'files'; files.classList.remove('cm'); togglePanel('files', false); }
+          cmtBtn.classList.remove('on');
+        } else { st.wasFiles = S.files; setLeft('comments'); }
+      }
+      function syncCount() {
+        const n = ((st.data && st.data.comments) || []).filter((c) => !c.resolved).length;
+        tabCmt.lastChild.textContent = n ? String(n) : '';
+        cmtBtn.lastChild.textContent = n ? String(n) : '';
+        cmtBtn.classList.toggle('has', n > 0);
+        cmtBtn.title = n ? `Comments (⌘⇧M) -- ${n} open on this file` : 'Comments (⌘⇧M)';
+      }
+      function card(c) {
+        const gone = !st.pos.has(c.id), nr = (c.replies || []).length;
+        const rs = Object.entries(c.reactions || {}).filter(([, u]) => u && u.length);
+        return h('div', { class: 'cp-card' + (c.id === st.open ? ' on' : '') + (c.resolved ? ' res' : '') + (gone ? ' gone' : ''), role: 'button', tabindex: '0', 'data-id': c.id,
+          onclick: () => open(c.id, true), onkeydown: (e) => { if (e.key === 'Enter') open(c.id, true); } },
+          h('div', { class: 'cp-q', title: c.anchor.q }, short(c.anchor.q, 90)),
+          h('div', { class: 'cp-h' }, avatar(c.author, 's'), h('b', {}, (c.author && c.author.name) || 'Someone'), h('span', { class: 'cp-t', title: fullTime(c.at) }, rel(c.at))),
+          h('div', { class: 'cp-x' }, c.text),
+          h('div', { class: 'cp-m' },
+            nr ? h('span', {}, nr + (nr === 1 ? ' reply' : ' replies')) : null,
+            rs.length ? h('span', { class: 'cp-rs' }, rs.map(([e, u]) => e + (u.length > 1 ? u.length : '')).join(' ')) : null,
+            c.resolved ? h('span', { class: 'cp-tag ok' }, '✓ Resolved') : null,
+            gone ? h('span', { class: 'cp-tag warn', title: 'The words this comment was on are no longer in the file' }, 'Text gone') : null));
+      }
+      function renderPanel() {
+        if (!S.files || S.left !== 'comments') return;
+        const all = (st.data && st.data.comments) || [], nOpen = all.filter((c) => !c.resolved).length;
+        const chip = (f, label) => h('button', { type: 'button', class: 'cp-chip' + (st.filter === f ? ' on' : ''), onclick: () => { st.filter = f; renderPanel(); } }, label);
+        const qIn = h('input', { class: 'cp-search', type: 'search', placeholder: 'Search comments', 'aria-label': 'Search comments', value: st.q });
+        qIn.oninput = debounce(() => { st.q = qIn.value; renderPanel(); const n = cpane.querySelector('.cp-search'); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 200);
+        const q = st.q.trim().toLowerCase();
+        const match = (c) => !q || [c.text, c.anchor.q, c.author && c.author.name, ...(c.replies || []).flatMap((r) => [r.text, r.author && r.author.name])].some((s) => String(s || '').toLowerCase().includes(q));
+        const list = ordered(true).filter((c) => (st.filter === 'all' || (st.filter === 'open' ? !c.resolved : !!c.resolved)) && match(c));
+        let body;
+        if (!fileKey()) body = h('div', { class: 'cp-empty' }, 'Save this file to comment on it.');
+        else if (S.mode === 'edit') body = h('div', { class: 'cp-empty' }, 'Comments show on the page. Switch to Read or Write (⌘1 / ⌘4) to see them.');
+        else if (!all.length) body = h('div', { class: 'cp-empty' }, h('b', {}, 'No comments yet'), h('br'), 'Select some words on the page, then click ', h('span', { class: 'cp-kb' }, 'Comment'), ' or press ⌘⌥M.');
+        else if (!list.length) body = h('div', { class: 'cp-empty' }, q ? 'No comments match.' : st.filter === 'resolved' ? 'Nothing resolved yet.' : 'All threads are resolved.');
+        else body = h('div', { class: 'cp-list' }, ...list.map(card));
+        const nameEl = h('button', { type: 'button', class: 'cp-me', title: 'Change the name others see on your comments' }, me.name, h('span', {}, ' ✎'));
+        nameEl.onclick = () => {
+          const inp = h('input', { class: 'cp-name', value: me.name, 'aria-label': 'Your name' });
+          const done = (ok) => { if (ok && inp.value.trim()) { me.name = inp.value.trim().slice(0, 60); localStorage.setItem('mdr-me-name', me.name); flash('New comments will show ' + me.name, 2000); } renderPanel(); };
+          inp.onkeydown = (e) => { if (e.key === 'Enter') done(true); else if (e.key === 'Escape') done(false); };
+          inp.onblur = () => done(true);
+          nameEl.replaceWith(inp); inp.focus(); inp.select();
+        };
+        const show = h('input', { type: 'checkbox' }); show.checked = !hidden();
+        show.onchange = () => { if (show.checked) localStorage.removeItem(OFF); else localStorage.setItem(OFF, '1'); apply(); flash(show.checked ? 'Comment highlights shown' : 'Comment highlights hidden -- the comments are still here', 2200); };
+        const where = adapter.writeComments ? `Saved next to the file as ${(curDisp().name || 'file')}.mdr-comments.json` : 'Kept in this browser';
+        cpane.replaceChildren(
+          h('div', { class: 'cp-top' }, h('div', { class: 'cp-chips' }, chip('open', `Open ${nOpen}`), chip('resolved', `Resolved ${all.length - nOpen}`), chip('all', `All ${all.length}`)), qIn),
+          body,
+          h('div', { class: 'cp-foot' },
+            h('div', {}, 'Commenting as ', nameEl),
+            h('label', { class: 'cp-show' }, show, h('span', {}, 'Highlight commented text')),
+            h('div', { class: 'cp-where' }, where)));
+        const on = cpane.querySelector('.cp-card.on'); if (on) on.scrollIntoView({ block: 'nearest' });
+      }
+      tabFiles.classList.add('on');
+      if (!adapter.listDir) { /* the extension has no Files tab: the pane shows Comments only */ }
+      addEventListener('focus', () => { if (fileKey()) load(true); }); // someone else may have replied while you were away
+      return { load, apply, toggle, startNew, close: closePop, place, me,
+        get isOpen() { return !pop.hidden; }, get data() { return st.data; }, _open: open, _step: step };
     })();
 
     // ---------- Draw: pencil, marker, highlighter, arrow, eraser and a fading pointer, over any page ----------
@@ -2812,6 +3192,8 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
       fitEditor(); if (srcShown()) requestAnimationFrame(buildMirror);
       if (srcShown()) setTimeout(() => ta.focus(), 0);
       if (!quiet) adapter.setPref && adapter.setPref('mode', m);
+      if (m === 'edit') CM.close();
+      CM.load();
     }
     function setTheme(t) {
       if (!THEMES.some((x) => x.id === t)) t = DEFAULT_THEME;
@@ -2912,11 +3294,12 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
     }
     function cycleTheme() { const i = THEMES.findIndex((t) => t.id === S.theme); setTheme(THEMES[(i + 1) % THEMES.length].id); flash('Theme: ' + THEMES[(i + 1) % THEMES.length].name); }
     function togglePanel(p, force) {
-      if (p === 'files' && !adapter.listDir) force = false;
+      if (p === 'files' && !adapter.listDir && S.left !== 'comments') force = false;
       S[p] = force === undefined ? !S[p] : force;
       root.classList.toggle('no-' + p, !S[p]);
       if (p === 'outline') outlineBtn.classList.toggle('off', !S[p]);
       if (p === 'files' && filesBtn) filesBtn.classList.toggle('off', !S[p]);
+      if (p === 'files' && typeof CM !== 'undefined') { root.querySelector('.cmtb')?.classList.toggle('on', S.files && S.left === 'comments'); if (S.files) CM.apply(); }
       if (!(p === 'files' && !adapter.listDir)) adapter.setPref && adapter.setPref(p, S[p]);
     }
     function flash(msg, ms = 1600) { toast.textContent = msg; toast.classList.add('show'); clearTimeout(flash.t); flash.t = setTimeout(() => toast.classList.remove('show'), ms); }
@@ -3020,13 +3403,14 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
     }
     async function showTab(i, fresh) {
       if (i < 0 || i >= S.tabs.length) return;
-      if (i !== S.tab) { stashActive(); CMP.close(); DR.close(); }
+      if (i !== S.tab) { stashActive(); CMP.close(); DR.close(); CM.close(); }
       S.tab = i; const t = S.tabs[i];
       S.path = t.path; S.saved = t.saved; S.filters = t.filters || {}; setText(t.text); setDirty(t.text !== t.saved);
       const d = dispOf(t);
       ta.placeholder = isUntitled(t) ? 'Paste or type Markdown or JSON here…' : '';
       renderCrumbs(d);
       paint();
+      CM.load();
       content.scrollTop = fresh ? 0 : t.scroll;
       [...tabsEl.querySelectorAll('.tab')].forEach((el, j) => { el.classList.toggle('on', j === i); el.setAttribute('aria-selected', j === i); });
       revealActiveTab();
@@ -3261,7 +3645,7 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
       let entries = [];
       try { entries = await adapter.listDir(dir); } catch (e) { kids.replaceChildren(h('div', { class: 'empty' }, 'not readable')); return; }
       const dirs = entries.filter((e) => e.dir && !e.name.startsWith('.')).sort((a, b) => a.name.localeCompare(b.name));
-      const mds = entries.filter((e) => !e.dir && TREE_FILE.test(e.name)).sort((a, b) => a.name.localeCompare(b.name));
+      const mds = entries.filter((e) => !e.dir && TREE_FILE.test(e.name) && !/\.mdr-comments\.json$/i.test(e.name)).sort((a, b) => a.name.localeCompare(b.name));
       const old = new Map();
       for (const el of kids.children) if (el.dataset.path) old.set((el.classList.contains('folder') ? 'd:' : 'f:') + el.dataset.path, el);
       const next = [];
@@ -3333,6 +3717,8 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
       else if (k === 'f' && e.shiftKey) { e.preventDefault(); formatDoc(e.altKey); }
       else if (k === 'd' && e.shiftKey) { e.preventDefault(); CMP.toggle(); }
       else if (k === 'h' && e.shiftKey) { e.preventDefault(); TC.toggle(); }
+      else if (e.code === 'KeyM' && e.altKey && !e.shiftKey) { e.preventDefault(); CM.startNew(); }
+      else if (k === 'm' && e.shiftKey) { e.preventDefault(); CM.toggle(); }
       else if (k === 'e' && e.shiftKey) { e.preventDefault(); DR.toggle(); }
       else if (k === 't' && e.shiftKey) { e.preventDefault(); reopenClosed(); } // standard "reopen closed tab"
       else if (k === 'arrowup' && e.altKey) { e.preventDefault(); treeUp(); }

@@ -42,6 +42,9 @@ const adapter = {
   recent: api.recent,
   openPath: (p) => p && api.openPath(p),
   statPath: api.statPath,
+  readComments: api.readComments,
+  writeComments: api.writeComments,
+  whoami: api.whoami,
   home,
 };
 

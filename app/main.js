@@ -152,6 +152,31 @@ ipcMain.handle('write-file', async (e, p, text, hint) => {
   if (en && en.paths.has(p)) setTimeout(() => watch(en, p), 200);
   return p;
 });
+// Comments live in a small file next to the document: notes.md -> notes.md.mdr-comments.json. It travels with the
+// folder (git, a shared drive), works the same for .md, .json and .sql, and never touches the document itself.
+const commentsPath = (p) => p + '.mdr-comments.json';
+ipcMain.handle('comments-read', async (e, p) => {
+  try { return JSON.parse(await fsp.readFile(commentsPath(p), 'utf8')); } catch (err) { if (err.code === 'ENOENT') return null; throw err; }
+});
+ipcMain.handle('comments-write', async (e, p, data) => {
+  const f = commentsPath(p);
+  if (!data || !data.comments || !data.comments.length) { await fsp.rm(f, { force: true }); return null; } // last comment gone: no empty file left behind
+  const tmp = f + '.tmp-' + process.pid;
+  await fsp.writeFile(tmp, JSON.stringify(data, null, 2) + '\n', 'utf8');
+  await fsp.rename(tmp, f); // atomic: a reader never sees half a file
+  return f;
+});
+// Who is commenting: the Mac login is the id (it decides who may edit a comment), the full name is what others see.
+let me = null;
+ipcMain.on('whoami', (e) => {
+  if (!me) {
+    const os = require('os'); const id = os.userInfo().username; let name = id;
+    if (process.env.MDR_TEST_USER) name = process.env.MDR_TEST_USER;
+    else if (isMac) { try { name = require('child_process').execFileSync('id', ['-F'], { encoding: 'utf8', timeout: 2000 }).trim() || id; } catch {} }
+    me = { id: process.env.MDR_TEST_USER_ID || id, name };
+  }
+  e.returnValue = me;
+});
 ipcMain.handle('list-dir', async (e, dir) => {
   const ents = await fsp.readdir(dir, { withFileTypes: true });
   return ents.map((d) => ({ name: d.name, path: path.join(dir, d.name), dir: d.isDirectory() }));
