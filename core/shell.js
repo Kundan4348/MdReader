@@ -2318,17 +2318,50 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
             if (live.length) CSS.highlights.set('mdr-cmt', new Highlight(...live.map((c) => st.pos.get(c.id).range)));
           }
         }
-        markActive(); syncCount();
+        markActive(); syncCount(); markers();
       }
+      // a small numbered pin at the end of each commented passage, in the commenter's colour; click it to open the thread
+      const pins = h('div', { class: 'cmt-pins', 'aria-hidden': 'true' }); content.append(pins);
+      function markers() {
+        const d = st.data, out = [];
+        if (d && !hidden() && S.mode !== 'edit') {
+          const z = pins.currentCSSZoom || 1, pr = pins.getBoundingClientRect(), used = [];
+          ordered(true).forEach((c, i) => {
+            if (c.resolved) return; const p = st.pos.get(c.id); if (!p) return;
+            const rs = p.range.getClientRects(); const r = rs[0]; if (!r || (!r.width && !r.height)) return;
+            // in the margin to the right of the text column, level with the line the comment starts on
+            const el = p.range.startContainer.nodeType === 1 ? p.range.startContainer : p.range.startContainer.parentElement;
+            const col = (el && (el.closest('.sec .body') || el.closest('.head'))) || doc;
+            const cr = col.getBoundingClientRect();
+            let x = cr.right + 10, y = r.top + r.height / 2 - 9;
+            const n = c.replies && c.replies.length;
+            out.push(h('button', { type: 'button', class: 'cmt-pin' + (c.id === st.open ? ' on' : ''), style: `--hue:${hueOf(c.author)};left:${(x - pr.left) / z}px;top:${(y - pr.top) / z}px`,
+              title: `${(c.author && c.author.name) || 'Someone'}: ${short(c.text, 80)}${n ? ` (+${n} repl${n === 1 ? 'y' : 'ies'})` : ''}`, tabindex: '-1', onmousedown: (e) => e.preventDefault(), onclick: (e) => { e.stopPropagation(); open(c.id); } },
+              String(i + 1)));
+          });
+        }
+        pins.replaceChildren(...out);
+        // two on one line sit side by side, each after the previous one's real width
+        const placed = [];
+        for (const b of out) {
+          let l = parseFloat(b.style.left); const t = parseFloat(b.style.top), w = b.offsetWidth;
+          for (const q of placed) if (Math.abs(q.t - t) < 14 && l < q.l + q.w + 4 && l + w > q.l - 4) l = q.l + q.w + 4;
+          b.style.left = l + 'px'; placed.push({ l, t, w });
+        }
+      }
+      addEventListener('resize', debounce(() => { if (st.pos.size) apply(); }, 150));
+      root.addEventListener('mdr-pane-resize', debounce(() => { if (st.pos.size) apply(); }, 150));
       function markActive() {
         if (!hasHL()) return;
         CSS.highlights.delete('mdr-cmt-on');
         const r = st.draft ? st.draft.range : st.open && st.pos.get(st.open) ? st.pos.get(st.open).range : null;
         if (r && r.startContainer.isConnected) CSS.highlights.set('mdr-cmt-on', new Highlight(r));
+        pins.querySelectorAll('.cmt-pin').forEach((b) => b.classList.toggle('on', b.firstChild.textContent === String(numOf(st.open))));
       }
       function after() { apply(); renderPanel(); if (typeof PP !== 'undefined') PP.sync(); if (st.open) { if (st.data && st.data.comments.some((c) => c.id === st.open)) renderPop(); else closePop(); } }
       // threads in page order (threads whose words are gone go last)
       const at0 = (c) => (st.pos.has(c.id) ? st.pos.get(c.id).start : 1e15);
+      const numOf = (id) => ordered(true).findIndex((c) => c.id === id) + 1; // a thread's number: its place on the page, the same in the list, the popup and the margin marker
       const ordered = (withResolved) => ((st.data && st.data.comments) || []).filter((c) => withResolved || !c.resolved).sort((a, b) => at0(a) - at0(b) || String(a.at).localeCompare(String(b.at)));
 
       // ---- changes ----
@@ -2350,9 +2383,23 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
         if (s < 172800) return 'yesterday'; const d = new Date(t); return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
       }
       const fullTime = (t) => { const d = new Date(t); return isNaN(d) ? '' : d.toLocaleString(); };
+      // each person gets one steady hue (from their login), used on their avatar, their cards and their replies
+      const HUES = [215, 160, 270, 32, 190, 320, 95, 245, 48, 175, 290, 135]; // calm, well apart, no reds (red reads as an error)
+      // on one file, people get palette colours in the order they first commented, so two people never share one
+      let hueMap = null, hueFor = null;
+      const hueOf = (p) => {
+        const id = (p && (p.id || p.name)) || '?';
+        if (hueFor !== st.data) {
+          hueFor = st.data; hueMap = new Map();
+          const all = []; for (const c of (st.data && st.data.comments) || []) { all.push(c); for (const r of c.replies || []) all.push(r); }
+          all.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+          for (const x of all) { const k = x.author && (x.author.id || x.author.name); if (k && !hueMap.has(k)) hueMap.set(k, HUES[hueMap.size % HUES.length]); }
+        }
+        if (!hueMap.has(id)) { let x = 7; for (const ch of id) x = (x * 31 + ch.charCodeAt(0)) >>> 0; return HUES[(hueMap.size + x) % HUES.length]; }
+        return hueMap.get(id);
+      };
       function avatar(p, cls) {
-        const nm = (p && p.name) || '?', id = (p && p.id) || nm;
-        let hsh = 0; for (const ch of id) hsh = (hsh * 31 + ch.charCodeAt(0)) % 360;
+        const nm = (p && p.name) || '?', hsh = hueOf(p);
         const ini = nm.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
         return h('span', { class: 'cmt-av' + (cls ? ' ' + cls : ''), style: `--hue:${hsh}`, title: nm + (p && p.id ? ' (' + p.id + ')' : ''), 'aria-hidden': 'true' }, ini);
       }
@@ -2387,10 +2434,10 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
           btn('cmt-link', 'Edit', 'Edit your comment', () => { st.editing = x.id; st.editText = x.text; st.confirm = null; renderPop(); }),
           confirming ? btn('cmt-link danger', isRoot && (c.replies || []).length ? 'Delete thread?' : 'Delete?', 'Click again to delete', () => { st.confirm = null; delOne(x.id); })
             : btn('cmt-link', 'Delete', isRoot ? 'Delete this comment and its replies' : 'Delete this reply', () => { st.confirm = x.id; renderPop(); })) : null;
-        return h('div', { class: 'cmt-e' + (isRoot ? ' root' : ' reply') + (mine ? ' mine' : ''), 'data-id': x.id },
+        return h('div', { class: 'cmt-e' + (isRoot ? ' root' : ' reply') + (mine ? ' mine' : ''), 'data-id': x.id, style: `--hue:${hueOf(x.author)}` },
           avatar(x.author),
           h('div', { class: 'cmt-main' },
-            h('div', { class: 'cmt-h' }, h('b', {}, (x.author && x.author.name) || 'Someone'), h('span', { class: 'cmt-t', title: fullTime(x.at) + (x.edited ? ' · edited ' + fullTime(x.edited) : '') }, rel(x.at) + (x.edited ? ' · edited' : '')),
+            h('div', { class: 'cmt-h' }, h('b', {}, (x.author && x.author.name) || 'Someone'), mine ? h('span', { class: 'cmt-you' }, 'you') : null, h('span', { class: 'cmt-t', title: fullTime(x.at) + (x.edited ? ' · edited ' + fullTime(x.edited) : '') }, rel(x.at) + (x.edited ? ' · edited' : '')),
               x.pippin && x.pippin.id && !x.pippin.unlinked ? h('span', { class: 'cmt-pp', title: 'On Pippin too' }, 'Pippin') : (st.data && st.data.pippin && x.author && x.author.id === me.id ? h('span', { class: 'cmt-pp wait', title: 'Not on Pippin yet -- it goes with the next sync' }, 'sending…') : null), acts),
             body, reacts));
       }
@@ -2399,6 +2446,7 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
         if (!c) return closePop();
         const list = ordered(!!c.resolved), i = list.indexOf(c), n = list.length;
         const nav = h('div', { class: 'cmt-nav' },
+          h('span', { class: 'cmt-num', style: `--hue:${hueOf(c.author)}`, title: 'Comment ' + numOf(c.id) + ' on this page' }, String(numOf(c.id))),
           btn('cmt-step cmt-prev', '‹', 'Previous comment (←)', () => step(-1), n < 2),
           h('span', { class: 'cmt-of' }, n ? `${i + 1} of ${n}` : ''),
           btn('cmt-step cmt-next', '›', 'Next comment (→)', () => step(1), n < 2),
@@ -2716,19 +2764,44 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
         cmtBtn.classList.toggle('has', n > 0);
         cmtBtn.title = n ? `Comments (⌘⇧M) -- ${n} open on this file` : 'Comments (⌘⇧M)';
       }
+      // the part of the document a thread sits in (its ## section), for the list's group headings
+      function sectionOf(c) {
+        const p = st.pos.get(c.id); if (!p) return null;
+        const el = p.range.startContainer.parentElement, sec = el && el.closest('.sec');
+        const hd = sec ? sec.querySelector('h2 .t, h2') : head.querySelector('h1');
+        return (hd ? hd.textContent : '').replace(/^#+\s*/, '').replace(/\s+/g, ' ').trim() || 'Top of the page';
+      }
       function card(c) {
-        const gone = !st.pos.has(c.id), nr = (c.replies || []).length;
+        const gone = !st.pos.has(c.id), rp = c.replies || [], nr = rp.length;
         const rs = Object.entries(c.reactions || {}).filter(([, u]) => u && u.length);
-        return h('div', { class: 'cp-card' + (c.id === st.open ? ' on' : '') + (c.resolved ? ' res' : '') + (gone ? ' gone' : ''), role: 'button', tabindex: '0', 'data-id': c.id,
+        const people = []; for (const p of [c.author, ...rp.map((r) => r.author)]) if (p && !people.some((q) => q.id === p.id)) people.push(p);
+        const last = nr ? rp[nr - 1] : null;
+        return h('div', { class: 'cp-card' + (c.id === st.open ? ' on' : '') + (c.resolved ? ' res' : '') + (gone ? ' gone' : ''), role: 'button', tabindex: '0', 'data-id': c.id, style: `--hue:${hueOf(c.author)}`,
           onclick: () => open(c.id, true), onkeydown: (e) => { if (e.key === 'Enter') open(c.id, true); } },
-          h('div', { class: 'cp-q', title: c.anchor.q }, short(c.anchor.q, 90)),
-          h('div', { class: 'cp-h' }, avatar(c.author, 's'), h('b', {}, (c.author && c.author.name) || 'Someone'), h('span', { class: 'cp-t', title: fullTime(c.at) }, rel(c.at))),
+          h('div', { class: 'cp-h' },
+            h('span', { class: 'cp-n', title: 'Comment ' + numOf(c.id) + ' on this page' }, c.resolved ? '✓' : String(numOf(c.id))),
+            avatar(c.author, 's'), h('b', {}, (c.author && c.author.name) || 'Someone'), h('span', { class: 'cp-t', title: fullTime(c.at) }, rel(c.at))),
+          h('div', { class: 'cp-q', title: c.anchor.q }, h('span', {}, short(c.anchor.q, 70))),
           h('div', { class: 'cp-x' }, c.text),
+          last ? h('div', { class: 'cp-last', style: `--hue:${hueOf(last.author)}`, title: nr + (nr === 1 ? ' reply' : ' replies') },
+            h('b', {}, ((last.author && last.author.name) || 'Someone').split(/[\s,]+/)[0] + ':'), ' ', short(last.text, 90)) : null,
           h('div', { class: 'cp-m' },
+            people.length > 1 ? h('span', { class: 'cp-ppl', title: people.map((p) => p.name).join(', ') }, ...people.slice(0, 4).map((p) => avatar(p, 'xs'))) : null,
             nr ? h('span', {}, nr + (nr === 1 ? ' reply' : ' replies')) : null,
             rs.length ? h('span', { class: 'cp-rs' }, rs.map(([e, u]) => e + (u.length > 1 ? u.length : '')).join(' ')) : null,
-            c.resolved ? h('span', { class: 'cp-tag ok' }, '✓ Resolved') : null,
+            c.pippin && c.pippin.id && st.data && st.data.pippin ? h('span', { class: 'cmt-pp' }, 'Pippin') : null,
+            c.resolved ? h('span', { class: 'cp-tag ok' }, 'Resolved') : null,
             gone ? h('span', { class: 'cp-tag warn', title: 'The words this comment was on are no longer in the file' }, 'Text gone') : null));
+      }
+      // cards grouped under the section they sit in, in page order
+      function grouped(list) {
+        const out = []; let cur = null;
+        for (const c of list) {
+          const sec = sectionOf(c) || 'No longer in the file';
+          if (sec !== cur) { cur = sec; out.push(h('div', { class: 'cp-sec' + (st.pos.has(c.id) ? '' : ' gone') }, h('span', {}, sec), h('i', {}, String(list.filter((x) => (sectionOf(x) || 'No longer in the file') === sec).length)))); }
+          out.push(card(c));
+        }
+        return out;
       }
       function renderPanel() {
         if (!S.files || S.left !== 'comments') return;
@@ -2744,7 +2817,7 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
         else if (S.mode === 'edit') body = h('div', { class: 'cp-empty' }, 'Comments show on the page. Switch to Read or Write (⌘1 / ⌘4) to see them.');
         else if (!all.length) body = h('div', { class: 'cp-empty' }, h('b', {}, 'No comments yet'), h('br'), 'Select some words on the page, then click ', h('span', { class: 'cp-kb' }, 'Comment'), ' or press ⌘⌥M.');
         else if (!list.length) body = h('div', { class: 'cp-empty' }, q ? 'No comments match.' : st.filter === 'resolved' ? 'Nothing resolved yet.' : 'All threads are resolved.');
-        else body = h('div', { class: 'cp-list' }, ...list.map(card));
+        else body = h('div', { class: 'cp-list' }, ...grouped(list));
         const nameEl = h('button', { type: 'button', class: 'cp-me', title: 'Change the name others see on your comments' }, me.name, h('span', {}, ' ✎'));
         nameEl.onclick = () => {
           const inp = h('input', { class: 'cp-name', value: me.name, 'aria-label': 'Your name' });

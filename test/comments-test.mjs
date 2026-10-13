@@ -201,6 +201,28 @@ r.bobConfirm = await ev(`[...document.querySelectorAll('#app .cmt-pop .cmt-link.
 await ev(`document.querySelector('#app .cmt-pop .cmt-link.danger').click()`); await sleep(600);
 const tb2 = side(f.md).comments.find((c) => c.id === tb.id);
 ok.bobDeletesOwn = r.bobConfirm.join() === 'Delete?' && tb2.replies.length === 1 && tb2.replies[0].author.id === 'alice' && tb2.text === r.bobRootText;
+await key('Escape', 'Escape', 27); await sleep(150);
+r.cb = await comment('lazy dog', 'Can we pick a different example?');
+await key('Escape', 'Escape', 27); await sleep(200);
+await ev(`(()=>{const b=document.querySelector('#app .top .cmtb'); if(!b.classList.contains('on')) b.click()})()`); await sleep(400);
+r.look = await ev(`(()=>({
+  secs:[...document.querySelectorAll('#app .cpane .cp-sec span')].map(e=>e.textContent),
+  cards:[...document.querySelectorAll('#app .cpane .cp-card')].map(c=>({n:c.querySelector('.cp-n').textContent, who:c.querySelector('.cp-h b').textContent, hue:c.style.getPropertyValue('--hue'), last:c.querySelector('.cp-last')?.textContent||'', ppl:c.querySelectorAll('.cp-ppl .cmt-av').length, edge:getComputedStyle(c,'::before').backgroundColor})),
+  pins:[...document.querySelectorAll('#app .cmt-pin')].map(p=>({n:p.firstChild.textContent, bg:getComputedStyle(p).backgroundColor, r:p.getBoundingClientRect().left}))}))()`);
+r.pinsClear = await ev(`(()=>{const ps=[...document.querySelectorAll('#app .cmt-pin')]; const body=document.querySelector('#app .doc .head')||document.querySelector('#app .doc'); const words=[...CSS.highlights.get('mdr-cmt')].flatMap(r=>[...r.getClientRects()]); return ps.every(p=>{const b=p.getBoundingClientRect(); return !words.some(w=>b.left<w.right&&b.right>w.left&&b.top<w.bottom&&b.bottom>w.top)})})()`);
+const cs = r.look.cards, alice = cs.find((c) => c.who === 'Alice Rao'), bob = cs.find((c) => c.who === 'Bob Iyer');
+ok.look = r.look.secs.join('|') === 'Release notes' && cs.map((c) => c.n).join() === '1,2,3' && !!alice && !!bob && alice.hue !== bob.hue && alice.edge !== bob.edge
+  && cs[0].last.startsWith('Alice:') && cs[0].ppl === 0 + (cs[0].last ? 0 : 0) + (cs[0].ppl) && r.look.pins.map((p) => p.n).join() === '1,2,3' && new Set(r.look.pins.map((p) => p.bg)).size === 2;
+await clickWords('lazy dog'); await sleep(300);
+r.popNum = await ev(`document.querySelector('#app .cmt-pop .cmt-num')?.textContent`);
+r.pinOn = await ev(`document.querySelector('#app .cmt-pin.on')?.firstChild.textContent`);
+r.pinsApart = await ev(`(()=>{const b=[...document.querySelectorAll('#app .cmt-pin')].map(p=>p.getBoundingClientRect()); return b.every((x,i)=>b.every((y,j)=>i===j||x.right<=y.left||y.right<=x.left||x.bottom<=y.top||y.bottom<=x.top))})()`);
+ok.pinsInMargin = r.pinsClear === true && r.pinsApart === true;
+ok.numbersMatch = r.popNum === bob.n && r.pinOn === bob.n; // the popup's number, the pin and the card agree
+await shot('cmt-look-mono.png');
+await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value='studio'; s.dispatchEvent(new Event('change'))})()`); await sleep(500); await shot('cmt-look-studio.png');
+await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value='lumen'; s.dispatchEvent(new Event('change'))})()`); await sleep(500); await shot('cmt-look-lumen.png');
+await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value='mono'; s.dispatchEvent(new Event('change'))})()`); await sleep(200);
 ok.docsUnchanged = readFileSync(f.json, 'utf8') === JS && readFileSync(f.sql, 'utf8') === SQ && !readFileSync(f.md, 'utf8').includes('mdr');
 ok.filesPaneHidesSidecar = await ev(`![...document.querySelectorAll('#app .tree .file')].some(e=>/mdr-comments/.test(e.textContent))`);
 r.bobLogs = A.logs.slice(); A.stop();
