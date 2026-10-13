@@ -971,7 +971,7 @@ svg.ink path.gone{opacity:.12!important}
 /* ---------- comments ---------- */
 ::highlight(mdr-cmt){background-color:color-mix(in srgb,var(--accent,#3b82f6) 13%,transparent);text-decoration:underline 2px color-mix(in srgb,var(--accent,#3b82f6) 55%,transparent);text-underline-offset:3px}
 ::highlight(mdr-cmt-on){background-color:color-mix(in srgb,var(--accent,#3b82f6) 30%,transparent);text-decoration:underline 2px var(--accent,#3b82f6);text-underline-offset:3px}
-.cmt-pop{--cbg:var(--panel,var(--card,var(--page,var(--paper,#fff))));--cink:var(--ink,var(--text,#222));--cmut:var(--ink-3,var(--text-3,#888));--cline:var(--line,var(--rule,#e2e2e2));
+.cmt-pop{--cbg:var(--panel,var(--card,var(--paper,#fff)));--cink:var(--ink,var(--text,#222));--cmut:var(--ink-3,var(--text-3,#888));--cline:var(--line,var(--rule,#e2e2e2));
   position:fixed;z-index:72;width:344px;max-width:calc(100vw - 16px);max-height:min(560px,calc(100vh - 16px));display:flex;flex-direction:column;border-radius:12px;background:var(--cbg);color:var(--cink);
   border:1px solid var(--line-2,var(--cline));box-shadow:0 16px 40px rgba(0,0,0,.18),0 2px 6px rgba(0,0,0,.06);font:13px/1.45 var(--sans,system-ui,sans-serif);overflow:hidden}
 .cmt-pop[hidden],.cmt-bubble[hidden]{display:none}
@@ -1033,9 +1033,9 @@ html[data-theme=studio] .cmt-send{color:#0f1216!important}
 .cmt-new .cmt-h{margin-bottom:6px;align-items:center}
 .cmt-edit{margin-top:4px}
 .cmt-bubble{position:fixed;z-index:73;display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 11px 0 9px;border-radius:999px;cursor:pointer;
-  background:var(--panel,var(--card,var(--page,var(--paper,#fff))));color:var(--accent,#3b82f6);border:1px solid color-mix(in srgb,var(--accent,#3b82f6) 35%,var(--line,#ddd));
+  background:var(--panel,var(--card,var(--paper,#fff)));color:var(--accent,#3b82f6);border:1px solid color-mix(in srgb,var(--accent,#3b82f6) 35%,var(--line,#ddd));
   box-shadow:0 6px 18px rgba(0,0,0,.14);font:600 12px/1 var(--sans,system-ui,sans-serif)}
-.cmt-bubble:hover{background:color-mix(in srgb,var(--accent,#3b82f6) 10%,var(--panel,var(--card,var(--page,var(--paper,#fff)))))}
+.cmt-bubble:hover{background:color-mix(in srgb,var(--accent,#3b82f6) 10%,var(--panel,var(--card,var(--paper,#fff))))}
 /* top-bar button */
 .top .cmtb{position:relative;display:inline-grid;place-items:center}
 .top .cmtb.on{color:var(--accent,#3b82f6);background:color-mix(in srgb,var(--accent,#3b82f6) 12%,transparent)}
@@ -1045,7 +1045,7 @@ html[data-theme=studio] .top .cmtb .cmtb-n{color:#0f1216}
 /* left pane: Files | Comments */
 .files .ltabs{display:inline-flex;gap:2px;padding:2px;border-radius:7px;background:color-mix(in srgb,currentColor 7%,transparent);text-transform:none;letter-spacing:0}
 .files .ltabs .lt{border:0;background:none;color:inherit;font:inherit;font-size:11px;font-weight:600;padding:3px 8px;border-radius:5px;cursor:pointer;opacity:.6;display:inline-flex;align-items:center;gap:4px}
-.files .ltabs .lt.on{opacity:1;background:var(--panel,var(--card,var(--page,var(--paper,#fff))));box-shadow:0 1px 2px rgba(0,0,0,.1)}
+.files .ltabs .lt.on{opacity:1;background:var(--panel,var(--card,var(--paper,#fff)));box-shadow:0 1px 2px rgba(0,0,0,.1)}
 html[data-theme=studio] .files .ltabs .lt.on{background:var(--panel-2,#1b2129)}
 .files .ltabs .lt-n{font-size:9.5px;min-width:14px;padding:0 4px;border-radius:7px;background:color-mix(in srgb,var(--accent,#3b82f6) 18%,transparent);color:var(--accent,#3b82f6);line-height:14px}
 .files .ltabs .lt-n:empty{display:none}
@@ -1060,7 +1060,7 @@ html[data-theme=studio] .files .ltabs .lt.on{background:var(--panel-2,#1b2129)}
 .cp-search{border:1px solid color-mix(in srgb,currentColor 16%,transparent);background:transparent;color:inherit;border-radius:7px;font:inherit;font-size:12px;padding:4px 8px;outline:0}
 .cp-search:focus{border-color:var(--accent,#3b82f6)}
 .cp-list{display:flex;flex-direction:column;gap:6px}
-.cp-card{padding:8px 9px;border-radius:9px;cursor:pointer;border:1px solid color-mix(in srgb,currentColor 10%,transparent);background:color-mix(in srgb,var(--panel,var(--card,var(--page,#fff))) 70%,transparent);transition:border-color .12s,background .12s}
+.cp-card{padding:8px 9px;border-radius:9px;cursor:pointer;border:1px solid color-mix(in srgb,currentColor 10%,transparent);background:color-mix(in srgb,var(--panel,var(--card,#fff)) 70%,transparent);transition:border-color .12s,background .12s}
 .cp-card:hover{border-color:color-mix(in srgb,var(--accent,#3b82f6) 40%,transparent)}
 .cp-card.on{border-color:var(--accent,#3b82f6);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent,#3b82f6) 14%,transparent)}
 .cp-card:focus-visible{outline:2px solid var(--accent,#3b82f6);outline-offset:1px}

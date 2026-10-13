@@ -169,6 +169,16 @@ ok.jsonSql = r.sideJ?.comments[0].anchor.q === 'us-west-2' && r.sideS?.comments[
 await tab(f.md);
 await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value='studio'; s.dispatchEvent(new Event('change'))})()`); await sleep(400);
 await clickWords('quick brown fox'); await sleep(300); await shot('cmt-pop-studio.png');
+// every theme: the popup, its button and the list cards must have a solid background (Lumen's was see-through)
+r.themeBg = {};
+for (const th of await ev(`[...document.querySelectorAll('#app select.theme option')].map(o=>o.value)`)) {
+  await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value=${JSON.stringify(th)}; s.dispatchEvent(new Event('change'))})()`); await sleep(300);
+  await clickWords('quick brown fox'); await sleep(250);
+  r.themeBg[th] = await ev(`[getComputedStyle(document.querySelector('#app .cmt-pop')).backgroundColor, getComputedStyle(document.querySelector('#app .cmt-bubble')).backgroundColor, getComputedStyle(document.querySelector('#app .cpane .cp-card')||document.body).backgroundColor]`);
+  await shot('cmt-pop-' + th + '.png');
+}
+const solid = (c) => /^rgb\(/.test(c) || (/^rgba\(/.test(c) && parseFloat(c.split(',')[3]) > 0.5) || /^color\(srgb [\d. ]+\)$/.test(c);
+ok.solidInEveryTheme = Object.keys(r.themeBg).length >= 5 && Object.values(r.themeBg).every((v) => solid(v[0]) && solid(v[1]));
 await ev(`(()=>{const s=document.querySelector('#app select.theme'); s.value='mono'; s.dispatchEvent(new Event('change'))})()`); await sleep(200);
 r.aliceLogs = A.logs.slice(); A.stop(); await sleep(800);
 
