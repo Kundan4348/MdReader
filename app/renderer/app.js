@@ -46,6 +46,7 @@ const adapter = {
   writeComments: api.writeComments,
   whoami: api.whoami,
   pippin: api.pippin,
+  saveImage: api.saveImage,
   home,
 };
 

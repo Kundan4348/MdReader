@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('mdreader', {
   writeComments: (p, data) => ipcRenderer.invoke('comments-write', p, data),
   whoami: () => ipcRenderer.sendSync('whoami'),
   pippin: (op, args) => ipcRenderer.invoke('pippin', op, args),
+  saveImage: (docPath, bytes, type) => ipcRenderer.invoke('save-image', docPath, bytes, type),
   home: ipcRenderer.sendSync('get-home'),
   platform: process.platform,
 });

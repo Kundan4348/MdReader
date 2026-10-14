@@ -152,6 +152,27 @@ ipcMain.handle('write-file', async (e, p, text, hint) => {
   if (en && en.paths.has(p)) setTimeout(() => watch(en, p), 200);
   return p;
 });
+// A pasted picture is saved in a folder next to the document (notes.md -> notes-images/pasted-20261014-225340.png)
+// and the shell links it with a relative path, so the .md and its pictures move together. Never overwrites a file.
+const IMAGE_EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
+ipcMain.handle('save-image', async (e, docPath, bytes, type) => {
+  const ext = IMAGE_EXT[type];
+  if (!ext) throw new Error('not a PNG, JPEG, GIF or WebP picture');
+  if (typeof docPath !== 'string' || !path.isAbsolute(docPath) || !/\.(md|markdown|mdown|mkd|txt)$/i.test(docPath)) throw new Error('save the file first');
+  const buf = Buffer.from(bytes || []);
+  if (!buf.length) throw new Error('the picture is empty');
+  if (buf.length > 50 * 1024 * 1024) throw new Error('the picture is over 50 MB');
+  const base = path.basename(docPath).replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '-').replace(/^[-.]+|-+$/g, '') || 'doc';
+  const dirName = base + '-images', dir = path.join(path.dirname(docPath), dirName);
+  await fsp.mkdir(dir, { recursive: true });
+  const d = new Date(), p2 = (n) => String(n).padStart(2, '0');
+  const stamp = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+  for (let i = 0; i < 100; i++) {
+    const name = `pasted-${stamp}${i ? '-' + (i + 1) : ''}.${ext}`;
+    try { await fsp.writeFile(path.join(dir, name), buf, { flag: 'wx' }); return dirName + '/' + name; } catch (err) { if (err.code !== 'EEXIST') throw err; }
+  }
+  throw new Error('too many pictures with the same time');
+});
 // Comments live in a small file next to the document: notes.md -> notes.md.mdr-comments.json. It travels with the
 // folder (git, a shared drive), works the same for .md, .json and .sql, and never touches the document itself.
 const commentsPath = (p) => p + '.mdr-comments.json';
