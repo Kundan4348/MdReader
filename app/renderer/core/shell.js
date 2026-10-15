@@ -3978,8 +3978,10 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
       const name = clickable
         ? h('b', { class: 'name', title: 'Locate in Files', onclick: () => rootTreeAt(d.crumbPaths[d.crumbPaths.length - 1] || d.dir), role: 'button', tabindex: 0 }, d.name)
         : h('b', {}, d.name);
-      const reveal = adapter.reveal && d.dir ? h('button', { class: 'icon reveal', title: 'Show in Finder (⌘⇧R)', onclick: () => adapter.reveal(S.path), html: '&#x2316;' }) : null;
-      crumbs.replaceChildren(...[...parts, name, h('span', { class: 'dot', title: 'unsaved changes' }), reveal].filter(Boolean));
+      const reveal = adapter.reveal && d.dir ? h('button', { class: 'icon reveal', title: 'Show in Finder (⌘⇧R)', onclick: () => adapter.reveal(S.path), 'aria-label': 'Show in Finder', html: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M1.75 4.25a1 1 0 0 1 1-1h3.4l1.5 1.6h5.6a1 1 0 0 1 1 1v6.9a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1z"/></svg>' }) : null;
+      // Folders shrink first, then the file name; the unsaved dot and Show in Finder never get pushed out of view.
+      const path = parts.length ? h('span', { class: 'path', title: d.crumbs.join(' / ') }, ...parts) : null;
+      crumbs.replaceChildren(...[path, name, h('span', { class: 'dot', title: 'unsaved changes' }), reveal].filter(Boolean));
     }
     async function rootTreeAt(dir) {
       if (!dir) return;

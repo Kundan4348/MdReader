@@ -230,9 +230,15 @@ report.dragPx = {};
 for (const th of ['mono', 'paper', 'studio', 'sections', 'lumen']) {
   await ev(`shell.setTheme('${th}')`); await sleep(250);
   report.dragPx[th] = { mid: await ev(`${dragScan}(22)`), edge: await ev(`${dragScan}(3)`), strip: await ev(`${dragScan}(Math.round(document.querySelector('#app .tabs').getBoundingClientRect().top + 16))`) };
+  // Show in Finder must stay fully inside the crumbs box (not clipped off its end) even with the long fixtures path.
+  report.dragPx[th].reveal = await ev(`(()=>{const c=document.querySelector('#app .top .crumbs').getBoundingClientRect(), r=document.querySelector('#app .top .crumbs .reveal')?.getBoundingClientRect(); return !!r && r.width>8 && r.left>=c.left-0.5 && r.right<=c.right+0.5;})()`);
 }
 await ev(`shell.setTheme('mono')`); await sleep(200);
-report.dragOk = Object.values(report.dragPx).every((d) => d.mid >= 96 && d.edge === 0 && d.strip >= 200);
+// Squeeze the crumbs to 180px (a long file name next to a full toolbar): folders give way first, the name keeps
+// some room, and Show in Finder stays whole and clickable.
+report.revealSqueezed = await ev(`(()=>{const c=document.querySelector('#app .top .crumbs'); c.style.maxWidth='180px'; const b=c.getBoundingClientRect(), r=c.querySelector('.reveal').getBoundingClientRect(), n=c.querySelector('b').getBoundingClientRect(); const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('.reveal'); c.style.maxWidth=''; return {inside:r.width>8&&r.right<=b.right+0.5, name:n.width|0, hit:!!hit};})()`);
+report.dragOk = Object.values(report.dragPx).every((d) => d.mid >= 96 && d.edge === 0 && d.strip >= 200 && d.reveal === true)
+  && report.revealSqueezed.inside && report.revealSqueezed.hit && report.revealSqueezed.name >= 30;
 // Files pane navigation: ↑ re-roots one folder up (root label follows), ⌂ returns home, Recent replaces the tree and
 // lists the files opened in this run, Close brings the tree back; a closed tab comes back with ⌘⇧T; .sql opens via the file route.
 await ev(`shell.loadFile(${JSON.stringify(path.join(root, 'test/fixtures/second.md'))})`); await sleep(400);
