@@ -1032,9 +1032,59 @@
         if (cur) { const p = cur; cur.classList.remove('wcur'); cur = null; leave(p); }
       });
       doc.addEventListener('paste', (e) => {
-        if (!ok() || !selBlock() || !S.text.trim()) return; // an empty document: the shell's paste handler fills it as markdown
+        if (!ok()) return;
+        const pic = clipPicture(e.clipboardData);
+        if (pic) { e.preventDefault(); e.stopPropagation(); const b = selBlock(); savePicture(pic).then((rel) => rel && insertPicture(rel, b)); return; }
+        if (!selBlock() || !S.text.trim()) return; // an empty document: the shell's paste handler fills it as markdown
         const t = e.clipboardData && e.clipboardData.getData('text/plain'); if (t == null) return;
         e.preventDefault(); document.execCommand('insertText', false, t); // plain text only: no foreign styling
+      });
+      // A pasted picture becomes its own paragraph: on the empty line you are on, or right after the block holding the
+      // cursor (a paragraph, heading, list or table), or at the end when the cursor is in no block. Caret after it.
+      function insertPicture(rel, b) {
+        commitAll();
+        if (b && !b.isConnected) b = null;
+        const lines = S.text.split('\n');
+        let at;
+        if (b && b.dataset.l0 === b.dataset.l1) at = +b.dataset.l0;
+        else if (b) { at = +b.dataset.l1; while (at > +b.dataset.l0 && !(lines[at - 1] || '').trim()) at--; }
+        else { at = lines.length; while (at > 0 && !(lines[at - 1] || '').trim()) at--; }
+        const pre = at > 0 && (lines[at - 1] || '').trim() ? [''] : [], post = at < lines.length && (lines[at] || '').trim() ? [''] : [];
+        lines.splice(at, 0, ...pre, pictureMd(rel), ...post);
+        applyText(lines.join('\n'), { l0: at + pre.length, end: true });
+      }
+      // Enter with the cursor outside every block (below a table or diagram at the very end, between two islands):
+      // a new empty paragraph after the block just before the cursor
+      function blockBefore(node, off) {
+        const p = document.createRange(); p.setStart(node, off);
+        let prev = null;
+        for (const x of topBlocks()) { const xr = document.createRange(); xr.selectNode(x); xr.collapse(false); if (xr.compareBoundaryPoints(Range.START_TO_START, p) <= 0) prev = x; else break; }
+        return prev;
+      }
+      function lineAfter(b) {
+        const next = neighbour(b, 1);
+        busy++;
+        try {
+          if (next && next.classList.contains('wblock') && WR.kindOf(next) === 'p' && !hostOf(next).textContent.trim() && !next.querySelector('img')) caretTo(next, false);
+          else caretTo(newParaAfter(b), false);
+        } finally { busy--; }
+        track();
+      }
+      // Enter in a table cell: down to the same column of the next row, and from the last row out to a new line below
+      function enterFromCell(b) {
+        const rows = tableRows(b), cell = cellOf(getSelection().anchorNode), tr = cell && cell.parentElement, ri = rows.indexOf(tr);
+        if (ri >= 0 && ri < rows.length - 1) { const nx = rows[ri + 1].children; return caretInCell(nx[Math.min([...tr.children].indexOf(cell), nx.length - 1)], false); }
+        commitAll(); lineAfter(b);
+      }
+      // a click in the empty space below the last block puts the cursor on a new line there
+      content.addEventListener('mouseup', (e) => {
+        if (!ok() || busy || e.button !== 0 || !(e.target === content || doc.contains(e.target)) || blockOf(e.target) || e.target.closest('[contenteditable=false], button, a, input, .cmt-pins')) return;
+        const dr = doc.getBoundingClientRect(); if (e.clientX < dr.left || e.clientX > dr.right) return;
+        const s = getSelection(); if (s.rangeCount && !s.isCollapsed) return;
+        const all = topBlocks(), last = all[all.length - 1]; if (!last) return;
+        if (e.clientY <= last.getBoundingClientRect().bottom) return;
+        if (last.classList.contains('wblock') && WR.kindOf(last) === 'p' && !hostOf(last).textContent.trim() && !last.querySelector('img')) return caretTo(last, false);
+        commitAll(); lineAfter(last);
       });
       doc.addEventListener('keydown', (e) => {
         if (!ok()) return;
@@ -1042,7 +1092,12 @@
         if (mod && !e.altKey && e.key.toLowerCase() === 'z') { if (undo(e.shiftKey)) { e.preventDefault(); return; } }
         if ((e.key === 'Backspace' || e.key === 'Delete') && s.rangeCount && !s.isCollapsed && needsUs(s.getRangeAt(0))) { e.preventDefault(); cutRange(s.getRangeAt(0), ''); return; }
         const b = selBlock();
-        if (!b) { if (e.key === 'Escape') doc.blur(); else if (!mod && (e.key.length === 1 || e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Delete') && s.isCollapsed) e.preventDefault(); return; }
+        if (!b) {
+          if (e.key === 'Escape') doc.blur();
+          else if (e.key === 'Enter' && !mod && s.rangeCount && s.isCollapsed && doc.contains(s.anchorNode)) { e.preventDefault(); const prev = blockBefore(s.anchorNode, s.anchorOffset) || topBlocks()[0]; if (prev) { commitAll(); lineAfter(prev); } }
+          else if (!mod && (e.key.length === 1 || e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Delete') && s.isCollapsed) e.preventDefault();
+          return;
+        }
         const k = WR.kindOf(b), host = hostOf(b);
         if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); doc.blur(); return; }
         if (mod && e.key.toLowerCase() === 'k' && k !== 'code') { e.preventDefault(); return linkAsk(); }
@@ -1055,7 +1110,7 @@
         if (k === 'table') {
           const cell = cellOf(s.anchorNode);
           if (e.key === 'Tab') { e.preventDefault(); moveCell(b, e.shiftKey ? -1 : 1); return; }
-          if (e.key === 'Enter') { e.preventDefault(); if (mod) tableOp(b, 'rowBelow', { ...tableSel(b), rows: [], cols: [] }); return; } // a table cell is one line; ⌘↩ adds a row
+          if (e.key === 'Enter') { e.preventDefault(); if (mod) tableOp(b, 'rowBelow', { ...tableSel(b), rows: [], cols: [] }); else if (!e.shiftKey) enterFromCell(b); return; } // a cell is one line: ↩ goes down a row (out below the table from the last), ⌘↩ adds a row
           if (cell && ((e.key === 'Backspace' && atStart(cell)) || (e.key === 'Delete' && atEnd(cell)))) e.preventDefault(); // never merge cells
           return;
         }
@@ -3632,6 +3687,32 @@ html[data-theme=studio] ::highlight(mdr-t-${n}){color:${ink(hex, sh, true)}}
       if (!(p === 'files' && !adapter.listDir)) adapter.setPref && adapter.setPref(p, S[p]);
     }
     function flash(msg, ms = 1600) { toast.textContent = msg; toast.classList.add('show'); clearTimeout(flash.t); flash.t = setTimeout(() => toast.classList.remove('show'), ms); }
+    // ---- pasted pictures (a screenshot, an image copied from a browser or Preview, a picture file copied in Finder) ----
+    const PIC_TYPES = /^image\/(png|jpeg|gif|webp)$/;
+    function clipPicture(dt) {
+      if (!dt) return null;
+      for (const f of dt.files || []) if (PIC_TYPES.test(f.type)) return f;
+      for (const it of dt.items || []) if (it.kind === 'file' && PIC_TYPES.test(it.type)) { const f = it.getAsFile(); if (f) return f; }
+      return null;
+    }
+    // saves it next to the document and resolves to its relative path ('notes-images/pasted-....png'), or null
+    async function savePicture(file) {
+      const t = curTab();
+      if (!adapter.saveImage) { flash('Pasting pictures works in the desktop app', 3000); return null; }
+      if (!t || isUntitled(t) || !t.path) { flash('Save this file first (⌘S): pasted pictures are stored in a folder next to it', 4000); return null; }
+      try { const rel = await adapter.saveImage(t.path, new Uint8Array(await file.arrayBuffer()), file.type); flash('Picture saved as ' + rel, 2500); return rel; }
+      catch (err) { flash('Could not save the picture: ' + String((err && err.message) || err).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), 4000); return null; }
+    }
+    const pictureMd = (rel) => `![image](${/[\s()<>]/.test(rel) ? '<' + rel + '>' : rel})`;
+    // Edit / Split, and a section's own source box: the picture's markdown goes in at the cursor (⌘Z undoes it)
+    root.addEventListener('paste', (e) => {
+      const ta2 = e.target;
+      if (!ta2 || ta2.tagName !== 'TEXTAREA' || !ta2.matches('textarea.src, textarea.sec-src') || docKind() !== 'md') return;
+      const f = clipPicture(e.clipboardData); if (!f) return;
+      e.preventDefault();
+      const a = ta2.selectionStart, b = ta2.selectionEnd;
+      savePicture(f).then((rel) => { if (!rel) return; ta2.focus(); ta2.setSelectionRange(a, b); document.execCommand('insertText', false, pictureMd(rel)); });
+    }, true);
 
     // ---------- per-section editing ----------
     function editSection(i) {
