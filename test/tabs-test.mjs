@@ -15,7 +15,8 @@ setTimeout(() => { console.error('FAIL: timeout'); process.exit(2); }, 120000);
 
 async function launch(args) {
   let port = 9533; while (await busy(port)) port++;
-  const proc = spawn(electron, [`--remote-debugging-port=${port}`, `--user-data-dir=${udd}`, path.join(root, 'app'), ...args], { stdio: 'ignore' });
+  let mport = port + 1; while (await busy(mport)) mport++;
+  const proc = spawn(electron, [`--remote-debugging-port=${port}`, `--inspect=${mport}`, `--user-data-dir=${udd}`, path.join(root, 'app'), ...args], { stdio: 'ignore' });
   let page;
   for (let i = 0; i < 60 && !page; i++) { try { page = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find((x) => x.type === 'page' && x.url.includes('index.html')); } catch {} if (!page) await sleep(500); }
   const ws = new WebSocket(page.webSocketDebuggerUrl); await new Promise((r) => (ws.onopen = r));
@@ -24,7 +25,14 @@ async function launch(args) {
   const send = (method, params = {}) => new Promise((r) => { const i = ++id; pend.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
   const ev = async (expression) => (await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })).result?.result?.value;
   await send('Runtime.enable');
-  return { proc, send, ev, logs, stop: () => { try { proc.kill('SIGKILL'); } catch {} } };
+  // The main process (Node inspector), so a test can press a real menu item -- CDP key events never reach the menu.
+  const mainEval = async (expression) => {
+    const t = (await (await fetch(`http://127.0.0.1:${mport}/json/list`)).json())[0];
+    const mws = new WebSocket(t.webSocketDebuggerUrl); await new Promise((res) => (mws.onopen = res));
+    const out = await new Promise((res) => { mws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.id === 1) res(m.result); }; mws.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression, returnByValue: true } })); });
+    mws.close(); return out?.result?.value;
+  };
+  return { proc, send, ev, mainEval, logs, stop: () => { try { proc.kill('SIGKILL'); } catch {} } };
 }
 
 const r = {};
@@ -76,6 +84,15 @@ for (let k = 0; k < 2; k++) {
   await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'PageDown', code: 'PageDown', windowsVirtualKeyCode: 34, modifiers: 2 | 8 }); await sleep(200);
 }
 r.afterKeys = await order(); r.activeAfterKeys = await active();
+// 6. View > Reload (⌘R): every tab comes back in the same order with the same tab focused
+{
+  await ev(`window.__beforeReload = 1`);
+  r.reloadClicked = await A.mainEval(`(()=>{const {Menu,BrowserWindow}=globalThis.__mdrTest; const it=Menu.getApplicationMenu().getMenuItemById('reload'); it.click(undefined, BrowserWindow.getAllWindows()[0]); return it.accelerator})()`);
+  for (let i = 0; i < 40; i++) { await sleep(250); if ((await ev(`!window.__beforeReload && document.querySelectorAll('#app .tabs .tab').length`)) >= 4) break; }
+  await sleep(500);
+  r.pageReloaded = await ev(`!window.__beforeReload`);
+  r.afterReload = await order(); r.activeAfterReload = await active();
+}
 r.logs = A.logs;
 await sleep(1200); // session save
 A.stop(); await sleep(1500);
@@ -94,6 +111,7 @@ r.ok = {
   click: r.clickSwitched === 'cfg.json',
   menu: !!r.menu && r.menu[0] === 'Move left' && r.menu[3] === 'Move to the end (off)' && j(r.afterMenu) === j(['cfg.json', 'links.md', 'q.sql', 'other.md']) && r.menuClosed,
   keys: j(r.afterKeys) === j(['links.md', 'q.sql', 'cfg.json', 'other.md']) && r.activeAfterKeys === 'cfg.json',
+  reload: r.reloadClicked === 'CmdOrCtrl+R' && r.pageReloaded && j(r.afterReload) === j(r.afterKeys) && r.activeAfterReload === 'cfg.json',
   relaunch: j(r.afterRelaunch) === j(r.afterKeys) && r.activeAfterRelaunch === 'cfg.json',
   noErrors: !r.logs.length,
 };

@@ -15,6 +15,7 @@ const focusWin = (w) => { if (!TEST_HIDE) w.focus(); };
 // when set, else dropped. Returns true when the caller must stop.
 const testSink = (what) => { if (!TEST_HIDE && !process.env.MDR_OPEN_LOG) return false; if (process.env.MDR_OPEN_LOG) { try { fs.appendFileSync(process.env.MDR_OPEN_LOG, what + '\n'); } catch {} } return true; };
 if (TEST_HIDE && isMac && app.dock) app.dock.hide(); // no Dock icon, no app activation
+if (TEST_HIDE) globalThis.__mdrTest = { Menu, BrowserWindow }; // lets a test press real menu items through the Node inspector
 const wins = new Map(); // id -> { win, paths:Set, active, dirty, watchers:Map<path,FSWatcher> }
 const pendingOpens = [];
 let ready = false;
@@ -48,7 +49,14 @@ function createWindow(filePath) {
   wins.set(win.id, entry);
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.once('ready-to-show', () => { if (TEST_HIDE) { win.showInactive(); win.minimize(); } else win.show(); });
-  win.webContents.on('did-finish-load', () => { entry.loaded = true; const q = [filePath, ...entry.queue].filter(Boolean); entry.queue = []; q.forEach((p) => openInWindow(win, p)); });
+  win.webContents.on('did-finish-load', () => {
+    entry.loaded = true;
+    // A reload (⌘R) brings back every tab the window had, in order, with the same tab focused -- not only the file
+    // the window was first created for. The set is captured by reloadWindow() before the old page goes away.
+    const back = entry.reloadTabs; entry.reloadTabs = null;
+    const q = [...(back || [filePath]), ...entry.queue].filter(Boolean); entry.queue = [];
+    q.forEach((p) => openInWindow(win, p));
+  });
   win.on('resize', () => { const [w, h] = win.getSize(); prefs.winW = w; prefs.winH = h; savePrefs(); });
   win.on('close', (e) => {
     const en = wins.get(win.id);
@@ -64,6 +72,22 @@ function createWindow(filePath) {
   // markdown targets are routed through openPath instead.
   win.webContents.on('will-navigate', (e, url) => { e.preventDefault(); const p = pathFromArg(url); if (p) openPath(p); });
   return win;
+}
+
+// View > Reload (⌘R). The page restarts empty, so remember the window's tabs first and reopen them on load.
+// Unsaved edits would be lost by a reload, so that asks first.
+function reloadWindow(win) {
+  const en = win && wins.get(win.id);
+  if (!en) return;
+  if (en.dirty && !TEST_HIDE) {
+    const r = dialog.showMessageBoxSync(win, { type: 'warning', buttons: ['Cancel', 'Reload Anyway'], defaultId: 0, cancelId: 0, message: 'Some tabs have unsaved changes.', detail: 'Reloading discards them. Save first (⌘S) to keep them.' });
+    if (r !== 1) return;
+  }
+  const exists = (p) => { try { return fs.statSync(p).isFile(); } catch { return false; } };
+  const tabs = [...en.paths].filter(exists);
+  if (en.active && tabs.includes(en.active) && tabs[tabs.length - 1] !== en.active) tabs.push(en.active); // re-opening focuses it
+  en.reloadTabs = tabs; en.loaded = false; en.dirty = false; win.setDocumentEdited(false);
+  win.webContents.reload();
 }
 
 function openInWindow(win, filePath) {
@@ -313,7 +337,7 @@ function buildMenu() {
       { label: 'Actual Text Size', accelerator: 'CmdOrCtrl+0', click: () => send('zoom:0') },
       { label: 'Cycle Reading Width', accelerator: 'CmdOrCtrl+Shift+W', click: () => send('width:next') },
       { type: 'separator' },
-      { role: 'reload' }, { role: 'toggleDevTools' }, { type: 'separator' }, { role: 'togglefullscreen' },
+      { id: 'reload', label: 'Reload', accelerator: 'CmdOrCtrl+R', click: (item, w) => reloadWindow(w || BrowserWindow.getFocusedWindow()) }, { role: 'toggleDevTools' }, { type: 'separator' }, { role: 'togglefullscreen' },
     ] },
     { role: 'windowMenu' },
   ];
